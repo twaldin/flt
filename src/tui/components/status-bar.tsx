@@ -28,7 +28,7 @@ const modeColors: Record<Mode, string> = {
   'kill-confirm': 'red',
 }
 
-export function StatusBar({ mode, agentCount, selectedAgent }: StatusBarProps): React.ReactElement {
+export const StatusBar = React.memo(function StatusBar({ mode, agentCount, selectedAgent }: StatusBarProps): React.ReactElement {
   const hint = modeHints[mode] || ''
   const color = modeColors[mode] || 'white'
 
@@ -41,4 +41,4 @@ export function StatusBar({ mode, agentCount, selectedAgent }: StatusBarProps): 
       )}
     </Box>
   )
-}
+})

@@ -110,10 +110,11 @@ export function useFleetPoller(
           if (content !== lastContentRef.current) {
             lastContentRef.current = content
 
-            // In insert mode, throttle renders to ~250ms to prevent flicker
+            // In insert mode, throttle renders to 500ms — keystrokes forward async,
+            // screen catches up. Prevents full Ink redraws during fast typing.
             if (isInsert) {
               const now = Date.now()
-              if (now - lastRenderTimeRef.current >= 250) {
+              if (now - lastRenderTimeRef.current >= 500) {
                 lastRenderTimeRef.current = now
                 dp({ type: 'SET_LOG_CONTENT', content })
               }

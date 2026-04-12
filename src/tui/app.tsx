@@ -10,7 +10,7 @@ import { StatusBar } from './components/status-bar'
 import { InboxPanel } from './components/inbox-panel'
 import { parseCommand, enrichMessageWithFiles } from './command-parser'
 import { send } from '../commands/send'
-import { sendKeys, sendLiteral } from '../tmux'
+import { sendKeysAsync, sendLiteralAsync } from '../tmux'
 import { listAdapters } from '../adapters/registry'
 import { spawn } from '../commands/spawn'
 
@@ -40,28 +40,29 @@ export function App(): React.ReactElement {
       if (!selectedAgent) return
       const session = selectedAgent.tmuxSession
 
+      // All keystroke forwarding is non-blocking (Bun.spawn, fire-and-forget)
       if (key.return) {
-        sendKeys(session, ['Enter'])
+        sendKeysAsync(session, ['Enter'])
       } else if (key.backspace || key.delete) {
-        sendKeys(session, ['BSpace'])
+        sendKeysAsync(session, ['BSpace'])
       } else if (key.tab) {
-        sendKeys(session, ['Tab'])
+        sendKeysAsync(session, ['Tab'])
       } else if (key.upArrow) {
-        sendKeys(session, ['Up'])
+        sendKeysAsync(session, ['Up'])
       } else if (key.downArrow) {
-        sendKeys(session, ['Down'])
+        sendKeysAsync(session, ['Down'])
       } else if (key.leftArrow) {
-        sendKeys(session, ['Left'])
+        sendKeysAsync(session, ['Left'])
       } else if (key.rightArrow) {
-        sendKeys(session, ['Right'])
+        sendKeysAsync(session, ['Right'])
       } else if (key.ctrl && input === 'c') {
-        sendKeys(session, ['C-c'])
+        sendKeysAsync(session, ['C-c'])
       } else if (key.ctrl && input === 'z') {
-        sendKeys(session, ['C-z'])
+        sendKeysAsync(session, ['C-z'])
       } else if (key.ctrl && input === 'l') {
-        sendKeys(session, ['C-l'])
+        sendKeysAsync(session, ['C-l'])
       } else if (input) {
-        sendLiteral(session, input)
+        sendLiteralAsync(session, input)
       }
       return
     }
@@ -157,10 +158,16 @@ export function App(): React.ReactElement {
       }
 
       const bootstrap = messageTokens.join(' ') || undefined
-      try {
-        // Fire and forget — poller will pick up the new agent
-        spawn({ name, cli, model, dir, bootstrap }).catch(() => {})
-      } catch {}
+      dispatch({ type: 'SET_BANNER', banner: { text: `Spawning ${name} (${cli}/${model || 'default'})...`, color: 'yellow' } })
+      spawn({ name, cli, model, dir, bootstrap })
+        .then(() => {
+          dispatch({ type: 'SET_BANNER', banner: { text: `Spawned ${name}`, color: 'green' } })
+          setTimeout(() => dispatch({ type: 'SET_BANNER', banner: null }), 3000)
+        })
+        .catch((e: Error) => {
+          dispatch({ type: 'SET_BANNER', banner: { text: `Spawn failed: ${e.message}`, color: 'red' } })
+          setTimeout(() => dispatch({ type: 'SET_BANNER', banner: null }), 5000)
+        })
     } else if (parsed.cmd === 'logs' && parsed.args.length >= 1) {
       const agentName = parsed.args[0]
       const idx = state.agents.findIndex((a) => a.name === agentName)
@@ -210,6 +217,11 @@ export function App(): React.ReactElement {
         }
         footer={
           <Box flexDirection="column" width="100%">
+            {state.banner && (
+              <Box paddingX={1} height={1}>
+                <Text color={state.banner.color} bold>{state.banner.text}</Text>
+              </Box>
+            )}
             <CommandBar
               active={state.mode === 'command'}
               onSubmit={handleCommandSubmit}

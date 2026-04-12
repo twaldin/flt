@@ -14,6 +14,24 @@ const FLT_BANNER = [
 
 const BANNER_HEIGHT = FLT_BANNER.length + 2 // +2 for border
 
+// Banner is static — never changes, so memoize aggressively
+const BannerPanel = React.memo(function BannerPanel() {
+  return (
+    <Box
+      flexDirection="column"
+      borderStyle="round"
+      borderColor="red"
+      justifyContent="center"
+      alignItems="center"
+      paddingX={1}
+    >
+      {FLT_BANNER.map((line, idx) => (
+        <Text key={idx} color="red" bold>{line}</Text>
+      ))}
+    </Box>
+  )
+})
+
 interface LogPaneProps {
   content: string
   focused: boolean
@@ -23,60 +41,42 @@ interface LogPaneProps {
   insertMode?: boolean
 }
 
-export function LogPane({ content, focused, scrollOffset, searchQuery, autoFollow, insertMode }: LogPaneProps): React.ReactElement {
+export const LogPane = React.memo(function LogPane({ content, focused, scrollOffset, searchQuery, autoFollow, insertMode }: LogPaneProps): React.ReactElement {
   const { stdout } = useStdout()
   const termHeight = stdout?.rows ?? 24
-  const termWidth = stdout?.columns ?? 80
-  const leftPanelWidth = Math.floor(termWidth * 0.28)
-  const paneWidth = termWidth - leftPanelWidth - 2 // borders
 
-  // Content area: total height minus banner panel, footer, outer borders
   const contentHeight = Math.max(4, termHeight - BANNER_HEIGHT - 5)
+  const viewableLines = contentHeight - 1
 
   const lines = content.split('\n')
   const startIdx = Math.max(0, scrollOffset)
-  const endIdx = Math.min(lines.length, startIdx + contentHeight - 1) // -1 for scroll indicator
+  const endIdx = Math.min(lines.length, startIdx + viewableLines)
   const visibleLines = lines.slice(startIdx, endIdx)
 
   // Highlight search results
-  const highlightedLines = visibleLines.map((line) => {
-    if (!searchQuery || !line) return line
+  const processedLines = visibleLines.map((line) => {
+    const l = line || ' '
+    if (!searchQuery || !l.trim()) return l
     const regex = new RegExp(`(${searchQuery.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')})`, 'gi')
-    return line.replace(regex, '\u001B[43m\u001B[30m$1\u001B[0m')
+    return l.replace(regex, '\u001B[43m\u001B[30m$1\u001B[0m')
   })
 
-  // Pad to fill content area
-  const padCount = Math.max(0, contentHeight - 1 - highlightedLines.length)
+  // Pad to fill content area then add scroll indicator — all as one string
+  const padCount = Math.max(0, viewableLines - processedLines.length)
+  const padLines = Array.from({ length: padCount }, () => ' ')
 
-  // Scroll indicator
   const totalLines = lines.length
-  const viewableLines = contentHeight - 1
   const scrollPercent = totalLines <= viewableLines
     ? 100
     : Math.round((startIdx / Math.max(1, totalLines - viewableLines)) * 100)
-  const followTag = autoFollow ? ' FOLLOW' : ''
-  const scrollText = `${scrollPercent}%${followTag}`
+  const scrollText = `${scrollPercent}%${autoFollow ? ' FOLLOW' : ''}`
 
-  // Center banner lines within the pane width
-  const innerWidth = Math.max(0, paneWidth - 4) // minus padding + border
+  // Single text block — Ink diffs one node instead of hundreds
+  const fullText = [...processedLines, ...padLines, scrollText].join('\n')
 
   return (
     <Box flexDirection="column" flexGrow={1}>
-      {/* Banner panel */}
-      <Box
-        flexDirection="column"
-        borderStyle="round"
-        borderColor="red"
-        justifyContent="center"
-        alignItems="center"
-        paddingX={1}
-      >
-        {FLT_BANNER.map((line, idx) => (
-          <Text key={`b-${idx}`} color="red" bold>{line}</Text>
-        ))}
-      </Box>
-
-      {/* Log content panel */}
+      <BannerPanel />
       <Box
         flexDirection="column"
         flexGrow={1}
@@ -85,16 +85,8 @@ export function LogPane({ content, focused, scrollOffset, searchQuery, autoFollo
         paddingX={1}
         paddingY={0}
       >
-        {highlightedLines.map((line, idx) => (
-          <Text key={`line-${startIdx + idx}`} wrap="truncate">
-            {line || ' '}
-          </Text>
-        ))}
-        {Array.from({ length: padCount }, (_, i) => (
-          <Text key={`pad-${i}`}>{' '}</Text>
-        ))}
-        <Text dimColor>{scrollText}</Text>
+        <Text wrap="truncate">{fullText}</Text>
       </Box>
     </Box>
   )
-}
+})

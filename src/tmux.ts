@@ -93,3 +93,15 @@ export function displayMessage(session: string, message: string): void {
 export function resizeWindow(session: string, width: number, height: number): void {
   tmuxNoThrow('resize-window', '-t', session, '-x', String(width), '-y', String(height))
 }
+
+/** Non-blocking keystroke forwarding — fire and forget */
+export function sendKeysAsync(session: string, keys: string[]): void {
+  for (const key of keys) {
+    Bun.spawn(['tmux', 'send-keys', '-t', session, key], { stdout: 'ignore', stderr: 'ignore' })
+  }
+}
+
+/** Non-blocking literal text send — fire and forget */
+export function sendLiteralAsync(session: string, text: string): void {
+  Bun.spawn(['tmux', 'send-keys', '-t', session, '-l', text], { stdout: 'ignore', stderr: 'ignore' })
+}

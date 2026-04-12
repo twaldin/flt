@@ -15,6 +15,7 @@ const initialState: TuiState = {
   lastAgentsHash: '',
   termHeight: 24,
   termWidth: 80,
+  banner: null,
 }
 
 const BANNER_PANEL_HEIGHT = 10 // 8 lines + 2 border
@@ -115,6 +116,9 @@ function tuiReducer(state: TuiState, action: TuiAction): TuiState {
 
     case 'SET_INBOX':
       return { ...state, inboxMessages: action.messages }
+
+    case 'SET_BANNER':
+      return { ...state, banner: action.banner }
 
     default:
       return state

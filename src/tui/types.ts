@@ -21,6 +21,11 @@ export interface InboxMessage {
   text: string
 }
 
+export interface Banner {
+  text: string
+  color: string
+}
+
 export interface TuiState {
   mode: Mode
   agents: AgentView[]
@@ -35,6 +40,7 @@ export interface TuiState {
   lastAgentsHash: string
   termHeight: number
   termWidth: number
+  banner: Banner | null
 }
 
 export type TuiAction =
@@ -55,3 +61,4 @@ export type TuiAction =
   | { type: 'CLEAR_NOTIFICATION'; agentName: string }
   | { type: 'SET_TERM_SIZE'; height: number; width: number }
   | { type: 'SET_INBOX'; messages: InboxMessage[] }
+  | { type: 'SET_BANNER'; banner: Banner | null }
