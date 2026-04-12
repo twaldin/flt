@@ -243,7 +243,12 @@ function renderCommandBar(screen: Screen, state: AppState, row: number, col: num
   screen.put(row, col, ':', COLORS.cyan, '', ATTR_BOLD)
 
   const available = Math.max(0, width - 2)
-  const inputVisible = truncate(state.commandInput, available)
+  // Scroll input: show the tail when text exceeds available width
+  const input = state.commandInput
+  const inputLen = widthOf(input)
+  const inputVisible = inputLen <= available
+    ? input
+    : input.slice(inputLen - available)
   screen.put(row, col + 1, inputVisible, COLORS.white)
 
   const cursorCol = col + 1 + Math.min(widthOf(inputVisible), available)

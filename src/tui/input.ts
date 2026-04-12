@@ -98,6 +98,16 @@ function getCompletions(
     }
   }
 
+  if (cmd === 'theme' && parts.length === 2) {
+    const { getThemeNames } = require('./theme')
+    const names: string[] = getThemeNames()
+    const prefix = parts[1] || ''
+    return {
+      completions: names.filter((n: string) => n.startsWith(prefix) && n !== prefix),
+      currentToken: prefix,
+    }
+  }
+
   if (cmd === 'spawn') {
     const lastPart = parts[parts.length - 1] || ''
     const prevPart = parts.length >= 2 ? parts[parts.length - 2] : ''
