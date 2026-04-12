@@ -128,6 +128,21 @@ function renderSidebar(screen: Screen, state: AppState, top: number, left: numbe
     putLine(screen, row, left, width, line3, t.sidebarMuted)
     row += 1
   }
+
+  // ASCII banner at the bottom of the sidebar
+  const bannerSpace = (top + height) - row
+  if (bannerSpace >= FLT_BANNER.length) {
+    const bannerStart = top + height - FLT_BANNER.length
+    for (let i = 0; i < FLT_BANNER.length; i++) {
+      const line = FLT_BANNER[i]
+      const lineWidth = widthOf(line)
+      const col = left + Math.max(0, Math.floor((width - lineWidth) / 2))
+      const bannerRow = bannerStart + i
+      if (bannerRow < top + height) {
+        screen.put(bannerRow, col, truncate(line, width), t.sidebarBorder, '', ATTR_DIM)
+      }
+    }
+  }
 }
 
 function renderBanner(screen: Screen, state: AppState, top: number, left: number, width: number, height: number): void {
@@ -301,28 +316,23 @@ export function calculateLayout(cols: number, rows: number): LayoutMetrics {
 
   const logWidth = Math.max(1, safeCols - sidebarWidth)
 
-  const desiredBanner = 10
-  const bannerHeight = contentHeight <= 3
-    ? Math.max(1, contentHeight)
-    : clamp(desiredBanner, 3, Math.max(3, contentHeight - 3))
-
-  const logTop = Math.min(contentHeight, bannerHeight)
-  const logHeight = Math.max(0, contentHeight - logTop)
+  const logTop = 0
+  const logHeight = contentHeight
 
   return {
     sidebarWidth,
     logWidth,
     contentHeight,
     statusHeight,
-    bannerHeight,
+    bannerHeight: 0,
     logTop,
     logHeight,
     sidebarInnerWidth: Math.max(0, sidebarWidth - 2),
     sidebarInnerHeight: Math.max(0, contentHeight - 2),
-    bannerInnerWidth: Math.max(0, logWidth - 2),
-    bannerInnerHeight: Math.max(0, bannerHeight - 2),
+    bannerInnerWidth: 0,
+    bannerInnerHeight: 0,
     logInnerWidth: Math.max(0, logWidth - 2),
-    logInnerHeight: Math.max(0, logHeight - 2),
+    logInnerHeight: Math.max(0, contentHeight - 2),
     commandRow: safeRows - 2,
     statusRow: safeRows - 1,
   }
@@ -340,11 +350,6 @@ export function renderLayout(screen: Screen, state: AppState): void {
   if (layout.contentHeight > 0) {
     screen.box(0, 0, layout.sidebarWidth, layout.contentHeight, 'round', t.sidebarBorder)
     renderSidebar(screen, state, 1, 1, layout.sidebarInnerWidth, layout.sidebarInnerHeight)
-
-    if (layout.bannerHeight > 0) {
-      screen.box(0, layout.sidebarWidth, layout.logWidth, layout.bannerHeight, 'round', t.bannerBorder)
-      renderBanner(screen, state, 1, layout.sidebarWidth + 1, layout.bannerInnerWidth, layout.bannerInnerHeight)
-    }
 
     if (layout.logHeight > 0) {
       const borderColor = state.mode === 'insert'
