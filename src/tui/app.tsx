@@ -17,7 +17,7 @@ export function App(): React.ReactElement {
 
   // Keep termHeight in sync with actual terminal size
   useEffect(() => {
-    const update = () => dispatch({ type: 'SET_TERM_HEIGHT', height: stdout?.rows ?? 24 })
+    const update = () => dispatch({ type: 'SET_TERM_SIZE', height: stdout?.rows ?? 24, width: stdout?.columns ?? 80 })
     update()
     stdout?.on('resize', update)
     return () => { stdout?.off('resize', update) }
@@ -97,6 +97,7 @@ export function App(): React.ReactElement {
             focused={state.mode === 'log-focus'}
             scrollOffset={state.logScrollOffset}
             searchQuery={state.searchQuery}
+            autoFollow={state.autoFollow}
           />
         ) : (
           <Box flexDirection="column" flexGrow={1} justifyContent="center" alignItems="center">

@@ -21,11 +21,13 @@ export interface TuiState {
   selectedIndex: number
   logContent: string
   logScrollOffset: number
+  autoFollow: boolean
   searchQuery: string
   commandInput: string
   notifications: Notification[]
   lastAgentsHash: string
   termHeight: number
+  termWidth: number
 }
 
 export type TuiAction =
@@ -44,4 +46,4 @@ export type TuiAction =
   | { type: 'SET_COMMAND_INPUT'; input: string }
   | { type: 'ADD_NOTIFICATION'; notification: Notification }
   | { type: 'CLEAR_NOTIFICATION'; agentName: string }
-  | { type: 'SET_TERM_HEIGHT'; height: number }
+  | { type: 'SET_TERM_SIZE'; height: number; width: number }

@@ -70,7 +70,8 @@ export function pasteBuffer(session: string, text: string): void {
 }
 
 export function capturePane(session: string, lines = 100): string {
-  const result = tmuxNoThrow('capture-pane', '-t', session, '-p', '-S', `-${lines}`)
+  // -e preserves ANSI escape sequences (colors) in the output
+  const result = tmuxNoThrow('capture-pane', '-t', session, '-p', '-e', '-S', `-${lines}`)
   return result ?? ''
 }
 
@@ -87,4 +88,8 @@ export function setEnv(session: string, key: string, value: string): void {
 
 export function displayMessage(session: string, message: string): void {
   tmux('display-message', '-t', session, '-d', '0', message)
+}
+
+export function resizeWindow(session: string, width: number, height: number): void {
+  tmuxNoThrow('resize-window', '-t', session, '-x', String(width), '-y', String(height))
 }
