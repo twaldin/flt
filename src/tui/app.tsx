@@ -177,10 +177,11 @@ export function App(): React.ReactElement {
         footer={
           <Box flexDirection="column" width="100%">
             <CommandBar
-              visible={state.mode === 'command'}
+              active={state.mode === 'command'}
               onSubmit={handleCommandSubmit}
               onCancel={() => dispatch({ type: 'SET_MODE', mode: 'normal' })}
               initialValue={state.commandInput}
+              agentNames={state.agents.map(a => a.name)}
             />
             <StatusBar mode={state.mode} agentCount={state.agents.length} selectedAgent={selectedAgent?.name} />
           </Box>
