@@ -44,7 +44,10 @@ export function App(): React.ReactElement {
 
     // Block everything — user types directly in tmux with zero latency
     try {
-      execSync(`tmux attach-session -t '${session}'`, { stdio: 'inherit' })
+      execSync(`tmux attach-session -t '${session}'`, {
+        stdio: 'inherit',
+        env: { ...process.env, TMUX: '' },
+      })
     } catch {
       // tmux attach returns non-zero if session dies during attach
     }
