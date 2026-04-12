@@ -14,10 +14,13 @@ export const opencodeAdapter: CliAdapter = {
 
   detectReady(pane: string): ReadyState {
     const lines = pane.split('\n')
-    const last20 = lines.slice(-20).join('\n')
+    // "Ask anything" appears in the input area; version in the bottom status bar.
+    // They can be 30+ lines apart in a tall terminal, so scan the full pane.
+    const full = lines.join('\n')
+    const last5 = lines.slice(-5).join('\n')
 
     // OpenCode shows "Ask anything..." placeholder and version in status bar
-    if (/Ask anything/i.test(last20) && /\d+\.\d+\.\d+/.test(last20)) {
+    if (/Ask anything/i.test(full) && /\d+\.\d+\.\d+/.test(last5)) {
       return 'ready'
     }
 
