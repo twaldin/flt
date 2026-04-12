@@ -262,11 +262,12 @@ export class RawKeyParser {
           else if (/^\x1b\[[0-9;]*B$/.test(seqText)) this.onEvent({ type: 'key', key: 'down', raw: seq })
           else if (/^\x1b\[[0-9;]*C$/.test(seqText)) this.onEvent({ type: 'key', key: 'right', raw: seq })
           else if (/^\x1b\[[0-9;]*D$/.test(seqText)) this.onEvent({ type: 'key', key: 'left', raw: seq })
-          else if (/^\x1b\[[0-9;]*u$/.test(seqText)) {
+          else if (/^\x1b\[[0-9;:]*u$/.test(seqText)) {
             // Kitty keyboard protocol / CSI u: \x1b[<codepoint>u or \x1b[<codepoint>;<modifiers>u
             // Ghostty and other modern terminals send keys in this format
+            // Note: some implementations use : as separator within groups
             const params = seqText.slice(2, -1) // strip \x1b[ and u
-            const codepoint = parseInt(params.split(';')[0], 10)
+            const codepoint = parseInt(params.split(/[;:]/)[0], 10)
             if (codepoint && !isNaN(codepoint)) {
               if (codepoint === 13) this.onEvent({ type: 'key', key: 'enter', raw: seq })
               else if (codepoint === 9) this.onEvent({ type: 'key', key: 'tab', raw: seq })
@@ -281,6 +282,17 @@ export class RawKeyParser {
             // VT-style function keys: \x1b[3~ = Delete, \x1b[5~ = PgUp, etc.
             const num = parseInt(seqText.slice(2, -1).split(';')[0], 10)
             if (num === 3) this.onEvent({ type: 'key', key: 'backspace', raw: seq })
+          }
+          // Catch-all: any unrecognized CSI sequence — don't drop it silently.
+          // In insert mode especially, try to extract useful text from it.
+          else {
+            // Try to decode as CSI u variant with different final byte
+            const finalByte = seqText[seqText.length - 1]
+            const params = seqText.slice(2, -1)
+            const codepoint = parseInt(params.split(';')[0], 10)
+            if (codepoint >= 32 && codepoint < 127 && !isNaN(codepoint)) {
+              this.onEvent({ type: 'text', text: String.fromCodePoint(codepoint), raw: seq })
+            }
           }
 
           i = j + 1
