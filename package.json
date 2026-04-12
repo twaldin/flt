@@ -1,0 +1,25 @@
+{
+  "name": "flt",
+  "version": "0.1.0",
+  "type": "module",
+  "description": "Spawn and talk to AI coding agents in any CLI, using tmux",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/twaldin/flt.git"
+  },
+  "bin": {
+    "flt": "./src/cli.ts"
+  },
+  "scripts": {
+    "test": "bun test",
+    "test:unit": "bun test tests/unit/",
+    "test:integration": "bun test tests/integration/"
+  },
+  "dependencies": {
+    "commander": "^13.1.0"
+  },
+  "devDependencies": {
+    "@types/bun": "^1.2.0"
+  }
+}
