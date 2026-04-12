@@ -7,7 +7,7 @@ export const codexAdapter: CliAdapter = {
   submitKeys: ['Enter'],
 
   spawnArgs(opts: SpawnOpts): string[] {
-    const args = ['codex', '--full-auto']
+    const args = ['codex', '--dangerously-bypass-approvals-and-sandbox']
     if (opts.model) args.push('--model', opts.model)
     return args
   },
