@@ -1,4 +1,21 @@
 import type { CliAdapter, SpawnOpts, ReadyState, AgentStatus } from './types'
+import { existsSync } from 'fs'
+
+// Gemini CLI requires Node 20+. Find a suitable node binary.
+function findNodePath(): string | null {
+  const candidates = [
+    '/opt/homebrew/opt/node@24/bin',
+    '/opt/homebrew/opt/node@22/bin',
+    '/opt/homebrew/opt/node@20/bin',
+    '/usr/local/opt/node@24/bin',
+    '/usr/local/opt/node@22/bin',
+    '/usr/local/opt/node@20/bin',
+  ]
+  for (const dir of candidates) {
+    if (existsSync(`${dir}/node`)) return dir
+  }
+  return null
+}
 
 export const geminiAdapter: CliAdapter = {
   name: 'gemini',
@@ -7,7 +24,10 @@ export const geminiAdapter: CliAdapter = {
   submitKeys: ['Enter'],
 
   spawnArgs(opts: SpawnOpts): string[] {
-    const args = ['gemini', '--sandbox']
+    const nodePath = findNodePath()
+    // Prepend node 20+ to PATH so gemini uses it
+    const prefix = nodePath ? `PATH=${nodePath}:$PATH ` : ''
+    const args = [`${prefix}gemini`, '--sandbox']
     if (opts.model) args.push('--model', opts.model)
     return args
   },
