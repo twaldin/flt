@@ -143,11 +143,6 @@ function renderBanner(screen: Screen, state: AppState, top: number, left: number
     screen.put(row, col, truncate(line, width), COLORS.red, '', ATTR_BOLD)
   }
 
-  if (state.banner) {
-    const bannerText = truncate(state.banner.text, width)
-    const row = top + height - 1
-    putLine(screen, row, left, width, bannerText, fg(state.banner.color), ATTR_BOLD)
-  }
 }
 
 function renderInbox(screen: Screen, state: AppState, top: number, left: number, width: number, height: number): void {
@@ -229,7 +224,13 @@ function renderCommandBar(screen: Screen, state: AppState, row: number, col: num
   }
 
   if (state.mode !== 'command') {
-    putLine(screen, row, col, width, ':command...', COLORS.gray, ATTR_DIM)
+    // Show banner feedback in command bar when not actively typing a command
+    if (state.banner) {
+      const bannerText = truncate(state.banner.text, width)
+      putLine(screen, row, col, width, bannerText, fg(state.banner.color), ATTR_BOLD)
+    } else {
+      putLine(screen, row, col, width, ':command...', COLORS.gray, ATTR_DIM)
+    }
     return
   }
 
