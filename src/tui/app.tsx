@@ -10,8 +10,7 @@ import { StatusBar } from './components/status-bar'
 import { InboxPanel } from './components/inbox-panel'
 import { parseCommand, enrichMessageWithFiles } from './command-parser'
 import { send } from '../commands/send'
-import { spawnSync } from 'child_process'
-import { execSync } from 'child_process'
+import { sendKeysAsync, sendLiteralBatched, flushBatchedKeys } from '../tmux'
 import { listAdapters } from '../adapters/registry'
 import { spawn } from '../commands/spawn'
 import { kill } from '../commands/kill'
@@ -31,39 +30,45 @@ export function App(): React.ReactElement {
 
   const selectedAgent = state.agents[state.selectedIndex]
 
-  // Direct tmux attach for insert mode — completely bypasses Ink for native typing
-  const attachToAgent = (session: string) => {
-    // Release stdin from Ink so tmux can use it
-    const wasRaw = process.stdin.isRaw
-    process.stdin.setRawMode(false)
-    process.stdin.pause()
-
-    // Exit Ink's alternate screen buffer, show cursor
-    process.stdout.write('\x1b[?1049l\x1b[?25h')
-    process.stdout.write(`\r\n  Attached to ${session}. Detach with your tmux prefix + d\r\n\r\n`)
-
-    // Block everything — user types directly in tmux with zero latency
-    try {
-      execSync(`tmux attach-session -t '${session}'`, {
-        stdio: 'inherit',
-        env: { ...process.env, TMUX: '' },
-      })
-    } catch {
-      // tmux attach returns non-zero if session dies during attach
-    }
-
-    // User detached — reclaim stdin for Ink
-    process.stdin.resume()
-    if (wasRaw) process.stdin.setRawMode(true)
-
-    // Re-enter Ink's alternate screen, hide cursor
-    process.stdout.write('\x1b[?1049h\x1b[?25l')
-
-    // Force re-render with fresh content
-    dispatch({ type: 'SET_MODE', mode: 'log-focus' })
-  }
-
   useInput((input, key) => {
+    // Insert mode — forward keystrokes to tmux, show optimistically
+    if (state.mode === 'insert') {
+      if (key.escape) {
+        if (selectedAgent) flushBatchedKeys(selectedAgent.tmuxSession)
+        dispatch({ type: 'SET_MODE', mode: 'log-focus' })
+        return
+      }
+      if (!selectedAgent) return
+      const session = selectedAgent.tmuxSession
+
+      if (key.return) {
+        flushBatchedKeys(session)
+        sendKeysAsync(session, ['Enter'])
+        dispatch({ type: 'APPEND_INSERT_BUFFER', char: '\n' })
+      } else if (key.backspace || key.delete) {
+        flushBatchedKeys(session)
+        sendKeysAsync(session, ['BSpace'])
+      } else if (key.tab) {
+        flushBatchedKeys(session)
+        sendKeysAsync(session, ['Tab'])
+      } else if (key.upArrow) {
+        sendKeysAsync(session, ['Up'])
+      } else if (key.downArrow) {
+        sendKeysAsync(session, ['Down'])
+      } else if (key.leftArrow) {
+        sendKeysAsync(session, ['Left'])
+      } else if (key.rightArrow) {
+        sendKeysAsync(session, ['Right'])
+      } else if (key.ctrl && input === 'c') {
+        flushBatchedKeys(session)
+        sendKeysAsync(session, ['C-c'])
+      } else if (input) {
+        sendLiteralBatched(session, input)
+        // Optimistic: show the char immediately without waiting for capture
+        dispatch({ type: 'APPEND_INSERT_BUFFER', char: input })
+      }
+      return
+    }
     // Inbox mode
     if (state.mode === 'inbox') {
       if (key.escape) {
@@ -94,7 +99,9 @@ export function App(): React.ReactElement {
     // Log focus mode
     if (state.mode === 'log-focus') {
       if (input === 'i' && selectedAgent) {
-        attachToAgent(selectedAgent.tmuxSession)
+        dispatch({ type: 'JUMP_LOG_BOTTOM' })
+        dispatch({ type: 'CLEAR_INSERT_BUFFER' })
+        dispatch({ type: 'SET_MODE', mode: 'insert' })
       }
       else if (input === 'j') dispatch({ type: 'SCROLL_LOG_DOWN' })
       else if (input === 'k') dispatch({ type: 'SCROLL_LOG_UP' })
@@ -217,10 +224,12 @@ export function App(): React.ReactElement {
           ) : selectedAgent ? (
             <LogPane
               content={state.logContent}
-              focused={state.mode === 'log-focus'}
+              focused={state.mode === 'log-focus' || state.mode === 'insert'}
               scrollOffset={state.logScrollOffset}
               searchQuery={state.searchQuery}
               autoFollow={state.autoFollow}
+              insertMode={state.mode === 'insert'}
+              insertBuffer={state.insertBuffer}
             />
           ) : (
             <Box flexDirection="column" flexGrow={1} justifyContent="center" alignItems="center">

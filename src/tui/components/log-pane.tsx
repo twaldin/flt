@@ -39,9 +39,10 @@ interface LogPaneProps {
   searchQuery?: string
   autoFollow?: boolean
   insertMode?: boolean
+  insertBuffer?: string
 }
 
-export const LogPane = React.memo(function LogPane({ content, focused, scrollOffset, searchQuery, autoFollow, insertMode }: LogPaneProps): React.ReactElement {
+export const LogPane = React.memo(function LogPane({ content, focused, scrollOffset, searchQuery, autoFollow, insertMode, insertBuffer }: LogPaneProps): React.ReactElement {
   const { stdout } = useStdout()
   const termHeight = stdout?.rows ?? 24
 
@@ -71,8 +72,16 @@ export const LogPane = React.memo(function LogPane({ content, focused, scrollOff
     : Math.round((startIdx / Math.max(1, totalLines - viewableLines)) * 100)
   const scrollText = `${scrollPercent}%${autoFollow ? ' FOLLOW' : ''}`
 
+  // Append optimistic insert buffer to the last line
+  const displayLines = [...processedLines]
+  if (insertBuffer && displayLines.length > 0) {
+    displayLines[displayLines.length - 1] += insertBuffer
+  } else if (insertBuffer) {
+    displayLines.push(insertBuffer)
+  }
+
   // Single text block — Ink diffs one node instead of hundreds
-  const fullText = [...processedLines, ...padLines, scrollText].join('\n')
+  const fullText = [...displayLines, ...padLines, scrollText].join('\n')
 
   return (
     <Box flexDirection="column" flexGrow={1}>

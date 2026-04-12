@@ -56,6 +56,8 @@ export function useFleetPoller(
     const agents = allAgents()
     const agentViews: AgentView[] = []
 
+    const isInsert = st.mode === 'insert'
+
     for (const [name, agentState] of Object.entries(agents)) {
       const isRecent = Date.now() - new Date(agentState.spawnedAt).getTime() < 10000
       let status: string
@@ -63,6 +65,10 @@ export function useFleetPoller(
         status = 'spawning'
       } else if (!hasSession(agentState.tmuxSession)) {
         status = 'exited'
+      } else if (isInsert) {
+        // Skip expensive detectStatus during insert mode
+        const existing = st.agents.find(a => a.name === name)
+        status = existing?.status ?? 'running'
       } else {
         status = detectAgentStatus(agentState)
       }
@@ -85,10 +91,12 @@ export function useFleetPoller(
       const agent = agents[sel]
       if (agent) {
         try {
-          const leftPanelWidth = Math.floor(st.termWidth * 0.28)
-          const logPaneWidth = Math.max(40, st.termWidth - leftPanelWidth - 4)
-          const logPaneHeight = Math.max(10, st.termHeight - 5)
-          resizeWindow(agent.tmuxSession, logPaneWidth, logPaneHeight)
+          if (!isInsert) {
+            const leftPanelWidth = Math.floor(st.termWidth * 0.28)
+            const logPaneWidth = Math.max(40, st.termWidth - leftPanelWidth - 4)
+            const logPaneHeight = Math.max(10, st.termHeight - 5)
+            resizeWindow(agent.tmuxSession, logPaneWidth, logPaneHeight)
+          }
 
           const content = capturePane(agent.tmuxSession, Math.max(200, logPaneHeight * 3))
           if (content !== lastContentRef.current) {
@@ -117,10 +125,13 @@ export function useFleetPoller(
   }, [])
 
   useEffect(() => {
-    const interval = setInterval(poll, 1000)
+    // In insert mode, capture at 300ms so typed text appears quickly.
+    // Optimistic buffer gives instant feedback; capture replaces it with real content.
+    const pollMs = state.mode === 'insert' ? 300 : 1000
+    const interval = setInterval(poll, pollMs)
     poll()
     return () => clearInterval(interval)
-  }, [poll])
+  }, [state.mode === 'insert', poll])
 
   useEffect(() => {
     lastContentRef.current = ''

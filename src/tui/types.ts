@@ -41,6 +41,7 @@ export interface TuiState {
   termHeight: number
   termWidth: number
   banner: Banner | null
+  insertBuffer: string
 }
 
 export type TuiAction =
@@ -62,3 +63,5 @@ export type TuiAction =
   | { type: 'SET_TERM_SIZE'; height: number; width: number }
   | { type: 'SET_INBOX'; messages: InboxMessage[] }
   | { type: 'SET_BANNER'; banner: Banner | null }
+  | { type: 'APPEND_INSERT_BUFFER'; char: string }
+  | { type: 'CLEAR_INSERT_BUFFER' }
