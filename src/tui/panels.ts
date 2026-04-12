@@ -1,6 +1,6 @@
 import { getCompletionHint } from './input'
 import { ATTR_BOLD, ATTR_DIM, type Screen } from './screen'
-import { COLORS, fg, modeColor, statusColor, statusSymbol } from './theme'
+import { COLORS, fg, getTheme, modeColor, statusColor, statusSymbol } from './theme'
 import type { AgentView, AppState, Mode } from './types'
 
 const FLT_BANNER = [
@@ -96,11 +96,12 @@ function renderSidebar(screen: Screen, state: AppState, top: number, left: numbe
   if (width <= 0 || height <= 0) return
 
   let row = top
-  putLine(screen, row, left, width, `Agents (${state.agents.length})`, COLORS.white, ATTR_BOLD)
+  const t = getTheme()
+  putLine(screen, row, left, width, `Agents (${state.agents.length})`, t.sidebarTitle, ATTR_BOLD)
   row += 1
 
   if (state.agents.length === 0) {
-    putLine(screen, row, left, width, 'No agents', COLORS.gray, ATTR_DIM)
+    putLine(screen, row, left, width, 'No agents', t.sidebarMuted, ATTR_DIM)
     return
   }
 
@@ -115,17 +116,16 @@ function renderSidebar(screen: Screen, state: AppState, top: number, left: numbe
     const status = `${statusSymbol(agent.status)} ${agent.name}`
     const age = formatAge(agent.spawnedAt)
     const line1 = `${prefix}${badgeDot}${status} ${age}`
-    const badgeColor = notification === 'message' ? COLORS.blue : notification === 'status' ? COLORS.yellow : undefined
-    const lineColor = badgeColor && !selected ? badgeColor : selected ? COLORS.cyan : statusColor(agent.status)
+    const lineColor = selected ? t.sidebarSelected : statusColor(agent.status)
     putLine(screen, row, left, width, line1, lineColor, selected ? ATTR_BOLD : 0)
     row += 1
 
     const line2 = `    ${agent.cli}/${agent.model}`
-    putLine(screen, row, left, width, line2, COLORS.gray)
+    putLine(screen, row, left, width, line2, t.sidebarText)
     row += 1
 
     const line3 = `    ${shortenPath(agent.dir)}`
-    putLine(screen, row, left, width, line3, COLORS.gray)
+    putLine(screen, row, left, width, line3, t.sidebarMuted)
     row += 1
   }
 }
@@ -140,7 +140,7 @@ function renderBanner(screen: Screen, state: AppState, top: number, left: number
     const line = FLT_BANNER[i]
     const lineWidth = widthOf(line)
     const col = left + Math.max(0, Math.floor((width - lineWidth) / 2))
-    screen.put(row, col, truncate(line, width), COLORS.red, '', ATTR_BOLD)
+    screen.put(row, col, truncate(line, width), getTheme().bannerText, '', ATTR_BOLD)
   }
 
 }
@@ -149,7 +149,7 @@ function renderInbox(screen: Screen, state: AppState, top: number, left: number,
   if (width <= 0 || height <= 0) return
 
   const lines = Math.max(1, height)
-  putLine(screen, top, left, width, `Inbox (${state.inboxMessages.length})`, COLORS.blue, ATTR_BOLD)
+  putLine(screen, top, left, width, `Inbox (${state.inboxMessages.length})`, getTheme().sidebarSelected, ATTR_BOLD)
 
   const usable = Math.max(0, lines - 2)
   const recent = state.inboxMessages.slice(-usable)
@@ -180,7 +180,7 @@ function renderLogPane(screen: Screen, state: AppState, top: number, left: numbe
 
   const selected = state.agents[state.selectedIndex]
   if (!selected) {
-    putLine(screen, top, left, width, 'No agent selected', COLORS.gray)
+    putLine(screen, top, left, width, 'No agent selected', getTheme().sidebarMuted)
     return
   }
 
@@ -217,19 +217,19 @@ function renderCommandBar(screen: Screen, state: AppState, row: number, col: num
 
   putLine(screen, row, col, width, '', COLORS.default)
 
+  const t = getTheme()
   if (state.mode === 'kill-confirm') {
     const prompt = `Kill ${state.killConfirmAgent}? [y/n]`
-    screen.put(row, col, prompt, COLORS.red, '', ATTR_BOLD)
+    screen.put(row, col, prompt, t.statusMode['kill-confirm'], '', ATTR_BOLD)
     return
   }
 
   if (state.mode !== 'command') {
-    // Show banner feedback in command bar when not actively typing a command
     if (state.banner) {
       const bannerText = truncate(state.banner.text, width)
       putLine(screen, row, col, width, bannerText, fg(state.banner.color), ATTR_BOLD)
     } else {
-      putLine(screen, row, col, width, ':command...', COLORS.gray, ATTR_DIM)
+      putLine(screen, row, col, width, ':command...', t.commandHint, ATTR_DIM)
     }
     return
   }
@@ -240,7 +240,7 @@ function renderCommandBar(screen: Screen, state: AppState, row: number, col: num
     Array.from(new Set(state.agents.map((a) => a.cli))),
   )
 
-  screen.put(row, col, ':', COLORS.cyan, '', ATTR_BOLD)
+  screen.put(row, col, ':', t.commandPrefix, '', ATTR_BOLD)
 
   const available = Math.max(0, width - 2)
   // Scroll input: show the tail when text exceeds available width
@@ -249,11 +249,11 @@ function renderCommandBar(screen: Screen, state: AppState, row: number, col: num
   const inputVisible = inputLen <= available
     ? input
     : input.slice(inputLen - available)
-  screen.put(row, col + 1, inputVisible, COLORS.white)
+  screen.put(row, col + 1, inputVisible, t.commandInput)
 
   const cursorCol = col + 1 + Math.min(widthOf(inputVisible), available)
   if (cursorCol < col + width) {
-    screen.put(row, cursorCol, '█', COLORS.cyan)
+    screen.put(row, cursorCol, '█', t.commandPrefix)
   }
 
   const hintText = hint || multiHint
@@ -261,7 +261,7 @@ function renderCommandBar(screen: Screen, state: AppState, row: number, col: num
     const hintCol = cursorCol + 1
     const hintWidth = col + width - hintCol
     if (hintWidth > 0) {
-      screen.put(row, hintCol, truncate(hintText, hintWidth), COLORS.gray)
+      screen.put(row, hintCol, truncate(hintText, hintWidth), t.commandHint)
     }
   }
 }
@@ -269,7 +269,8 @@ function renderCommandBar(screen: Screen, state: AppState, row: number, col: num
 function renderStatusBar(screen: Screen, state: AppState, row: number, col: number, width: number): void {
   if (row < 0 || row >= screen.rows || width <= 0) return
 
-  putLine(screen, row, col, width, '', COLORS.gray)
+  const t = getTheme()
+  putLine(screen, row, col, width, '', t.statusText)
 
   const label = `[${state.mode.toUpperCase()}]`
   screen.put(row, col, label, modeColor(state.mode), '', ATTR_BOLD)
@@ -282,7 +283,7 @@ function renderStatusBar(screen: Screen, state: AppState, row: number, col: numb
   const baseCol = col + widthOf(label) + 1
   const summaryWidth = Math.max(0, width - (baseCol - col))
   if (summaryWidth > 0) {
-    screen.put(row, baseCol, truncate(summary, summaryWidth), COLORS.gray)
+    screen.put(row, baseCol, truncate(summary, summaryWidth), t.sidebarMuted)
   }
 }
 
@@ -334,21 +335,23 @@ export function renderLayout(screen: Screen, state: AppState): void {
 
   screen.clear(0, 0, cols, rows)
 
+  const t = getTheme()
+
   if (layout.contentHeight > 0) {
-    screen.box(0, 0, layout.sidebarWidth, layout.contentHeight, 'round', COLORS.cyan)
+    screen.box(0, 0, layout.sidebarWidth, layout.contentHeight, 'round', t.sidebarBorder)
     renderSidebar(screen, state, 1, 1, layout.sidebarInnerWidth, layout.sidebarInnerHeight)
 
     if (layout.bannerHeight > 0) {
-      screen.box(0, layout.sidebarWidth, layout.logWidth, layout.bannerHeight, 'round', COLORS.red)
+      screen.box(0, layout.sidebarWidth, layout.logWidth, layout.bannerHeight, 'round', t.bannerBorder)
       renderBanner(screen, state, 1, layout.sidebarWidth + 1, layout.bannerInnerWidth, layout.bannerInnerHeight)
     }
 
     if (layout.logHeight > 0) {
       const borderColor = state.mode === 'insert'
-        ? COLORS.yellow
+        ? t.logBorderInsert
         : state.mode === 'log-focus'
-          ? COLORS.green
-          : COLORS.gray
+          ? t.logBorderFocus
+          : t.logBorder
       screen.box(
         layout.logTop,
         layout.sidebarWidth,

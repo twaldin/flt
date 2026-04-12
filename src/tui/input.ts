@@ -304,11 +304,52 @@ export class RawKeyParser {
           return
         }
 
+        // OSC sequence: \x1b] ... ST — skip it entirely (file drops, clipboard, etc.)
+        if (buf[i + 1] === 0x5d) {
+          let j = i + 2
+          while (j < buf.length) {
+            // String Terminator: \x1b\\ or \x07
+            if (buf[j] === 0x07) { j += 1; break }
+            if (buf[j] === 0x1b && j + 1 < buf.length && buf[j + 1] === 0x5c) { j += 2; break }
+            j += 1
+          }
+          if (j >= buf.length && buf[buf.length - 1] !== 0x07) {
+            // Incomplete OSC — drop it, don't hang
+            i = buf.length
+            continue
+          }
+          i = j
+          continue
+        }
+
         if (buf[i + 1] === 0x5b) {
           if (i + 2 >= buf.length) {
             this.pendingEscape = buf.subarray(i)
             this.armEscapeTimer()
             return
+          }
+
+          // Bracketed paste: \x1b[200~ ... \x1b[201~
+          // Extract the pasted text and emit as a single text event
+          if (i + 5 < buf.length && buf.subarray(i, i + 6).toString() === '\x1b[200~') {
+            const pasteStart = i + 6
+            const endMarker = '\x1b[201~'
+            const endIdx = buf.indexOf(endMarker, pasteStart)
+            if (endIdx !== -1) {
+              const pastedText = buf.subarray(pasteStart, endIdx).toString('utf8')
+              if (pastedText) {
+                this.onEvent({ type: 'text', text: pastedText, raw: buf.subarray(pasteStart, endIdx) })
+              }
+              i = endIdx + endMarker.length
+            } else {
+              // Incomplete paste — emit what we have
+              const pastedText = buf.subarray(pasteStart).toString('utf8')
+              if (pastedText) {
+                this.onEvent({ type: 'text', text: pastedText, raw: buf.subarray(pasteStart) })
+              }
+              i = buf.length
+            }
+            continue
           }
 
           const direct = buf[i + 2]
