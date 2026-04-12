@@ -8,7 +8,6 @@
     "skipLibCheck": true,
     "outDir": "dist",
     "rootDir": "src",
-    "jsx": "react-jsx",
     "types": ["bun"]
   },
   "include": ["src/**/*"],

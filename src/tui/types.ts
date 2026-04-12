@@ -1,18 +1,11 @@
-import { AgentState } from '../state'
+import type { AgentState } from '../state'
 
-export type Mode = 'normal' | 'log-focus' | 'insert' | 'command' | 'inbox' | 'spawn-wizard' | 'kill-confirm'
-
-export interface Notification {
-  type: 'message' | 'status-change'
-  agentName: string
-  message?: string
-}
+export type Mode = 'normal' | 'log-focus' | 'insert' | 'command' | 'inbox'
 
 export interface AgentView extends AgentState {
   name: string
-  status: 'spawning' | 'ready' | 'running' | 'idle' | 'exited' | 'error' | 'rate-limited' | 'dialog' | 'unknown'
-  lastSeen: number // timestamp
-  notification?: Notification
+  status: 'spawning' | 'ready' | 'running' | 'idle' | 'exited' | 'error' | 'rate-limited' | 'unknown'
+  lastSeen: number
 }
 
 export interface InboxMessage {
@@ -26,7 +19,7 @@ export interface Banner {
   color: string
 }
 
-export interface TuiState {
+export interface AppState {
   mode: Mode
   agents: AgentView[]
   selectedIndex: number
@@ -35,30 +28,27 @@ export interface TuiState {
   autoFollow: boolean
   searchQuery: string
   commandInput: string
-  notifications: Notification[]
+  commandCursor: number
   inboxMessages: InboxMessage[]
-  lastAgentsHash: string
   termHeight: number
   termWidth: number
   banner: Banner | null
 }
 
-export type TuiAction =
-  | { type: 'SET_MODE'; mode: Mode }
-  | { type: 'SET_AGENTS'; agents: AgentView[] }
-  | { type: 'SELECT_PREV' }
-  | { type: 'SELECT_NEXT' }
-  | { type: 'SET_LOG_CONTENT'; content: string }
-  | { type: 'SCROLL_LOG_UP' }
-  | { type: 'SCROLL_LOG_DOWN' }
-  | { type: 'SCROLL_LOG_PAGE_UP' }
-  | { type: 'SCROLL_LOG_PAGE_DOWN' }
-  | { type: 'JUMP_LOG_TOP' }
-  | { type: 'JUMP_LOG_BOTTOM' }
-  | { type: 'SET_SEARCH_QUERY'; query: string }
-  | { type: 'SET_COMMAND_INPUT'; input: string }
-  | { type: 'ADD_NOTIFICATION'; notification: Notification }
-  | { type: 'CLEAR_NOTIFICATION'; agentName: string }
-  | { type: 'SET_TERM_SIZE'; height: number; width: number }
-  | { type: 'SET_INBOX'; messages: InboxMessage[] }
-  | { type: 'SET_BANNER'; banner: Banner | null }
+export function createInitialState(width = 80, height = 24): AppState {
+  return {
+    mode: 'normal',
+    agents: [],
+    selectedIndex: 0,
+    logContent: '',
+    logScrollOffset: 0,
+    autoFollow: true,
+    searchQuery: '',
+    commandInput: '',
+    commandCursor: 0,
+    inboxMessages: [],
+    termHeight: height,
+    termWidth: width,
+    banner: null,
+  }
+}
