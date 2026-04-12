@@ -1,6 +1,6 @@
 import { AgentState } from '../state'
 
-export type Mode = 'normal' | 'log-focus' | 'command' | 'spawn-wizard' | 'kill-confirm'
+export type Mode = 'normal' | 'log-focus' | 'insert' | 'command' | 'inbox' | 'spawn-wizard' | 'kill-confirm'
 
 export interface Notification {
   type: 'message' | 'status-change'
@@ -15,6 +15,12 @@ export interface AgentView extends AgentState {
   notification?: Notification
 }
 
+export interface InboxMessage {
+  timestamp: string
+  from: string
+  text: string
+}
+
 export interface TuiState {
   mode: Mode
   agents: AgentView[]
@@ -25,6 +31,7 @@ export interface TuiState {
   searchQuery: string
   commandInput: string
   notifications: Notification[]
+  inboxMessages: InboxMessage[]
   lastAgentsHash: string
   termHeight: number
   termWidth: number
@@ -47,3 +54,4 @@ export type TuiAction =
   | { type: 'ADD_NOTIFICATION'; notification: Notification }
   | { type: 'CLEAR_NOTIFICATION'; agentName: string }
   | { type: 'SET_TERM_SIZE'; height: number; width: number }
+  | { type: 'SET_INBOX'; messages: InboxMessage[] }

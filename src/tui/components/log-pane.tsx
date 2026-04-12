@@ -22,9 +22,10 @@ interface LogPaneProps {
   scrollOffset: number
   searchQuery?: string
   autoFollow?: boolean
+  insertMode?: boolean
 }
 
-export function LogPane({ content, focused, scrollOffset, searchQuery, autoFollow }: LogPaneProps): React.ReactElement {
+export function LogPane({ content, focused, scrollOffset, searchQuery, autoFollow, insertMode }: LogPaneProps): React.ReactElement {
   const { stdout } = useStdout()
   const termHeight = stdout?.rows ?? 24
   // Account for outer border (2), footer (2)
@@ -60,7 +61,7 @@ export function LogPane({ content, focused, scrollOffset, searchQuery, autoFollo
       flexDirection="column"
       flexGrow={1}
       borderStyle={focused ? 'double' : 'round'}
-      borderColor={focused ? 'green' : 'gray'}
+      borderColor={insertMode ? 'yellow' : focused ? 'green' : 'gray'}
       paddingX={1}
       paddingY={0}
     >

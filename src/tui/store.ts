@@ -1,5 +1,5 @@
 import { useReducer } from 'react'
-import { TuiState, TuiAction, Mode } from './types'
+import { TuiState, TuiAction } from './types'
 
 const initialState: TuiState = {
   mode: 'normal',
@@ -11,6 +11,7 @@ const initialState: TuiState = {
   searchQuery: '',
   commandInput: '',
   notifications: [],
+  inboxMessages: [],
   lastAgentsHash: '',
   termHeight: 24,
   termWidth: 80,
@@ -111,6 +112,9 @@ function tuiReducer(state: TuiState, action: TuiAction): TuiState {
         ...state,
         notifications: state.notifications.filter(n => n.agentName !== action.agentName),
       }
+
+    case 'SET_INBOX':
+      return { ...state, inboxMessages: action.messages }
 
     default:
       return state
