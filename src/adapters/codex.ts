@@ -59,6 +59,7 @@ export const codexAdapter: CliAdapter = {
   detectStatus(pane: string): AgentStatus {
     const lines = pane.split('\n').map(l => l.trim()).filter(Boolean)
     const last10 = lines.slice(-10).join('\n')
+    const last20 = lines.slice(-20).join('\n')
 
     if (/rate.?limit(ed|ing| exceeded| reached)/i.test(last10) || /429/i.test(last10)) {
       return 'rate-limited'
@@ -68,7 +69,12 @@ export const codexAdapter: CliAdapter = {
       return 'error'
     }
 
-    if (/[•●]/.test(last10) || /running|thinking/i.test(last10)) {
+    // Permission/approval prompt — auto-approve by sending Enter
+    if (/Would you like to run/i.test(last20) || /Press enter to confirm/i.test(last20)) {
+      return 'dialog' as AgentStatus
+    }
+
+    if (/[•●]/.test(last10) || /running|thinking|working/i.test(last10)) {
       return 'running'
     }
 

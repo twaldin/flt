@@ -1,6 +1,6 @@
 import { useEffect, useRef, useCallback } from 'react'
 import { allAgents } from '../state'
-import { hasSession, capturePane, resizeWindow } from '../tmux'
+import { hasSession, capturePane, resizeWindow, sendKeys } from '../tmux'
 import { resolveAdapter } from '../adapters/registry'
 import { readFileSync, existsSync } from 'fs'
 import { TuiState, TuiAction, AgentView, InboxMessage } from './types'
@@ -25,8 +25,21 @@ function agentsHash(agents: AgentView[]): string {
 function detectAgentStatus(agentState: { cli: string; tmuxSession: string }): string {
   try {
     const adapter = resolveAdapter(agentState.cli)
-    const pane = capturePane(agentState.tmuxSession, 20)
-    return adapter.detectStatus(pane)
+    const pane = capturePane(agentState.tmuxSession, 30)
+    const status = adapter.detectStatus(pane)
+
+    // Auto-approve permission dialogs — send Enter to unblock
+    if (status === 'dialog') {
+      const keys = adapter.handleDialog(pane)
+      if (keys) {
+        sendKeys(agentState.tmuxSession, keys)
+      } else {
+        sendKeys(agentState.tmuxSession, ['Enter'])
+      }
+      return 'running'
+    }
+
+    return status
   } catch {
     return 'unknown'
   }
