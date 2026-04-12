@@ -21,22 +21,21 @@ export const claudeCodeAdapter: CliAdapter = {
     const clean = stripAnsi(pane)
     const lines = clean.split('\n')
     const all = lines.join('\n')
+    const last15 = lines.slice(-15).join('\n')
 
-    // Check for bypass permissions confirmation dialog
-    if (/bypass.?permissions/i.test(all) && /Yes, I accept/i.test(all)) {
-      return 'dialog'
-    }
-
-    // Check for workspace trust dialog
-    if (/trust this folder/i.test(all) || /Do you trust the files/i.test(all)) {
-      return 'dialog'
-    }
-
-    // Check for ready prompt indicators
+    // Check for ready FIRST — prompt visible + status bar
     const hasPrompt = lines.some(l => /^\s*[>❯]\s*$/.test(l.trim()))
     const hasStatusBar = /bypass permissions/i.test(all) || /Claude Code/i.test(all)
     if (hasPrompt && hasStatusBar) {
       return 'ready'
+    }
+
+    // Dialogs only checked in last 15 lines (avoids false positives from chat history)
+    if (/bypass.?permissions/i.test(last15) && /Yes, I accept/i.test(last15)) {
+      return 'dialog'
+    }
+    if (/trust this folder/i.test(last15) || /Do you trust the files/i.test(last15)) {
+      return 'dialog'
     }
 
     return 'loading'
