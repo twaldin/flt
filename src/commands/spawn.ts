@@ -59,9 +59,15 @@ export async function spawn(args: SpawnArgs): Promise<void> {
     worktreeBranch = wt.branch
   }
 
+  // Determine parent info
+  const parentName = process.env.FLT_AGENT_NAME ?? 'orchestrator'
+  // If spawned by an agent, parent is on flt socket. If by human, use orchestrator session.
+  const parentSession = process.env.FLT_AGENT_NAME
+    ? `flt-${process.env.FLT_AGENT_NAME}`
+    : (state.orchestrator?.tmuxSession ?? 'unknown')
+
   // Project instructions into workspace
   if (adapter.instructionFile) {
-    const parentName = process.env.FLT_AGENT_NAME ?? 'orchestrator'
     projectInstructions(workDir, adapter.instructionFile, {
       agentName: name,
       parentName,
@@ -73,12 +79,6 @@ export async function spawn(args: SpawnArgs): Promise<void> {
   // Build spawn command
   const cliArgs = adapter.spawnArgs({ model, dir: workDir })
   const command = cliArgs.join(' ')
-
-  // Determine parent info for env vars
-  const parentName = process.env.FLT_AGENT_NAME ?? 'orchestrator'
-  const parentSession = process.env.FLT_AGENT_NAME
-    ? `flt-${process.env.FLT_AGENT_NAME}`
-    : (state.orchestrator?.tmuxSession ?? 'flt')
 
   const sessionName = `flt-${name}`
 
