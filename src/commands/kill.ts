@@ -56,7 +56,9 @@ export function kill(args: KillArgs): void {
   // Remove from state
   removeAgent(name)
 
-  console.log(`Killed ${name}`)
+  if (!process.env.FLT_TUI_ACTIVE) {
+    console.log(`Killed ${name}`)
+  }
 }
 
 function killProcessTree(pid: number): void {

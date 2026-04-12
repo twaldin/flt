@@ -73,7 +73,8 @@ export async function send(args: SendArgs): Promise<void> {
     tmux.sendKeys(session, submitKeys)
   }
 
-  if (caller.mode === 'human') {
+  // Only log when running as standalone CLI, not inside the TUI
+  if (caller.mode === 'human' && !process.env.FLT_TUI_ACTIVE) {
     console.log(`Sent to ${target}`)
   }
 }

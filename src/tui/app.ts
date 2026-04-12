@@ -67,6 +67,7 @@ export class App {
     if (this.running) return
     this.running = true
 
+    process.env.FLT_TUI_ACTIVE = '1'
     process.stdout.write('\x1b[?1049h\x1b[?25l\x1b[2J\x1b[H')
 
     const bindings: InputBindings = {

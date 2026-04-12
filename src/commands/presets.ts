@@ -43,7 +43,9 @@ export function formatPresetList(): string {
 }
 
 export function presetsList(): void {
-  console.log(formatPresetList())
+  if (!process.env.FLT_TUI_ACTIVE) {
+    console.log(formatPresetList())
+  }
 }
 
 export function presetsAdd(args: PresetsAddArgs): void {

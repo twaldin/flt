@@ -134,7 +134,9 @@ export async function spawn(args: SpawnArgs): Promise<void> {
     await sendBootstrap(sessionName, adapter, bootstrap)
   }
 
-  console.log(`Spawned ${name} (${adapter.name}/${resolvedModel ?? 'default'}) in ${sessionName}`)
+  if (!process.env.FLT_TUI_ACTIVE) {
+    console.log(`Spawned ${name} (${adapter.name}/${resolvedModel ?? 'default'}) in ${sessionName}`)
+  }
 }
 
 async function waitForReady(
@@ -181,7 +183,9 @@ async function waitForReady(
 
   // Don't throw — agent is likely ready, just undetected.
   // Registration + bootstrap still happen after this returns.
-  console.error(`Warning: "${session}" readiness not confirmed within ${timeoutMs / 1000}s. Proceeding anyway.`)
+  if (!process.env.FLT_TUI_ACTIVE) {
+    console.error(`Warning: "${session}" readiness not confirmed within ${timeoutMs / 1000}s. Proceeding anyway.`)
+  }
 }
 
 async function sendBootstrap(
