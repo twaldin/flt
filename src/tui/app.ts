@@ -50,6 +50,7 @@ export class App {
   private lastInboxRaw = ''
   private lastSelectedName: string | undefined
   private bannerTimer: ReturnType<typeof setTimeout> | null = null
+  private insertCaptureTimer: ReturnType<typeof setTimeout> | null = null
   private running = false
 
   constructor() {
@@ -383,18 +384,49 @@ export class App {
     const selected = this.selectedAgent
     if (!selected || !text) return
     sendLiteralBatched(selected.tmuxSession, text)
+    this.scheduleInsertCapture()
   }
 
   private sendInsertKey(key: TmuxInsertKey): void {
     const selected = this.selectedAgent
     if (!selected) return
     sendKeysAsync(selected.tmuxSession, [key])
+    this.scheduleInsertCapture()
   }
 
   private flushInsert(): void {
     const selected = this.selectedAgent
     if (!selected) return
     flushBatchedKeys(selected.tmuxSession)
+  }
+
+  /** Capture pane ~50ms after keystroke so typed chars appear fast */
+  private scheduleInsertCapture(): void {
+    if (this.insertCaptureTimer) return // already scheduled
+    this.insertCaptureTimer = setTimeout(() => {
+      this.insertCaptureTimer = null
+      this.captureSelectedPane()
+    }, 50)
+  }
+
+  /** Capture just the selected agent's pane and re-render if changed */
+  private captureSelectedPane(): void {
+    const selected = this.selectedAgent
+    if (!selected) return
+    const agents = allAgents()
+    const agent = agents[selected.name]
+    if (!agent) return
+    try {
+      const content = capturePane(agent.tmuxSession, Math.max(200, (this.state.termHeight - 5) * 3))
+      if (content !== this.lastLogContent) {
+        this.lastLogContent = content
+        this.state.logContent = content
+        if (this.state.autoFollow) {
+          this.state.logScrollOffset = this.maxScroll(content)
+        }
+        this.render()
+      }
+    } catch {}
   }
 
   private restartPolling(): void {
