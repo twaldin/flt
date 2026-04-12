@@ -16,7 +16,6 @@ const initialState: TuiState = {
   termHeight: 24,
   termWidth: 80,
   banner: null,
-  insertBuffer: '',
 }
 
 const BANNER_PANEL_HEIGHT = 10 // 8 lines + 2 border
@@ -60,7 +59,7 @@ function tuiReducer(state: TuiState, action: TuiAction): TuiState {
       const vH = viewHeight(state)
       const bottom = Math.max(0, lines - vH)
       const offset = state.autoFollow ? bottom : Math.min(state.logScrollOffset, bottom)
-      return { ...state, logContent: action.content, logScrollOffset: offset, insertBuffer: '' }
+      return { ...state, logContent: action.content, logScrollOffset: offset }
     }
 
     case 'SCROLL_LOG_UP': {
@@ -119,12 +118,6 @@ function tuiReducer(state: TuiState, action: TuiAction): TuiState {
 
     case 'SET_BANNER':
       return { ...state, banner: action.banner }
-
-    case 'APPEND_INSERT_BUFFER':
-      return { ...state, insertBuffer: state.insertBuffer + action.char }
-
-    case 'CLEAR_INSERT_BUFFER':
-      return { ...state, insertBuffer: '' }
 
     default:
       return state

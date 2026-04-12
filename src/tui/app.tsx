@@ -44,7 +44,6 @@ export function App(): React.ReactElement {
       if (key.return) {
         flushBatchedKeys(session)
         sendKeysAsync(session, ['Enter'])
-        dispatch({ type: 'APPEND_INSERT_BUFFER', char: '\n' })
       } else if (key.backspace || key.delete) {
         flushBatchedKeys(session)
         sendKeysAsync(session, ['BSpace'])
@@ -64,8 +63,6 @@ export function App(): React.ReactElement {
         sendKeysAsync(session, ['C-c'])
       } else if (input) {
         sendLiteralBatched(session, input)
-        // Optimistic: show the char immediately without waiting for capture
-        dispatch({ type: 'APPEND_INSERT_BUFFER', char: input })
       }
       return
     }
@@ -100,7 +97,6 @@ export function App(): React.ReactElement {
     if (state.mode === 'log-focus') {
       if (input === 'i' && selectedAgent) {
         dispatch({ type: 'JUMP_LOG_BOTTOM' })
-        dispatch({ type: 'CLEAR_INSERT_BUFFER' })
         dispatch({ type: 'SET_MODE', mode: 'insert' })
       }
       else if (input === 'j') dispatch({ type: 'SCROLL_LOG_DOWN' })
@@ -229,7 +225,6 @@ export function App(): React.ReactElement {
               searchQuery={state.searchQuery}
               autoFollow={state.autoFollow}
               insertMode={state.mode === 'insert'}
-              insertBuffer={state.insertBuffer}
             />
           ) : (
             <Box flexDirection="column" flexGrow={1} justifyContent="center" alignItems="center">
