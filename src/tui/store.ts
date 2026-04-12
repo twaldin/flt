@@ -16,8 +16,11 @@ const initialState: TuiState = {
   termWidth: 80,
 }
 
+const BANNER_HEIGHT = 10
+
 function viewHeight(state: TuiState): number {
-  return Math.max(4, state.termHeight - 5)
+  // Total pane height minus banner and scroll indicator
+  return Math.max(4, state.termHeight - 5 - BANNER_HEIGHT - 1)
 }
 
 function maxScroll(state: TuiState): number {
