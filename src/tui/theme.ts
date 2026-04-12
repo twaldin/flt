@@ -1,4 +1,4 @@
-import { existsSync, readFileSync } from 'fs'
+import { existsSync, readFileSync, writeFileSync, mkdirSync } from 'fs'
 import type { AgentView, Mode } from './types'
 
 // Standard ANSI 16-color codes
@@ -329,12 +329,38 @@ export function getThemeNames(): string[] {
   return Object.keys(BUILT_IN_THEMES)
 }
 
+function persistThemeName(name: string): void {
+  try {
+    const dir = `${process.env.HOME || '~'}/.flt`
+    mkdirSync(dir, { recursive: true })
+    const configPath = `${dir}/config.json`
+    let config: Record<string, unknown> = {}
+    if (existsSync(configPath)) {
+      config = JSON.parse(readFileSync(configPath, 'utf-8'))
+    }
+    config.theme = name
+    writeFileSync(configPath, JSON.stringify(config, null, 2) + '\n')
+  } catch {}
+}
+
+function loadPersistedThemeName(): string | null {
+  try {
+    const configPath = `${process.env.HOME || '~'}/.flt/config.json`
+    if (!existsSync(configPath)) return null
+    const config = JSON.parse(readFileSync(configPath, 'utf-8'))
+    return typeof config.theme === 'string' ? config.theme : null
+  } catch {
+    return null
+  }
+}
+
 export function setTheme(name: string): boolean {
   if (!BUILT_IN_THEMES[name]) return false
   currentThemeName = name
   const base = BUILT_IN_THEMES[name]
   const userOverrides = loadUserTheme()
   currentTheme = userOverrides ? { ...base, ...userOverrides } : base
+  persistThemeName(name)
   return true
 }
 
@@ -346,8 +372,14 @@ export function getCurrentThemeName(): string {
   return currentThemeName
 }
 
-// Initialize from ~/.flt/theme.json if it specifies a base theme
+// Initialize: load persisted theme, then apply user overrides
 {
+  const persisted = loadPersistedThemeName()
+  if (persisted && BUILT_IN_THEMES[persisted]) {
+    currentThemeName = persisted
+    currentTheme = BUILT_IN_THEMES[persisted]
+  }
+
   try {
     const themeFile = `${process.env.HOME || '~'}/.flt/theme.json`
     if (existsSync(themeFile)) {
