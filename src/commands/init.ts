@@ -24,14 +24,26 @@ export async function init(args: InitArgs): Promise<void> {
   }
 
   // Human orchestrator — mark current session
+  const currentSession = process.env.TMUX?.split(',')[0]?.split('/').pop() || 'unknown'
+
   if (existing) {
-    console.log(`Fleet already initialized (${existing.type} orchestrator, started ${existing.initAt}).`)
-    console.log('Use "flt spawn" to add agents, or "flt list" to see fleet status.')
+    if (existing.tmuxSession === currentSession) {
+      console.log(`Fleet already initialized (${existing.type} orchestrator, started ${existing.initAt}).`)
+      console.log('Use "flt spawn" to add agents, or "flt list" to see fleet status.')
+    } else {
+      // Session changed — update the parent session reference
+      setOrchestrator({
+        ...existing,
+        tmuxSession: currentSession,
+        tmuxWindow: process.env.TMUX_PANE || '0',
+      })
+      console.log(`Updated fleet parent session: ${existing.tmuxSession} → ${currentSession}`)
+    }
     return
   }
 
   setOrchestrator({
-    tmuxSession: process.env.TMUX?.split(',')[0]?.split('/').pop() || 'unknown',
+    tmuxSession: currentSession,
     tmuxWindow: process.env.TMUX_PANE || '0',
     type: 'human',
     initAt: new Date().toISOString(),

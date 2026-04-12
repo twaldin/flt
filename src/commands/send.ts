@@ -14,6 +14,8 @@ export async function send(args: SendArgs): Promise<void> {
 
   let session: string
   let submitKeys: string[] = ['Enter']
+  let isHumanParent = false
+  let crossSocket = false
 
   if (target === 'parent') {
     if (caller.mode !== 'agent') {
@@ -22,14 +24,46 @@ export async function send(args: SendArgs): Promise<void> {
     if (!caller.parentSession) {
       throw new Error('No parent session found (FLT_PARENT_SESSION not set).')
     }
+
+    const state = loadState()
     session = caller.parentSession
-    // Parent could be any CLI — use Enter as default submit
+
+    // If env var session is gone, fall back to state.orchestrator.tmuxSession
+    const orchSession = state.orchestrator?.tmuxSession
+    if (
+      !tmux.hasSession(session) &&
+      !tmux.hasSessionOnDefaultSocket(session) &&
+      orchSession &&
+      orchSession !== session
+    ) {
+      session = orchSession
+    }
+
+    // Determine if target is human (display-message) vs agent CLI (send-keys)
+    if (state.orchestrator?.type === 'human') {
+      const agentEntry = Object.values(state.agents ?? {}).find(a => a.tmuxSession === session)
+      isHumanParent = !agentEntry
+    }
+
+    // Resolve which socket the session is on
+    if (!tmux.hasSession(session)) {
+      if (tmux.hasSessionOnDefaultSocket(session)) {
+        crossSocket = true
+      } else {
+        throw new Error(`Parent session "${session}" is not running on flt or default socket.`)
+      }
+    }
   } else {
     const agent = getAgent(target)
     if (!agent) {
       throw new Error(`Agent "${target}" not found. Run "flt list" to see active agents.`)
     }
     session = agent.tmuxSession
+
+    // Verify session is alive
+    if (!tmux.hasSession(session)) {
+      throw new Error(`Target session "${session}" is not running.`)
+    }
 
     // Get the target's adapter for correct submit keys
     try {
@@ -40,20 +74,29 @@ export async function send(args: SendArgs): Promise<void> {
     }
   }
 
-  // Verify session is alive
-  if (!tmux.hasSession(session)) {
-    throw new Error(`Target session "${session}" is not running.`)
-  }
-
-  // Send message
-  if (message.length > 200 || message.includes('\n')) {
-    tmux.pasteBuffer(session, message)
+  if (isHumanParent) {
+    // Display as a banner in the human's session — don't type into their shell
+    if (crossSocket) {
+      tmux.displayMessageOnDefaultSocket(session, `[flt] ${message}`)
+    } else {
+      tmux.displayMessage(session, `[flt] ${message}`)
+    }
   } else {
-    tmux.sendLiteral(session, message)
-  }
+    // Verify flt-socket session is alive (non-parent targets already checked above)
+    if (target === 'parent' && !crossSocket && !tmux.hasSession(session)) {
+      throw new Error(`Target session "${session}" is not running.`)
+    }
 
-  await sleep(300)
-  tmux.sendKeys(session, submitKeys)
+    // Send message as a prompt to the agent CLI
+    if (message.length > 200 || message.includes('\n')) {
+      tmux.pasteBuffer(session, message)
+    } else {
+      tmux.sendLiteral(session, message)
+    }
+
+    await sleep(300)
+    tmux.sendKeys(session, submitKeys)
+  }
 
   if (caller.mode === 'human') {
     console.log(`Sent to ${target}`)
