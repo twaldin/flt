@@ -1,6 +1,6 @@
 import type { AgentState } from '../state'
 
-export type Mode = 'normal' | 'log-focus' | 'insert' | 'command' | 'inbox' | 'kill-confirm'
+export type Mode = 'normal' | 'log-focus' | 'insert' | 'command' | 'inbox' | 'kill-confirm' | 'shell'
 
 export interface AgentView extends AgentState {
   name: string

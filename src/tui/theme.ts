@@ -79,7 +79,7 @@ const DARK_THEME: ThemeColors = {
     command: ANSI_COLORS.magenta,
     inbox: ANSI_COLORS.blue,
     'kill-confirm': ANSI_COLORS.red,
-  },
+    shell: ANSI_COLORS.brightCyan,  },
 }
 
 const LIGHT_THEME: ThemeColors = {
@@ -112,7 +112,7 @@ const MINIMAL_THEME: ThemeColors = {
     command: ANSI_COLORS.white,
     inbox: ANSI_COLORS.white,
     'kill-confirm': ANSI_COLORS.white,
-  },
+    shell: ANSI_COLORS.brightCyan,  },
 }
 
 // ─── Popular Colorschemes (Truecolor) ────────────────────────────
@@ -144,7 +144,7 @@ const CATPPUCCIN_MOCHA: ThemeColors = {
     command: rgb(203, 166, 247),         // mauve
     inbox: rgb(116, 199, 236),           // sapphire
     'kill-confirm': rgb(243, 139, 168),  // red
-  },
+    shell: ANSI_COLORS.brightCyan,  },
 }
 
 const GRUVBOX_DARK: ThemeColors = {
@@ -174,7 +174,7 @@ const GRUVBOX_DARK: ThemeColors = {
     command: rgb(177, 98, 134),          // purple
     inbox: rgb(69, 133, 136),            // aqua
     'kill-confirm': rgb(204, 36, 29),    // red
-  },
+    shell: ANSI_COLORS.brightCyan,  },
 }
 
 const TOKYO_NIGHT: ThemeColors = {
@@ -204,7 +204,7 @@ const TOKYO_NIGHT: ThemeColors = {
     command: rgb(187, 154, 247),         // purple
     inbox: rgb(125, 207, 255),           // cyan
     'kill-confirm': rgb(247, 118, 142),  // red
-  },
+    shell: ANSI_COLORS.brightCyan,  },
 }
 
 const NORD: ThemeColors = {
@@ -234,7 +234,7 @@ const NORD: ThemeColors = {
     command: rgb(180, 142, 173),         // purple
     inbox: rgb(129, 161, 193),           // frost dark
     'kill-confirm': rgb(191, 97, 106),   // red
-  },
+    shell: ANSI_COLORS.brightCyan,  },
 }
 
 const DRACULA: ThemeColors = {
@@ -264,7 +264,7 @@ const DRACULA: ThemeColors = {
     command: rgb(189, 147, 249),         // purple
     inbox: rgb(139, 233, 253),           // cyan
     'kill-confirm': rgb(255, 85, 85),    // red
-  },
+    shell: ANSI_COLORS.brightCyan,  },
 }
 
 const ONE_DARK: ThemeColors = {
@@ -294,7 +294,7 @@ const ONE_DARK: ThemeColors = {
     command: rgb(198, 120, 221),         // magenta
     inbox: rgb(86, 182, 194),            // cyan
     'kill-confirm': rgb(224, 108, 117),  // red
-  },
+    shell: ANSI_COLORS.brightCyan,  },
 }
 
 // ─── Theme Registry ──────────────────────────────────────────────

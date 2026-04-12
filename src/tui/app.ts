@@ -47,6 +47,8 @@ export class App {
   private pollTimer: ReturnType<typeof setInterval> | null = null
   private cleanupInput: (() => void) | null = null
 
+  private shellSession = 'flt-shell'
+  private shellContent = ''
   private lastAgentsHash = ''
   private lastLogContent = ''
   private lastInboxRaw = ''
@@ -100,6 +102,17 @@ export class App {
       sendInsertText: (text) => this.sendInsertText(text),
       sendInsertKey: (key) => this.sendInsertKey(key),
       flushInsert: () => this.flushInsert(),
+      openShell: () => this.openShell(),
+      closeShell: () => this.closeShell(),
+      sendShellText: (text) => {
+        sendLiteralBatched(this.shellSession, text)
+        this.scheduleShellCapture()
+      },
+      sendShellKey: (key) => {
+        sendKeysAsync(this.shellSession, [key])
+        this.scheduleShellCapture()
+      },
+      flushShell: () => flushBatchedKeys(this.shellSession),
       quit: () => {
         this.stop()
         process.exit(0)
@@ -159,6 +172,51 @@ export class App {
     this.state.mode = mode
     this.restartPolling()
     this.render()
+  }
+
+  private openShell(): void {
+    // Create or reuse a persistent shell tmux session
+    if (!hasSession(this.shellSession)) {
+      const cwd = process.cwd()
+      const { createSession } = require('../tmux') as typeof import('../tmux')
+      createSession(this.shellSession, cwd, process.env.SHELL || 'zsh', {})
+    }
+    // Resize shell to match log pane
+    const layout = calculateLayout(this.state.termWidth, this.state.termHeight)
+    resizeWindow(this.shellSession, Math.max(20, layout.logInnerWidth), Math.max(5, layout.logInnerHeight))
+    this.state.mode = 'shell'
+    this.restartPolling()
+    this.render()
+  }
+
+  private closeShell(): void {
+    this.state.mode = 'normal'
+    this.restartPolling()
+    this.render()
+  }
+
+  private scheduleShellCapture(): void {
+    if (this.insertCaptureTimer) return
+    this.insertCaptureTimer = setTimeout(() => {
+      this.insertCaptureTimer = null
+      this.captureShell()
+    }, 50)
+  }
+
+  private captureShell(): void {
+    if (!hasSession(this.shellSession)) return
+    try {
+      const layout = calculateLayout(this.state.termWidth, this.state.termHeight)
+      const content = capturePane(this.shellSession, Math.max(200, layout.logInnerHeight * 3))
+      if (content !== this.shellContent) {
+        this.shellContent = content
+        this.state.logContent = content
+        // Auto-follow in shell mode
+        const lines = content.split('\n').length
+        this.state.logScrollOffset = Math.max(0, lines - layout.logInnerHeight)
+        this.render()
+      }
+    } catch {}
   }
 
   private setKillConfirm(agentName: string): void {
@@ -676,6 +734,13 @@ export class App {
     if (selected?.name !== this.lastSelectedName) {
       this.lastSelectedName = selected?.name
       this.lastLogContent = ''
+    }
+
+    // In shell mode, capture shell pane instead of agent pane
+    if (this.state.mode === 'shell') {
+      this.captureShell()
+      if (changed) this.render()
+      return
     }
 
     if (selected) {

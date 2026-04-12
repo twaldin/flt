@@ -31,6 +31,11 @@ export interface InputBindings {
   sendInsertText: (text: string) => void
   sendInsertKey: (key: TmuxInsertKey) => void
   flushInsert: () => void
+  openShell: () => void
+  closeShell: () => void
+  sendShellText: (text: string) => void
+  sendShellKey: (key: TmuxInsertKey) => void
+  flushShell: () => void
   quit: () => void
   onResize?: () => void
 }
@@ -500,6 +505,7 @@ function handleNormalChar(char: string, bindings: InputBindings): void {
   else if (char === 'K' && state.selectedAgent) bindings.setKillConfirm(state.selectedAgent.name)
   else if (char === 'm') bindings.setMode('inbox')
   else if (char === 'r' && state.selectedAgent) bindings.openCommand(`send ${state.selectedAgent.name} `)
+  else if (char === 't') bindings.openShell()
   else if (char === 'q') bindings.quit()
 }
 
@@ -563,6 +569,34 @@ function handleSpecialKey(event: Extract<ParsedInputEvent, { type: 'key' }>, bin
     return
   }
 
+  if (state.mode === 'shell') {
+    if (event.key === 'escape') {
+      bindings.flushShell()
+      bindings.closeShell()
+    } else if (event.key === 'enter') {
+      bindings.flushShell()
+      bindings.sendShellKey('Enter')
+    } else if (event.key === 'backspace') {
+      bindings.flushShell()
+      bindings.sendShellKey('BSpace')
+    } else if (event.key === 'tab') {
+      bindings.flushShell()
+      bindings.sendShellKey('Tab')
+    } else if (event.key === 'up') {
+      bindings.sendShellKey('Up')
+    } else if (event.key === 'down') {
+      bindings.sendShellKey('Down')
+    } else if (event.key === 'left') {
+      bindings.sendShellKey('Left')
+    } else if (event.key === 'right') {
+      bindings.sendShellKey('Right')
+    } else if (event.key === 'ctrl-c') {
+      bindings.flushShell()
+      bindings.sendShellKey('C-c')
+    }
+    return
+  }
+
   if (state.mode === 'command') {
     if (event.key === 'escape') {
       bindings.setCommand('', 0)
@@ -612,6 +646,11 @@ function handleText(event: Extract<ParsedInputEvent, { type: 'text' }>, bindings
 
   if (state.mode === 'insert') {
     bindings.sendInsertText(event.text)
+    return
+  }
+
+  if (state.mode === 'shell') {
+    bindings.sendShellText(event.text)
     return
   }
 

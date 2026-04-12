@@ -15,12 +15,13 @@ const FLT_BANNER = [
 ]
 
 const MODE_HINTS: Record<Mode, string> = {
-  normal: 'j/k select | Enter focus | r reply | m inbox | K kill | : command | q quit',
+  normal: 'j/k select | Enter focus | r reply | m inbox | t shell | K kill | : cmd | q quit',
   'log-focus': 'j/k scroll | i insert | Ctrl-d/u page | G/g bottom/top | Esc back',
   insert: 'typing to selected agent | Esc exit insert mode',
   command: 'Enter execute | Tab complete | Esc cancel',
   inbox: 'r reply to last sender | Esc close',
   'kill-confirm': 'y confirm | n cancel | Esc cancel',
+  shell: 'typing in shell | Esc close',
 }
 
 export interface LayoutMetrics {
@@ -352,7 +353,7 @@ export function renderLayout(screen: Screen, state: AppState): void {
     renderSidebar(screen, state, 1, 1, layout.sidebarInnerWidth, layout.sidebarInnerHeight)
 
     if (layout.logHeight > 0) {
-      const borderColor = state.mode === 'insert'
+      const borderColor = state.mode === 'insert' || state.mode === 'shell'
         ? t.logBorderInsert
         : state.mode === 'log-focus'
           ? t.logBorderFocus
