@@ -1,5 +1,5 @@
 import React from 'react'
-import { Box } from 'ink'
+import { Box, useStdout } from 'ink'
 
 interface LayoutProps {
   left: React.ReactNode
@@ -8,17 +8,22 @@ interface LayoutProps {
 }
 
 export function Layout({ left, right, footer }: LayoutProps): React.ReactElement {
+  const { stdout } = useStdout()
+  const termWidth = stdout?.columns ?? 80
+  const termHeight = stdout?.rows ?? 24
+  const leftWidth = Math.floor(termWidth * 0.28)
+
   return (
-    <Box flexDirection="column" width={100} height={30}>
+    <Box flexDirection="column" width={termWidth} height={termHeight}>
       <Box flexGrow={1} flexDirection="row">
-        <Box width={30} borderStyle="round" borderColor="cyan">
+        <Box width={leftWidth} borderStyle="round" borderColor="cyan" flexDirection="column">
           {left}
         </Box>
-        <Box flexGrow={1}>
+        <Box flexGrow={1} flexDirection="column">
           {right}
         </Box>
       </Box>
-      {footer && <Box>{footer}</Box>}
+      {footer && <Box width={termWidth}>{footer}</Box>}
     </Box>
   )
 }

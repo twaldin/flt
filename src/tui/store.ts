@@ -11,6 +11,7 @@ const initialState: TuiState = {
   commandInput: '',
   notifications: [],
   lastAgentsHash: '',
+  termHeight: 24,
 }
 
 function tuiReducer(state: TuiState, action: TuiAction): TuiState {
@@ -45,17 +46,20 @@ function tuiReducer(state: TuiState, action: TuiAction): TuiState {
 
     case 'SCROLL_LOG_DOWN': {
       const lines = state.logContent.split('\n').length
-      const maxScroll = Math.max(0, lines - 10)
-      return { ...state, logScrollOffset: Math.min(maxScroll, state.logScrollOffset + 1) }
+      const viewH = Math.max(4, state.termHeight - 5)
+      return { ...state, logScrollOffset: Math.min(Math.max(0, lines - viewH), state.logScrollOffset + 1) }
     }
 
-    case 'SCROLL_LOG_PAGE_UP':
-      return { ...state, logScrollOffset: Math.max(0, state.logScrollOffset - 5) }
+    case 'SCROLL_LOG_PAGE_UP': {
+      const pageSize = Math.max(1, Math.floor((state.termHeight - 5) / 2))
+      return { ...state, logScrollOffset: Math.max(0, state.logScrollOffset - pageSize) }
+    }
 
     case 'SCROLL_LOG_PAGE_DOWN': {
       const lines = state.logContent.split('\n').length
-      const maxScroll = Math.max(0, lines - 10)
-      return { ...state, logScrollOffset: Math.min(maxScroll, state.logScrollOffset + 5) }
+      const viewH = Math.max(4, state.termHeight - 5)
+      const pageSize = Math.max(1, Math.floor(viewH / 2))
+      return { ...state, logScrollOffset: Math.min(Math.max(0, lines - viewH), state.logScrollOffset + pageSize) }
     }
 
     case 'JUMP_LOG_TOP':
@@ -63,8 +67,12 @@ function tuiReducer(state: TuiState, action: TuiAction): TuiState {
 
     case 'JUMP_LOG_BOTTOM': {
       const lines = state.logContent.split('\n').length
-      return { ...state, logScrollOffset: Math.max(0, lines - 10) }
+      const viewH = Math.max(4, state.termHeight - 5)
+      return { ...state, logScrollOffset: Math.max(0, lines - viewH) }
     }
+
+    case 'SET_TERM_HEIGHT':
+      return { ...state, termHeight: action.height }
 
     case 'SET_SEARCH_QUERY':
       return { ...state, searchQuery: action.query }

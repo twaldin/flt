@@ -25,6 +25,7 @@ export interface TuiState {
   commandInput: string
   notifications: Notification[]
   lastAgentsHash: string
+  termHeight: number
 }
 
 export type TuiAction =
@@ -43,3 +44,4 @@ export type TuiAction =
   | { type: 'SET_COMMAND_INPUT'; input: string }
   | { type: 'ADD_NOTIFICATION'; notification: Notification }
   | { type: 'CLEAR_NOTIFICATION'; agentName: string }
+  | { type: 'SET_TERM_HEIGHT'; height: number }

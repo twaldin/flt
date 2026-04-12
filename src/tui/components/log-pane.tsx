@@ -1,5 +1,5 @@
 import React from 'react'
-import { Box, Text } from 'ink'
+import { Box, Text, useStdout } from 'ink'
 
 interface LogPaneProps {
   content: string
@@ -9,8 +9,11 @@ interface LogPaneProps {
 }
 
 export function LogPane({ content, focused, scrollOffset, searchQuery }: LogPaneProps): React.ReactElement {
+  const { stdout } = useStdout()
+  const termHeight = stdout?.rows ?? 24
+  // Account for borders (2), footer status bar (~1), padding
+  const windowHeight = Math.max(4, termHeight - 5)
   const lines = content.split('\n')
-  const windowHeight = 20
   const startIdx = Math.max(0, scrollOffset)
   const endIdx = Math.min(lines.length, startIdx + windowHeight)
   const visibleLines = lines.slice(startIdx, endIdx)

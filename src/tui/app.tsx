@@ -1,5 +1,5 @@
-import React from 'react'
-import { Box, Text, useInput } from 'ink'
+import React, { useEffect } from 'react'
+import { Box, Text, useInput, useStdout } from 'ink'
 import { useTuiStore } from './store'
 import { useFleetPoller } from './poller'
 import { Layout } from './layout'
@@ -13,6 +13,15 @@ import { send } from '../commands/send'
 
 export function App(): React.ReactElement {
   const [state, dispatch] = useTuiStore()
+  const { stdout } = useStdout()
+
+  // Keep termHeight in sync with actual terminal size
+  useEffect(() => {
+    const update = () => dispatch({ type: 'SET_TERM_HEIGHT', height: stdout?.rows ?? 24 })
+    update()
+    stdout?.on('resize', update)
+    return () => { stdout?.off('resize', update) }
+  }, [stdout, dispatch])
 
   useFleetPoller(state, dispatch, state.agents[state.selectedIndex]?.name)
 

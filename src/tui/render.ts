@@ -3,7 +3,9 @@ import { render } from 'ink'
 import { App } from './app'
 
 export async function renderTui(): Promise<void> {
-  const { unmount } = render(React.createElement(App))
+  const { waitUntilExit, unmount } = render(React.createElement(App), {
+    fullscreen: true,
+  })
 
   // Handle Ctrl+C gracefully
   process.on('SIGINT', () => {
@@ -11,6 +13,5 @@ export async function renderTui(): Promise<void> {
     process.exit(0)
   })
 
-  // Keep alive until unmount
-  await new Promise(() => {})
+  await waitUntilExit()
 }
