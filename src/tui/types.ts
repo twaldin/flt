@@ -10,7 +10,7 @@ export interface Notification {
 
 export interface AgentView extends AgentState {
   name: string
-  status: 'spawning' | 'ready' | 'running' | 'exited' | 'error'
+  status: 'spawning' | 'ready' | 'running' | 'idle' | 'exited' | 'error' | 'rate-limited' | 'unknown'
   lastSeen: number // timestamp
   notification?: Notification
 }

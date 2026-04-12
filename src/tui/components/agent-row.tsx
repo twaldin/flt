@@ -11,17 +11,23 @@ interface AgentRowProps {
 const statusColors: Record<string, string> = {
   spawning: 'yellow',
   ready: 'green',
-  running: 'green',
+  running: 'yellow',
+  idle: 'green',
   exited: 'gray',
   error: 'red',
+  'rate-limited': 'red',
+  unknown: 'gray',
 }
 
 const statusSymbols: Record<string, string> = {
   spawning: '◐',
   ready: '●',
-  running: '●',
+  running: '▶',
+  idle: '●',
   exited: '○',
   error: '✕',
+  'rate-limited': '⏸',
+  unknown: '?',
 }
 
 function formatAge(isoDate: string): string {
