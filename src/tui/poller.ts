@@ -135,9 +135,9 @@ export function useFleetPoller(
   }, [])
 
   useEffect(() => {
-    // In insert mode, capture at 300ms so typed text appears quickly.
-    // Optimistic buffer gives instant feedback; capture replaces it with real content.
-    const pollMs = state.mode === 'insert' ? 300 : 1000
+    // In insert mode, capture at 500ms. Optimistic buffer gives instant
+    // visual feedback; capture replaces it with real content.
+    const pollMs = state.mode === 'insert' ? 500 : 1000
     const interval = setInterval(poll, pollMs)
     poll()
     return () => clearInterval(interval)
