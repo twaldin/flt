@@ -1,5 +1,5 @@
-import { readFileSync, writeFileSync, existsSync, copyFileSync, unlinkSync } from 'fs'
-import { join } from 'path'
+import { readFileSync, writeFileSync, existsSync, copyFileSync, unlinkSync, mkdirSync } from 'fs'
+import { join, dirname } from 'path'
 
 const TEMPLATE_PATH = join(import.meta.dir, '..', 'templates', 'system-block.md')
 const FLT_MARKER_START = '<!-- flt:start -->'
@@ -54,6 +54,9 @@ export function projectInstructions(
 ): void {
   const filePath = join(workDir, instructionFile)
   const fltBlock = buildFullInstructions(opts)
+
+  // Ensure parent directory exists (for nested paths like .opencode/agents/flt.md)
+  mkdirSync(dirname(filePath), { recursive: true })
 
   if (existsSync(filePath)) {
     const existing = readFileSync(filePath, 'utf-8')

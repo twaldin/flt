@@ -3,11 +3,11 @@ import type { CliAdapter, SpawnOpts, ReadyState, AgentStatus } from './types'
 export const aiderAdapter: CliAdapter = {
   name: 'aider',
   cliCommand: 'aider',
-  instructionFile: '.aider.conf.yml',
+  instructionFile: '.flt-instructions.md',
   submitKeys: ['Enter'],
 
   spawnArgs(opts: SpawnOpts): string[] {
-    const args = ['aider', '--yes']
+    const args = ['aider', '--yes', '--read', '.flt-instructions.md']
     if (opts.model) args.push('--model', opts.model)
     return args
   },

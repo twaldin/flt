@@ -13,11 +13,11 @@ export const opencodeAdapter: CliAdapter = {
   },
 
   detectReady(pane: string): ReadyState {
-    const lines = pane.split('\n').map(l => l.trim()).filter(Boolean)
+    const lines = pane.split('\n')
     const last20 = lines.slice(-20).join('\n')
 
-    // OpenCode TUI ready state
-    if (/[>❯]\s*$/.test(last20) || /opencode/i.test(last20)) {
+    // OpenCode shows "Ask anything..." placeholder and version in status bar
+    if (/Ask anything/i.test(last20) && /\d+\.\d+\.\d+/.test(last20)) {
       return 'ready'
     }
 
@@ -44,7 +44,7 @@ export const opencodeAdapter: CliAdapter = {
       return 'running'
     }
 
-    if (/[>❯]\s*$/.test(last10)) {
+    if (/Ask anything/i.test(last10) || /\d+\.\d+\.\d+/.test(last10)) {
       return 'idle'
     }
 
