@@ -22,17 +22,24 @@ export async function send(args: SendArgs): Promise<void> {
       throw new Error('Cannot send to "parent" — not running as a fleet agent.')
     }
 
-    const state = loadState()
+    if (!caller.parentSession) {
+      throw new Error('No parent session found (FLT_PARENT_SESSION not set).')
+    }
 
-    // Human orchestrator uses file-based inbox — no session needed
-    if (state.orchestrator?.type === 'human') {
+    const state = loadState()
+    const orchSession = state.orchestrator?.tmuxSession
+
+    // If direct parent IS the human orchestrator session → inbox only
+    if (state.orchestrator?.type === 'human' && caller.parentSession === orchSession) {
       isHumanParent = true
-      session = state.orchestrator.tmuxSession // set for liveness check below (skipped for human)
+      session = orchSession
     } else {
-      if (!caller.parentSession) {
-        throw new Error('No parent session found (FLT_PARENT_SESSION not set).')
-      }
+      // Direct parent is an agent (e.g. cairn). Send to that agent's tmux session
+      // AND bubble a copy to the human inbox so Tim sees it too.
       session = caller.parentSession
+      if (state.orchestrator?.type === 'human') {
+        appendInbox(caller.agentName ?? 'agent', message)
+      }
     }
   } else {
     const agent = getAgent(target)
