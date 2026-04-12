@@ -521,7 +521,16 @@ export class App {
     }
 
     if (parsed.cmd === 'theme') {
-      this.setBanner('Theme command is reserved in TUI v2', 'yellow', 3000)
+      const { setTheme, getThemeNames, getCurrentThemeName } = require('./theme')
+      const themeName = parsed.args[0]
+      if (!themeName) {
+        this.setBanner(`Current: ${getCurrentThemeName()}. Available: ${getThemeNames().join(', ')}`, 'cyan', 4000)
+      } else if (setTheme(themeName)) {
+        this.screen.forceDirty()
+        this.setBanner(`Theme: ${themeName}`, 'green', 2000)
+      } else {
+        this.setBanner(`Unknown theme: ${themeName}. Available: ${getThemeNames().join(', ')}`, 'red', 4000)
+      }
       return
     }
 

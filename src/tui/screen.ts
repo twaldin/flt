@@ -239,6 +239,10 @@ export class Screen {
     this.writer.write(output)
   }
 
+  forceDirty(): void {
+    this.forceFullRedraw = true
+  }
+
   resize(cols: number, rows: number): void {
     this.cols = Math.max(1, cols)
     this.rows = Math.max(1, rows)
