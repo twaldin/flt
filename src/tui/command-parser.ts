@@ -1,0 +1,41 @@
+/**
+ * Parse TUI commands like `:send agent message`
+ */
+
+export interface ParsedCommand {
+  cmd: string
+  args: string[]
+  raw: string
+}
+
+/**
+ * Parse a command line starting with ':'
+ * Examples:
+ *   `:send agent hello` -> { cmd: 'send', args: ['agent', 'hello'] }
+ *   `:logs agent-1` -> { cmd: 'logs', args: ['agent-1'] }
+ */
+export function parseCommand(line: string): ParsedCommand | null {
+  const trimmed = line.trim()
+  if (!trimmed.startsWith(':')) {
+    return null
+  }
+
+  const withoutColon = trimmed.slice(1).trim()
+  if (!withoutColon) {
+    return null
+  }
+
+  const parts = withoutColon.split(/\s+/)
+  const cmd = parts[0]
+  const args = parts.slice(1)
+
+  return { cmd, args, raw: trimmed }
+}
+
+/**
+ * Validate a command is recognized
+ */
+export function isValidCommand(cmd: string): boolean {
+  const valid = ['send', 'logs', 'spawn', 'kill', 'theme', 'help', '!']
+  return valid.includes(cmd)
+}

@@ -48,7 +48,6 @@ export async function init(args: InitArgs): Promise<void> {
       tmuxSession: currentSession,
       tmuxWindow: process.env.TMUX_PANE || '0',
     })
-    console.log(`Updated fleet parent session → ${currentSession}`)
   } else {
     setOrchestrator({
       tmuxSession: currentSession,
@@ -65,37 +64,9 @@ export async function init(args: InitArgs): Promise<void> {
     writeFileSync(inboxPath, '')
   }
 
-  console.log('Fleet initialized. You are the orchestrator.')
-  console.log('Use "flt spawn <name> --cli <cli>" to add agents.')
-  console.log('Agent messages will appear below. Ctrl+C to exit.\n')
-  console.log('─'.repeat(60))
-
-  // Tail the inbox file — show new messages as they arrive
-  let lastSize = readFileSync(inboxPath).length
-
-  const check = () => {
-    try {
-      const content = readFileSync(inboxPath)
-      if (content.length > lastSize) {
-        const newBytes = content.subarray(lastSize)
-        process.stdout.write(newBytes.toString())
-        lastSize = content.length
-      }
-    } catch {}
-  }
-
-  // Poll every 500ms (watchFile is unreliable on some systems)
-  const interval = setInterval(check, 500)
-
-  // Keep alive until Ctrl+C
-  process.on('SIGINT', () => {
-    clearInterval(interval)
-    console.log('\nFleet session ended. Agents keep running.')
-    process.exit(0)
-  })
-
-  // Block forever
-  await new Promise(() => {})
+  // Render TUI
+  const { renderTui } = await import('../tui/render')
+  await renderTui()
 }
 
 function detectTmuxSession(): string {
