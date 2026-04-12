@@ -1,5 +1,6 @@
 import { resolveAdapter } from '../adapters/registry'
 import { projectInstructions } from '../instructions'
+import { projectSkills } from '../skills'
 import { createWorktree, isGitRepo } from '../worktree'
 import { loadState, setAgent, hasAgent } from '../state'
 import * as tmux from '../tmux'
@@ -75,6 +76,9 @@ export async function spawn(args: SpawnArgs): Promise<void> {
       model: model ?? 'default',
     })
   }
+
+  // Project skills into workspace
+  projectSkills(workDir, adapter, name)
 
   // Build spawn command
   const cliArgs = adapter.spawnArgs({ model, dir: workDir })

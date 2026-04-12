@@ -1,6 +1,7 @@
 import { getAgent, removeAgent, loadState } from '../state'
 import { removeWorktree } from '../worktree'
 import { restoreInstructions } from '../instructions'
+import { cleanupSkills } from '../skills'
 import { resolveAdapter } from '../adapters/registry'
 import * as tmux from '../tmux'
 import { execSync } from 'child_process'
@@ -47,6 +48,7 @@ export function kill(args: KillArgs): void {
     if (adapter.instructionFile) {
       restoreInstructions(agent.dir, adapter.instructionFile)
     }
+    cleanupSkills(agent.dir, adapter, name)
   } catch {
     // Best-effort
   }

@@ -7,6 +7,7 @@ import { list } from './commands/list'
 import { kill } from './commands/kill'
 import { logs } from './commands/logs'
 import { init } from './commands/init'
+import { skillsList } from './commands/skills'
 import { listAdapters } from './adapters/registry'
 
 const program = new Command()
@@ -100,6 +101,24 @@ program
   .action((name, opts) => {
     try {
       logs({ name, lines: parseInt(opts.lines, 10) })
+    } catch (e) {
+      console.error(`Error: ${(e as Error).message}`)
+      process.exit(1)
+    }
+  })
+
+const skillsCmd = program
+  .command('skills')
+  .description('Manage skills')
+
+skillsCmd
+  .command('list')
+  .description('List available skills')
+  .option('--agent <name>', 'Filter by agent name')
+  .option('--cli <cli>', 'Filter by CLI adapter')
+  .action((opts) => {
+    try {
+      skillsList({ agent: opts.agent, cli: opts.cli })
     } catch (e) {
       console.error(`Error: ${(e as Error).message}`)
       process.exit(1)
