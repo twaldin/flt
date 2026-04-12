@@ -1,13 +1,11 @@
-import { execSync, execFileSync } from 'child_process'
+import { execFileSync } from 'child_process'
 import { writeFileSync, unlinkSync } from 'fs'
 import { tmpdir } from 'os'
 import { join } from 'path'
 import { randomUUID } from 'crypto'
 
-const SOCKET = 'flt'
-
 function tmux(...args: string[]): string {
-  return execFileSync('tmux', ['-L', SOCKET, ...args], {
+  return execFileSync('tmux', args, {
     encoding: 'utf-8',
     timeout: 10_000,
     stdio: ['pipe', 'pipe', 'pipe'],
@@ -20,35 +18,6 @@ function tmuxNoThrow(...args: string[]): string | null {
   } catch {
     return null
   }
-}
-
-// Run a tmux command on the default (system) socket instead of the flt socket
-function tmuxDefault(...args: string[]): string {
-  return execFileSync('tmux', args, {
-    encoding: 'utf-8',
-    timeout: 10_000,
-    stdio: ['pipe', 'pipe', 'pipe'],
-  }).trim()
-}
-
-function tmuxDefaultNoThrow(...args: string[]): string | null {
-  try {
-    return tmuxDefault(...args)
-  } catch {
-    return null
-  }
-}
-
-export function hasSessionOnDefaultSocket(name: string): boolean {
-  return tmuxDefaultNoThrow('has-session', '-t', name) !== null
-}
-
-export function displayMessageOnDefaultSocket(session: string, message: string): void {
-  tmuxDefault('display-message', '-t', session, '-d', '0', message)
-}
-
-export function displayMessage(session: string, message: string): void {
-  tmux('display-message', '-t', session, '-d', '0', message)
 }
 
 export function createSession(
@@ -116,4 +85,6 @@ export function setEnv(session: string, key: string, value: string): void {
   tmux('set-environment', '-t', session, key, value)
 }
 
-export { SOCKET }
+export function displayMessage(session: string, message: string): void {
+  tmux('display-message', '-t', session, '-d', '0', message)
+}
