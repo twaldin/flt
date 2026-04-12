@@ -2,6 +2,7 @@ import { getAgent, loadState } from '../state'
 import { resolveAdapter } from '../adapters/registry'
 import * as tmux from '../tmux'
 import { detectCaller } from '../detect'
+import { appendInbox } from './init'
 
 interface SendArgs {
   target: string
@@ -51,8 +52,8 @@ export async function send(args: SendArgs): Promise<void> {
   }
 
   if (isHumanParent) {
-    // Display as a banner in the human's terminal — don't type into their shell
-    tmux.displayMessage(session, `[flt:${caller.agentName}] ${message}`)
+    // Write to inbox log — human's `flt init` tails this file
+    appendInbox(caller.agentName ?? 'agent', message)
   } else {
     if (message.length > 200 || message.includes('\n')) {
       tmux.pasteBuffer(session, message)
