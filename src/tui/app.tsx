@@ -148,7 +148,8 @@ export function App(): React.ReactElement {
           model = spawnArgs[i + 1]
           i += 2
         } else if (spawnArgs[i] === '--dir' && i + 1 < spawnArgs.length) {
-          dir = spawnArgs[i + 1]
+          const raw = spawnArgs[i + 1]
+          dir = raw.startsWith('~/') ? raw.replace('~', process.env.HOME || '') : raw
           i += 2
         } else {
           // Everything else is bootstrap message
