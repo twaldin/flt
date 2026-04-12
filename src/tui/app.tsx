@@ -13,6 +13,7 @@ import { send } from '../commands/send'
 import { sendKeysAsync, sendLiteralBatched, flushBatchedKeys } from '../tmux'
 import { listAdapters } from '../adapters/registry'
 import { spawn } from '../commands/spawn'
+import { kill } from '../commands/kill'
 
 export function App(): React.ReactElement {
   const [state, dispatch] = useTuiStore()
@@ -180,6 +181,17 @@ export function App(): React.ReactElement {
           dispatch({ type: 'SET_BANNER', banner: { text: `Spawn failed: ${e.message}`, color: 'red' } })
           setTimeout(() => dispatch({ type: 'SET_BANNER', banner: null }), 5000)
         })
+    } else if (parsed.cmd === 'kill' && parsed.args.length >= 1) {
+      const name = parsed.args[0]
+      try {
+        kill({ name })
+        dispatch({ type: 'SET_BANNER', banner: { text: `Killed ${name}`, color: 'green' } })
+        setTimeout(() => dispatch({ type: 'SET_BANNER', banner: null }), 3000)
+      } catch (e: unknown) {
+        const msg = e instanceof Error ? e.message : String(e)
+        dispatch({ type: 'SET_BANNER', banner: { text: `Kill failed: ${msg}`, color: 'red' } })
+        setTimeout(() => dispatch({ type: 'SET_BANNER', banner: null }), 5000)
+      }
     } else if (parsed.cmd === 'logs' && parsed.args.length >= 1) {
       const agentName = parsed.args[0]
       const idx = state.agents.findIndex((a) => a.name === agentName)
