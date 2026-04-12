@@ -11,6 +11,7 @@ import { InboxPanel } from './components/inbox-panel'
 import { parseCommand, enrichMessageWithFiles } from './command-parser'
 import { send } from '../commands/send'
 import { spawnSync } from 'child_process'
+import { execSync } from 'child_process'
 import { listAdapters } from '../adapters/registry'
 import { spawn } from '../commands/spawn'
 import { kill } from '../commands/kill'
@@ -32,16 +33,27 @@ export function App(): React.ReactElement {
 
   // Direct tmux attach for insert mode — completely bypasses Ink for native typing
   const attachToAgent = (session: string) => {
-    // Exit Ink's alternate screen buffer
+    // Release stdin from Ink so tmux can use it
+    const wasRaw = process.stdin.isRaw
+    process.stdin.setRawMode(false)
+    process.stdin.pause()
+
+    // Exit Ink's alternate screen buffer, show cursor
     process.stdout.write('\x1b[?1049l\x1b[?25h')
-    process.stdout.write(`\n  Attached to ${session}. Detach: Ctrl-b d\n\n`)
+    process.stdout.write(`\r\n  Attached to ${session}. Detach with your tmux prefix + d\r\n\r\n`)
 
     // Block everything — user types directly in tmux with zero latency
-    spawnSync('tmux', ['attach-session', '-t', session], {
-      stdio: 'inherit',
-    })
+    try {
+      execSync(`tmux attach-session -t '${session}'`, { stdio: 'inherit' })
+    } catch {
+      // tmux attach returns non-zero if session dies during attach
+    }
 
-    // User detached — re-enter Ink's alternate screen
+    // User detached — reclaim stdin for Ink
+    process.stdin.resume()
+    if (wasRaw) process.stdin.setRawMode(true)
+
+    // Re-enter Ink's alternate screen, hide cursor
     process.stdout.write('\x1b[?1049h\x1b[?25l')
 
     // Force re-render with fresh content
