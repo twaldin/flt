@@ -10,7 +10,7 @@ interface AgentListProps {
   onSelectNext: () => void
 }
 
-export function AgentList({ agents, selectedIndex }: AgentListProps): React.ReactElement {
+export const AgentList = React.memo(function AgentList({ agents, selectedIndex }: AgentListProps): React.ReactElement {
   return (
     <Box flexDirection="column" width="100%">
       <Text bold>Agents ({agents.length})</Text>
@@ -20,4 +20,4 @@ export function AgentList({ agents, selectedIndex }: AgentListProps): React.Reac
       ))}
     </Box>
   )
-}
+})
