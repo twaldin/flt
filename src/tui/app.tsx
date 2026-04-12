@@ -11,6 +11,8 @@ import { InboxPanel } from './components/inbox-panel'
 import { parseCommand, enrichMessageWithFiles } from './command-parser'
 import { send } from '../commands/send'
 import { sendKeys, sendLiteral } from '../tmux'
+import { listAdapters } from '../adapters/registry'
+import { spawn } from '../commands/spawn'
 
 export function App(): React.ReactElement {
   const [state, dispatch] = useTuiStore()
@@ -127,6 +129,38 @@ export function App(): React.ReactElement {
       try {
         await send({ target, message })
       } catch {}
+    } else if (parsed.cmd === 'spawn' && parsed.args.length >= 1) {
+      // Parse: spawn <name> --cli <cli> --model <model> --dir <dir> <bootstrap...>
+      const spawnArgs = parsed.args
+      const name = spawnArgs[0]
+      let cli = 'claude-code'
+      let model: string | undefined
+      let dir: string | undefined
+      const messageTokens: string[] = []
+
+      let i = 1
+      while (i < spawnArgs.length) {
+        if (spawnArgs[i] === '--cli' && i + 1 < spawnArgs.length) {
+          cli = spawnArgs[i + 1]
+          i += 2
+        } else if (spawnArgs[i] === '--model' && i + 1 < spawnArgs.length) {
+          model = spawnArgs[i + 1]
+          i += 2
+        } else if (spawnArgs[i] === '--dir' && i + 1 < spawnArgs.length) {
+          dir = spawnArgs[i + 1]
+          i += 2
+        } else {
+          // Everything else is bootstrap message
+          messageTokens.push(spawnArgs[i])
+          i++
+        }
+      }
+
+      const bootstrap = messageTokens.join(' ') || undefined
+      try {
+        // Fire and forget — poller will pick up the new agent
+        spawn({ name, cli, model, dir, bootstrap }).catch(() => {})
+      } catch {}
     } else if (parsed.cmd === 'logs' && parsed.args.length >= 1) {
       const agentName = parsed.args[0]
       const idx = state.agents.findIndex((a) => a.name === agentName)
@@ -182,6 +216,7 @@ export function App(): React.ReactElement {
               onCancel={() => dispatch({ type: 'SET_MODE', mode: 'normal' })}
               initialValue={state.commandInput}
               agentNames={state.agents.map(a => a.name)}
+              cliAdapters={listAdapters()}
             />
             <StatusBar mode={state.mode} agentCount={state.agents.length} selectedAgent={selectedAgent?.name} />
           </Box>
