@@ -43,8 +43,6 @@ export function useFleetPoller(
   const lastContentRef = useRef('')
   const lastAgentsHashRef = useRef('')
   const lastInboxRef = useRef('')
-  // Throttle renders in insert mode: capture fast, render slower
-  const lastRenderTimeRef = useRef(0)
 
   stateRef.current = state
   dispatchRef.current = dispatch
@@ -54,7 +52,6 @@ export function useFleetPoller(
     const st = stateRef.current
     const dp = dispatchRef.current
     const sel = selectedRef.current
-    const isInsert = st.mode === 'insert'
 
     const agents = allAgents()
     const agentViews: AgentView[] = []
@@ -66,14 +63,8 @@ export function useFleetPoller(
         status = 'spawning'
       } else if (!hasSession(agentState.tmuxSession)) {
         status = 'exited'
-      } else if (!isInsert) {
-        // Use adapter's real status detection (idle/running/error/rate-limited)
-        // Skip during insert mode to reduce execFileSync calls
-        status = detectAgentStatus(agentState)
       } else {
-        // In insert mode, keep last known status to avoid extra tmux calls
-        const existing = st.agents.find(a => a.name === name)
-        status = existing?.status ?? 'running'
+        status = detectAgentStatus(agentState)
       }
 
       agentViews.push({
@@ -84,43 +75,25 @@ export function useFleetPoller(
       })
     }
 
-    // Only dispatch if agents actually changed
     const hash = agentsHash(agentViews)
     if (hash !== lastAgentsHashRef.current) {
       lastAgentsHashRef.current = hash
       dp({ type: 'SET_AGENTS', agents: agentViews })
     }
 
-    // Capture pane for selected agent
     if (sel && agentViews.some(a => a.name === sel)) {
       const agent = agents[sel]
       if (agent) {
         try {
-          // Only resize on slow polls — not every 100ms in insert mode
-          if (!isInsert) {
-            const leftPanelWidth = Math.floor(st.termWidth * 0.28)
-            const logPaneWidth = Math.max(40, st.termWidth - leftPanelWidth - 4)
-            const logPaneHeight = Math.max(10, st.termHeight - 5)
-            resizeWindow(agent.tmuxSession, logPaneWidth, logPaneHeight)
-          }
+          const leftPanelWidth = Math.floor(st.termWidth * 0.28)
+          const logPaneWidth = Math.max(40, st.termWidth - leftPanelWidth - 4)
+          const logPaneHeight = Math.max(10, st.termHeight - 5)
+          resizeWindow(agent.tmuxSession, logPaneWidth, logPaneHeight)
 
-          const content = capturePane(agent.tmuxSession, Math.max(200, (st.termHeight - 5) * 3))
-
-          // Only dispatch if content changed
+          const content = capturePane(agent.tmuxSession, Math.max(200, logPaneHeight * 3))
           if (content !== lastContentRef.current) {
             lastContentRef.current = content
-
-            // In insert mode, throttle renders to 500ms — keystrokes forward async,
-            // screen catches up. Prevents full Ink redraws during fast typing.
-            if (isInsert) {
-              const now = Date.now()
-              if (now - lastRenderTimeRef.current >= 500) {
-                lastRenderTimeRef.current = now
-                dp({ type: 'SET_LOG_CONTENT', content })
-              }
-            } else {
-              dp({ type: 'SET_LOG_CONTENT', content })
-            }
+            dp({ type: 'SET_LOG_CONTENT', content })
           }
         } catch {
           if (lastContentRef.current !== '[error reading pane]') {
@@ -131,30 +104,25 @@ export function useFleetPoller(
       }
     }
 
-    // Read inbox (only on slow poll)
-    if (!isInsert) {
-      try {
-        const inboxPath = getInboxPath()
-        if (existsSync(inboxPath)) {
-          const raw = readFileSync(inboxPath, 'utf-8')
-          if (raw !== lastInboxRef.current) {
-            lastInboxRef.current = raw
-            dp({ type: 'SET_INBOX', messages: parseInbox(raw) })
-          }
+    try {
+      const inboxPath = getInboxPath()
+      if (existsSync(inboxPath)) {
+        const raw = readFileSync(inboxPath, 'utf-8')
+        if (raw !== lastInboxRef.current) {
+          lastInboxRef.current = raw
+          dp({ type: 'SET_INBOX', messages: parseInbox(raw) })
         }
-      } catch {}
-    }
+      }
+    } catch {}
   }, [])
 
   useEffect(() => {
-    const pollMs = state.mode === 'insert' ? 100 : 1000
-    const interval = setInterval(poll, pollMs)
+    const interval = setInterval(poll, 1000)
     poll()
     return () => clearInterval(interval)
-  }, [state.mode === 'insert', poll])
+  }, [poll])
 
   useEffect(() => {
     lastContentRef.current = ''
-    lastRenderTimeRef.current = 0
   }, [selectedAgent])
 }

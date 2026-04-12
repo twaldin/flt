@@ -10,7 +10,7 @@ import { StatusBar } from './components/status-bar'
 import { InboxPanel } from './components/inbox-panel'
 import { parseCommand, enrichMessageWithFiles } from './command-parser'
 import { send } from '../commands/send'
-import { sendKeysAsync, sendLiteralBatched, flushBatchedKeys } from '../tmux'
+import { spawnSync } from 'child_process'
 import { listAdapters } from '../adapters/registry'
 import { spawn } from '../commands/spawn'
 import { kill } from '../commands/kill'
@@ -30,49 +30,25 @@ export function App(): React.ReactElement {
 
   const selectedAgent = state.agents[state.selectedIndex]
 
+  // Direct tmux attach for insert mode — completely bypasses Ink for native typing
+  const attachToAgent = (session: string) => {
+    // Exit Ink's alternate screen buffer
+    process.stdout.write('\x1b[?1049l\x1b[?25h')
+    process.stdout.write(`\n  Attached to ${session}. Detach: Ctrl-b d\n\n`)
+
+    // Block everything — user types directly in tmux with zero latency
+    spawnSync('tmux', ['attach-session', '-t', session], {
+      stdio: 'inherit',
+    })
+
+    // User detached — re-enter Ink's alternate screen
+    process.stdout.write('\x1b[?1049h\x1b[?25l')
+
+    // Force re-render with fresh content
+    dispatch({ type: 'SET_MODE', mode: 'log-focus' })
+  }
+
   useInput((input, key) => {
-    // Insert mode — forward keystrokes to agent's tmux session
-    if (state.mode === 'insert') {
-      if (key.escape) {
-        dispatch({ type: 'SET_MODE', mode: 'log-focus' })
-        return
-      }
-
-      if (!selectedAgent) return
-      const session = selectedAgent.tmuxSession
-
-      // Special keys flush the batch buffer first, then send the key
-      if (key.return) {
-        flushBatchedKeys(session)
-        sendKeysAsync(session, ['Enter'])
-      } else if (key.backspace || key.delete) {
-        flushBatchedKeys(session)
-        sendKeysAsync(session, ['BSpace'])
-      } else if (key.tab) {
-        flushBatchedKeys(session)
-        sendKeysAsync(session, ['Tab'])
-      } else if (key.upArrow) {
-        sendKeysAsync(session, ['Up'])
-      } else if (key.downArrow) {
-        sendKeysAsync(session, ['Down'])
-      } else if (key.leftArrow) {
-        sendKeysAsync(session, ['Left'])
-      } else if (key.rightArrow) {
-        sendKeysAsync(session, ['Right'])
-      } else if (key.ctrl && input === 'c') {
-        flushBatchedKeys(session)
-        sendKeysAsync(session, ['C-c'])
-      } else if (key.ctrl && input === 'z') {
-        sendKeysAsync(session, ['C-z'])
-      } else if (key.ctrl && input === 'l') {
-        sendKeysAsync(session, ['C-l'])
-      } else if (input) {
-        // Literal chars get batched — flushed every 16ms as one tmux call
-        sendLiteralBatched(session, input)
-      }
-      return
-    }
-
     // Inbox mode
     if (state.mode === 'inbox') {
       if (key.escape) {
@@ -102,9 +78,8 @@ export function App(): React.ReactElement {
 
     // Log focus mode
     if (state.mode === 'log-focus') {
-      if (input === 'i') {
-        dispatch({ type: 'JUMP_LOG_BOTTOM' })
-        dispatch({ type: 'SET_MODE', mode: 'insert' })
+      if (input === 'i' && selectedAgent) {
+        attachToAgent(selectedAgent.tmuxSession)
       }
       else if (input === 'j') dispatch({ type: 'SCROLL_LOG_DOWN' })
       else if (input === 'k') dispatch({ type: 'SCROLL_LOG_UP' })
@@ -227,11 +202,10 @@ export function App(): React.ReactElement {
           ) : selectedAgent ? (
             <LogPane
               content={state.logContent}
-              focused={state.mode === 'log-focus' || state.mode === 'insert'}
+              focused={state.mode === 'log-focus'}
               scrollOffset={state.logScrollOffset}
               searchQuery={state.searchQuery}
               autoFollow={state.autoFollow}
-              insertMode={state.mode === 'insert'}
             />
           ) : (
             <Box flexDirection="column" flexGrow={1} justifyContent="center" alignItems="center">

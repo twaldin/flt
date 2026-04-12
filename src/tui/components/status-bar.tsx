@@ -10,8 +10,8 @@ interface StatusBarProps {
 
 const modeHints: Record<Mode, string> = {
   normal: 'j/k: select | ↵: focus log | r: reply | m: inbox | : command | q: quit',
-  'log-focus': 'j/k: scroll | i: insert | r: reply | Ctrl-d/u: page | G: bottom | /: search | Esc: back',
-  insert: 'typing into agent — Esc: exit insert mode',
+  'log-focus': 'j/k: scroll | i: attach | r: reply | Ctrl-d/u: page | G: bottom | /: search | Esc: back',
+  insert: 'attached to agent tmux — Ctrl-b d: detach',
   command: 'Enter: execute | Esc: cancel',
   inbox: 'r: reply to last | Esc: close',
   'spawn-wizard': 'Tab: next field | Ctrl-Enter: spawn',
