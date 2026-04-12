@@ -8,7 +8,7 @@ import { LogPane } from './components/log-pane'
 import { CommandBar } from './components/command-bar'
 import { StatusBar } from './components/status-bar'
 import { InboxPanel } from './components/inbox-panel'
-import { parseCommand } from './command-parser'
+import { parseCommand, enrichMessageWithFiles } from './command-parser'
 import { send } from '../commands/send'
 import { sendKeys, sendLiteral } from '../tmux'
 
@@ -122,7 +122,8 @@ export function App(): React.ReactElement {
 
     if (parsed.cmd === 'send' && parsed.args.length >= 2) {
       const target = parsed.args[0]
-      const message = parsed.args.slice(1).join(' ')
+      const rawMessage = parsed.args.slice(1).join(' ')
+      const message = enrichMessageWithFiles(rawMessage)
       try {
         await send({ target, message })
       } catch {}

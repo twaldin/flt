@@ -17,11 +17,11 @@ const initialState: TuiState = {
   termWidth: 80,
 }
 
-const BANNER_HEIGHT = 10
+const BANNER_PANEL_HEIGHT = 10 // 8 lines + 2 border
 
 function viewHeight(state: TuiState): number {
-  // Total pane height minus banner and scroll indicator
-  return Math.max(4, state.termHeight - 5 - BANNER_HEIGHT - 1)
+  // Content area: term height minus banner panel, footer, outer borders, scroll indicator
+  return Math.max(4, state.termHeight - BANNER_PANEL_HEIGHT - 5 - 1)
 }
 
 function maxScroll(state: TuiState): number {
