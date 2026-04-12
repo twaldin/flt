@@ -476,12 +476,18 @@ export class App {
     const isInsert = this.state.mode === 'insert'
     const nextViews: AgentView[] = []
 
+    const selfName = process.env.FLT_AGENT_NAME
+    const selfSession = selfName ? `flt-${selfName}` : null
+
     for (const [name, agentState] of Object.entries(agents)) {
       const isRecent = Date.now() - new Date(agentState.spawnedAt).getTime() < 10000
       let status: AgentView['status']
 
       if (isRecent) {
         status = 'spawning'
+      } else if (agentState.tmuxSession === selfSession) {
+        // This is us (the TUI) — we know we're running
+        status = 'running'
       } else if (!hasSession(agentState.tmuxSession)) {
         status = 'exited'
       } else if (isInsert) {
@@ -506,9 +512,6 @@ export class App {
       this.lastSelectedName = selected?.name
       this.lastLogContent = ''
     }
-
-    const selfName = process.env.FLT_AGENT_NAME
-    const selfSession = selfName ? `flt-${selfName}` : null
 
     if (selected) {
       const agent = agents[selected.name]
