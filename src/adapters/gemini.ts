@@ -51,7 +51,7 @@ export const geminiAdapter: CliAdapter = {
     const nodePath = findNodePath()
     // Prepend node 20+ to PATH so gemini uses it
     const prefix = nodePath ? `PATH=${nodePath}:$PATH ` : ''
-    const args = [`${prefix}gemini`, '--sandbox']
+    const args = [`${prefix}gemini`]
     if (opts.model) args.push('--model', opts.model)
     return args
   },
@@ -69,14 +69,26 @@ export const geminiAdapter: CliAdapter = {
     return 'loading'
   },
 
-  handleDialog(_pane: string): string[] | null {
+  handleDialog(pane: string): string[] | null {
+    pane = stripAnsi(pane)
+    // "Action Required" / "Allow execution" permission prompt
+    // Select "Allow for this session" (option 2) so it doesn't prompt again
+    if (/Action Required/i.test(pane) && /Allow/i.test(pane)) {
+      return ['Down', 'Enter']
+    }
     return null
   },
 
   detectStatus(pane: string): AgentStatus {
     pane = stripAnsi(pane)
     const lines = pane.split('\n').map(l => l.trim()).filter(Boolean)
+    const last20 = lines.slice(-20).join('\n')
     const last10 = lines.slice(-10).join('\n')
+
+    // Permission prompt — auto-approve
+    if (/Action Required/i.test(last20) && /Allow/i.test(last20)) {
+      return 'dialog' as AgentStatus
+    }
 
     if (/rate.?limit|quota.?exceeded|resource.?exhausted/i.test(last10)) {
       return 'rate-limited'

@@ -1,7 +1,7 @@
 <!-- flt:start -->
-# Fleet Agent: test-cc
+# Fleet Agent: test-gem
 You are a managed agent in a fleet orchestrated by flt.
-Parent: orchestrator | CLI: claude-code | Model: haiku
+Parent: orchestrator | CLI: gemini | Model: gemini-2.5-flash
 
 ## Communication
 - Report to parent: flt send parent "<message>"
