@@ -60,7 +60,7 @@ export const codexAdapter: CliAdapter = {
     const lines = pane.split('\n').map(l => l.trim()).filter(Boolean)
     const last10 = lines.slice(-10).join('\n')
 
-    if (/rate.?limit/i.test(last10) || /429/i.test(last10)) {
+    if (/rate.?limit(ed|ing| exceeded| reached)/i.test(last10) || /429/i.test(last10)) {
       return 'rate-limited'
     }
 
