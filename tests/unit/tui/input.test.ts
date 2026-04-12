@@ -27,6 +27,7 @@ function createBindings(mode: 'normal' | 'log-focus' | 'insert' | 'command' | 'i
     getState: () => ({ ...state, selectedAgent: state.agents[state.selectedIndex] }),
     getAgentNames: () => state.agents.map((a) => a.name),
     getCliAdapters: () => ['claude-code', 'codex'],
+    getPresetNames: () => ['coder', 'reviewer'],
     setMode: (nextMode) => {
       state.mode = nextMode
       calls.push(`mode:${nextMode}`)
@@ -122,5 +123,14 @@ describe('input dispatch', () => {
   it('returns completion hint for partial command', () => {
     const hint = getCompletionHint('sp', ['alpha'], ['claude-code'])
     expect(hint.hint).toBe('awn')
+  })
+
+  it('completes spawn --preset values', () => {
+    const { state, bindings } = createBindings('command')
+    state.commandInput = 'spawn worker --preset c'
+    state.commandCursor = state.commandInput.length
+
+    handleInputEvent({ type: 'key', key: 'tab', raw: Buffer.from('\t') }, bindings)
+    expect(state.commandInput).toBe('spawn worker --preset coder ')
   })
 })

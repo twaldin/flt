@@ -8,6 +8,7 @@ import { kill } from './commands/kill'
 import { logs } from './commands/logs'
 import { init } from './commands/init'
 import { skillsList } from './commands/skills'
+import { presetsAdd, presetsList, presetsRemove } from './commands/presets'
 import { listAdapters } from './adapters/registry'
 
 const program = new Command()
@@ -37,7 +38,8 @@ program
 program
   .command('spawn <name>')
   .description('Spawn an agent in a tmux session')
-  .requiredOption('--cli <cli>', `CLI adapter (${listAdapters().join(', ')})`)
+  .option('--cli <cli>', `CLI adapter (${listAdapters().join(', ')})`)
+  .option('--preset <name>', 'Preset name to populate CLI/model defaults')
   .option('--model <model>', 'Model to use')
   .option('--dir <path>', 'Working directory (default: cwd)')
   .option('--no-worktree', 'Skip git worktree creation')
@@ -47,6 +49,7 @@ program
       await spawn({
         name,
         cli: opts.cli,
+        preset: opts.preset,
         model: opts.model,
         dir: opts.dir,
         worktree: opts.worktree,
@@ -119,6 +122,56 @@ skillsCmd
   .action((opts) => {
     try {
       skillsList({ agent: opts.agent, cli: opts.cli })
+    } catch (e) {
+      console.error(`Error: ${(e as Error).message}`)
+      process.exit(1)
+    }
+  })
+
+const presetsCmd = program
+  .command('presets')
+  .description('Manage spawn presets')
+
+presetsCmd
+  .command('list')
+  .description('List all presets')
+  .action(() => {
+    try {
+      presetsList()
+    } catch (e) {
+      console.error(`Error: ${(e as Error).message}`)
+      process.exit(1)
+    }
+  })
+
+presetsCmd
+  .command('add <name>')
+  .description('Add a preset')
+  .requiredOption('--cli <cli>', `CLI adapter (${listAdapters().join(', ')})`)
+  .requiredOption('--model <model>', 'Model to use')
+  .option('--description <desc>', 'Optional description')
+  .action((name, opts) => {
+    try {
+      presetsAdd({
+        name,
+        cli: opts.cli,
+        model: opts.model,
+        description: opts.description,
+      })
+      console.log(`Added preset "${name}".`)
+    } catch (e) {
+      console.error(`Error: ${(e as Error).message}`)
+      process.exit(1)
+    }
+  })
+
+presetsCmd
+  .command('remove <name>')
+  .description('Remove a preset')
+  .action((name) => {
+    try {
+      presetsRemove({ name })
+      console.log(`Removed preset "${name}".`)
     } catch (e) {
       console.error(`Error: ${(e as Error).message}`)
       process.exit(1)

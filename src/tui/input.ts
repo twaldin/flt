@@ -11,6 +11,7 @@ export interface InputBindings {
   getState: () => AppState & { selectedAgent?: AgentView }
   getAgentNames: () => string[]
   getCliAdapters: () => string[]
+  getPresetNames: () => string[]
   setMode: (mode: Mode) => void
   openCommand: (initial: string) => void
   setCommand: (input: string, cursor: number) => void
@@ -24,6 +25,9 @@ export interface InputBindings {
   jumpLogBottom: () => void
   setSearchQuery: (query: string) => void
   submitCommand: (input: string) => void
+  setKillConfirm: (agentName: string) => void
+  confirmKill: () => void
+  cancelKill: () => void
   sendInsertText: (text: string) => void
   sendInsertKey: (key: TmuxInsertKey) => void
   flushInsert: () => void
@@ -31,8 +35,10 @@ export interface InputBindings {
   onResize?: () => void
 }
 
-const COMMANDS = ['send', 'logs', 'spawn', 'kill', 'theme', 'help']
-const SPAWN_FLAGS = ['--cli', '--model', '--dir']
+const COMMANDS = ['send', 'logs', 'spawn', 'presets', 'kill', 'theme', 'help']
+const SPAWN_FLAGS = ['--cli', '--model', '--dir', '--preset']
+const PRESETS_ACTIONS = ['list', 'add', 'remove']
+const PRESETS_ADD_FLAGS = ['--cli', '--model', '--description']
 
 const MODEL_SUGGESTIONS: Record<string, string[]> = {
   'claude-code': ['haiku', 'sonnet', 'opus'],
@@ -65,7 +71,12 @@ function commonPrefix(strings: string[]): string {
   return prefix
 }
 
-function getCompletions(input: string, agentNames: string[], cliAdapters: string[]): CompletionResult {
+function getCompletions(
+  input: string,
+  agentNames: string[],
+  cliAdapters: string[],
+  presetNames: string[],
+): CompletionResult {
   const parts = input.split(/\s+/)
   const empty: CompletionResult = { completions: [], currentToken: '' }
 
@@ -112,6 +123,13 @@ function getCompletions(input: string, agentNames: string[], cliAdapters: string
       }
     }
 
+    if (prevPart === '--preset') {
+      return {
+        completions: presetNames.filter((name) => name.startsWith(lastPart) && name !== lastPart),
+        currentToken: lastPart,
+      }
+    }
+
     if (lastPart.startsWith('-')) {
       const usedFlags = parts.filter((p) => p.startsWith('--'))
       const available = SPAWN_FLAGS.filter((f) => !usedFlags.includes(f) && f.startsWith(lastPart) && f !== lastPart)
@@ -127,6 +145,54 @@ function getCompletions(input: string, agentNames: string[], cliAdapters: string
     }
   }
 
+  if (cmd === 'presets') {
+    const lastPart = parts[parts.length - 1] || ''
+    const prevPart = parts.length >= 2 ? parts[parts.length - 2] : ''
+
+    if (parts.length === 2) {
+      const prefix = parts[1] || ''
+      return {
+        completions: PRESETS_ACTIONS.filter((action) => action.startsWith(prefix) && action !== prefix),
+        currentToken: prefix,
+      }
+    }
+
+    const action = parts[1]
+    if (action === 'remove' && parts.length === 3) {
+      return {
+        completions: presetNames.filter((name) => name.startsWith(lastPart) && name !== lastPart),
+        currentToken: lastPart,
+      }
+    }
+
+    if (action === 'add') {
+      if (prevPart === '--cli') {
+        return {
+          completions: cliAdapters.filter((adapter) => adapter.startsWith(lastPart) && adapter !== lastPart),
+          currentToken: lastPart,
+        }
+      }
+
+      if (prevPart === '--model') {
+        const cliIdx = parts.indexOf('--cli')
+        const selectedCli = cliIdx !== -1 && cliIdx + 1 < parts.length ? parts[cliIdx + 1] : ''
+        const models = MODEL_SUGGESTIONS[selectedCli]
+          ?? Array.from(new Set(Object.values(MODEL_SUGGESTIONS).flat()))
+
+        return {
+          completions: models.filter((m) => m.startsWith(lastPart) && m !== lastPart),
+          currentToken: lastPart,
+        }
+      }
+
+      if (lastPart.startsWith('-')) {
+        const usedFlags = parts.filter((p) => p.startsWith('--'))
+        const available = PRESETS_ADD_FLAGS.filter((f) => !usedFlags.includes(f) && f.startsWith(lastPart) && f !== lastPart)
+        return { completions: available, currentToken: lastPart }
+      }
+    }
+  }
+
   return empty
 }
 
@@ -137,8 +203,13 @@ function applySingleCompletion(input: string, completion: string): string {
   return `${parts.join(' ')} `
 }
 
-export function getCompletionHint(input: string, agentNames: string[], cliAdapters: string[]): { hint: string; multiHint: string } {
-  const { completions, currentToken } = getCompletions(input, agentNames, cliAdapters)
+export function getCompletionHint(
+  input: string,
+  agentNames: string[],
+  cliAdapters: string[],
+  presetNames: string[] = [],
+): { hint: string; multiHint: string } {
+  const { completions, currentToken } = getCompletions(input, agentNames, cliAdapters, presetNames)
   if (completions.length === 1) {
     return { hint: completions[0].slice(currentToken.length), multiHint: '' }
   }
@@ -344,7 +415,12 @@ function backspaceCommand(bindings: InputBindings): void {
 
 function tabCompleteCommand(bindings: InputBindings): void {
   const state = bindings.getState()
-  const { completions, currentToken } = getCompletions(state.commandInput, bindings.getAgentNames(), bindings.getCliAdapters())
+  const { completions, currentToken } = getCompletions(
+    state.commandInput,
+    bindings.getAgentNames(),
+    bindings.getCliAdapters(),
+    bindings.getPresetNames(),
+  )
 
   if (completions.length === 1) {
     const next = applySingleCompletion(state.commandInput, completions[0])
@@ -370,7 +446,7 @@ function handleNormalChar(char: string, bindings: InputBindings): void {
   else if (char === 'k') bindings.selectPrev()
   else if (char === ':') bindings.openCommand('')
   else if (char === 's') bindings.openCommand('spawn ')
-  else if (char === 'K' && state.selectedAgent) bindings.openCommand(`kill ${state.selectedAgent.name}`)
+  else if (char === 'K' && state.selectedAgent) bindings.setKillConfirm(state.selectedAgent.name)
   else if (char === 'm') bindings.setMode('inbox')
   else if (char === 'r' && state.selectedAgent) bindings.openCommand(`send ${state.selectedAgent.name} `)
   else if (char === 'q') bindings.quit()
@@ -452,6 +528,13 @@ function handleSpecialKey(event: Extract<ParsedInputEvent, { type: 'key' }>, bin
     return
   }
 
+  if (state.mode === 'kill-confirm') {
+    if (event.key === 'escape') {
+      bindings.cancelKill()
+    }
+    return
+  }
+
   if (state.mode === 'normal') {
     if (event.key === 'enter' || event.key === 'tab') {
       bindings.setMode('log-focus')
@@ -478,6 +561,13 @@ function handleText(event: Extract<ParsedInputEvent, { type: 'text' }>, bindings
 
   if (state.mode === 'insert') {
     bindings.sendInsertText(event.text)
+    return
+  }
+
+  if (state.mode === 'kill-confirm') {
+    const char = event.text.toLowerCase()
+    if (char === 'y') bindings.confirmKill()
+    else if (char === 'n') bindings.cancelKill()
     return
   }
 

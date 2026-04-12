@@ -1,8 +1,10 @@
 import { existsSync, readFileSync } from 'fs'
 import { resolveAdapter, listAdapters } from '../adapters/registry'
 import { kill } from '../commands/kill'
+import { formatPresetList, presetsAdd, presetsRemove } from '../commands/presets'
 import { send } from '../commands/send'
 import { spawn } from '../commands/spawn'
+import { listPresets } from '../presets'
 import { allAgents, type AgentState } from '../state'
 import { capturePane, flushBatchedKeys, hasSession, resizeWindow, sendKeysAsync, sendLiteralBatched } from '../tmux'
 import { getInboxPath } from '../commands/init'
@@ -49,6 +51,7 @@ export class App {
   private lastLogContent = ''
   private lastInboxRaw = ''
   private lastSelectedName: string | undefined
+  private lastStatusByAgent: Record<string, string> = {}
   private bannerTimer: ReturnType<typeof setTimeout> | null = null
   private insertCaptureTimer: ReturnType<typeof setTimeout> | null = null
   private running = false
@@ -70,6 +73,13 @@ export class App {
       getState: () => ({ ...this.state, selectedAgent: this.selectedAgent }),
       getAgentNames: () => this.state.agents.map((a) => a.name),
       getCliAdapters: () => listAdapters(),
+      getPresetNames: () => {
+        try {
+          return listPresets().map((preset) => preset.name)
+        } catch {
+          return []
+        }
+      },
       setMode: (mode) => this.setMode(mode),
       openCommand: (initial) => this.openCommand(initial),
       setCommand: (input, cursor) => this.setCommand(input, cursor),
@@ -83,6 +93,9 @@ export class App {
       jumpLogBottom: () => this.jumpLogBottom(),
       setSearchQuery: (query) => this.setSearchQuery(query),
       submitCommand: (input) => this.submitCommand(input),
+      setKillConfirm: (agentName) => this.setKillConfirm(agentName),
+      confirmKill: () => this.confirmKill(),
+      cancelKill: () => this.cancelKill(),
       sendInsertText: (text) => this.sendInsertText(text),
       sendInsertKey: (key) => this.sendInsertKey(key),
       flushInsert: () => this.flushInsert(),
@@ -147,6 +160,34 @@ export class App {
     this.render()
   }
 
+  private setKillConfirm(agentName: string): void {
+    this.state.mode = 'kill-confirm'
+    this.state.killConfirmAgent = agentName
+    this.render()
+  }
+
+  private confirmKill(): void {
+    const agentName = this.state.killConfirmAgent
+    if (!agentName) return
+    this.state.mode = 'normal'
+    this.state.killConfirmAgent = undefined
+    try {
+      kill({ name: agentName })
+      this.setBanner(`Killed ${agentName}`, 'green', 3000)
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : String(e)
+      this.setBanner(`Kill failed: ${msg}`, 'red', 5000)
+    }
+    this.poll()
+    this.render()
+  }
+
+  private cancelKill(): void {
+    this.state.mode = 'normal'
+    this.state.killConfirmAgent = undefined
+    this.render()
+  }
+
   private openCommand(initial: string): void {
     this.state.mode = 'command'
     this.state.commandInput = initial
@@ -165,6 +206,8 @@ export class App {
     if (this.state.agents.length === 0) return
     this.state.selectedIndex = Math.max(0, this.state.selectedIndex - 1)
     this.lastLogContent = ''
+    const selected = this.selectedAgent
+    if (selected) delete this.state.notifications[selected.name]
     this.render()
   }
 
@@ -172,6 +215,8 @@ export class App {
     if (this.state.agents.length === 0) return
     this.state.selectedIndex = Math.min(this.state.agents.length - 1, this.state.selectedIndex + 1)
     this.lastLogContent = ''
+    const selected = this.selectedAgent
+    if (selected) delete this.state.notifications[selected.name]
     this.render()
   }
 
@@ -300,8 +345,9 @@ export class App {
     if (parsed.cmd === 'spawn' && parsed.args.length >= 1) {
       const spawnArgs = parsed.args
       const name = spawnArgs[0]
-      let cli = 'claude-code'
+      let cli: string | undefined
       let model: string | undefined
+      let preset: string | undefined
       let dir: string | undefined
       const messageTokens: string[] = []
 
@@ -313,6 +359,9 @@ export class App {
         } else if (spawnArgs[i] === '--model' && i + 1 < spawnArgs.length) {
           model = spawnArgs[i + 1]
           i += 2
+        } else if (spawnArgs[i] === '--preset' && i + 1 < spawnArgs.length) {
+          preset = spawnArgs[i + 1]
+          i += 2
         } else if (spawnArgs[i] === '--dir' && i + 1 < spawnArgs.length) {
           const raw = spawnArgs[i + 1]
           dir = raw.startsWith('~/') ? raw.replace('~', process.env.HOME || '') : raw
@@ -323,14 +372,19 @@ export class App {
         }
       }
 
+      if (!cli && !preset) {
+        cli = 'claude-code'
+      }
+
       const bootstrap = messageTokens.join(' ') || undefined
-      this.setBanner(`Spawning ${name} (${cli}/${model || 'default'})...`, 'yellow')
+      const cliLabel = cli ?? `preset:${preset}`
+      this.setBanner(`Spawning ${name} (${cliLabel}/${model || 'default'})...`, 'yellow')
 
       const staleTimer = setTimeout(() => {
         this.setBanner(`Spawn ${name}: still waiting (check flt logs ${name})`, 'yellow')
       }, 65000)
 
-      spawn({ name, cli, model, dir, bootstrap })
+      spawn({ name, cli, preset, model, dir, bootstrap })
         .then(() => {
           clearTimeout(staleTimer)
           this.setBanner(`Spawned ${name}`, 'green', 3000)
@@ -367,8 +421,102 @@ export class App {
       return
     }
 
+    if (parsed.cmd === 'presets') {
+      const action = parsed.args[0]
+
+      if (!action || action === 'list') {
+        try {
+          const output = formatPresetList()
+          this.lastLogContent = output
+          this.applyLogContent(output)
+          this.clearBanner()
+          this.render()
+        } catch (error) {
+          const msg = error instanceof Error ? error.message : String(error)
+          this.setBanner(`Presets failed: ${msg}`, 'red', 5000)
+        }
+        return
+      }
+
+      if (action === 'add') {
+        const name = parsed.args[1]
+        if (!name) {
+          this.setBanner('Usage: presets add <name> --cli <cli> --model <model> [--description <desc>]', 'red', 5000)
+          return
+        }
+
+        let cli: string | undefined
+        let model: string | undefined
+        let description: string | undefined
+
+        let i = 2
+        while (i < parsed.args.length) {
+          const token = parsed.args[i]
+          if (token === '--cli' && i + 1 < parsed.args.length) {
+            cli = parsed.args[i + 1]
+            i += 2
+            continue
+          }
+
+          if (token === '--model' && i + 1 < parsed.args.length) {
+            model = parsed.args[i + 1]
+            i += 2
+            continue
+          }
+
+          if (token === '--description') {
+            const descTokens: string[] = []
+            let j = i + 1
+            while (j < parsed.args.length && !parsed.args[j].startsWith('--')) {
+              descTokens.push(parsed.args[j])
+              j += 1
+            }
+            description = descTokens.join(' ')
+            i = j
+            continue
+          }
+
+          i += 1
+        }
+
+        if (!cli || !model) {
+          this.setBanner('Usage: presets add <name> --cli <cli> --model <model> [--description <desc>]', 'red', 5000)
+          return
+        }
+
+        try {
+          presetsAdd({ name, cli, model, description })
+          this.setBanner(`Added preset ${name}`, 'green', 3000)
+        } catch (error) {
+          const msg = error instanceof Error ? error.message : String(error)
+          this.setBanner(`Add preset failed: ${msg}`, 'red', 5000)
+        }
+        return
+      }
+
+      if (action === 'remove') {
+        const name = parsed.args[1]
+        if (!name) {
+          this.setBanner('Usage: presets remove <name>', 'red', 5000)
+          return
+        }
+
+        try {
+          presetsRemove({ name })
+          this.setBanner(`Removed preset ${name}`, 'green', 3000)
+        } catch (error) {
+          const msg = error instanceof Error ? error.message : String(error)
+          this.setBanner(`Remove preset failed: ${msg}`, 'red', 5000)
+        }
+        return
+      }
+
+      this.setBanner(`Unknown presets command: ${action}`, 'red', 4000)
+      return
+    }
+
     if (parsed.cmd === 'help') {
-      this.setBanner('Commands: send, logs, spawn, kill, theme, help', 'cyan', 4000)
+      this.setBanner('Commands: send, logs, spawn, presets, kill, theme, help', 'cyan', 4000)
       return
     }
 
@@ -496,6 +644,13 @@ export class App {
       } else {
         status = detectAgentStatus(agentState)
       }
+
+      // Track status changes → notifications for non-selected agents
+      const prevStatus = this.lastStatusByAgent[name]
+      if (prevStatus && prevStatus !== status && this.selectedAgent?.name !== name) {
+        this.state.notifications[name] = 'status'
+      }
+      this.lastStatusByAgent[name] = status
 
       nextViews.push({
         name,

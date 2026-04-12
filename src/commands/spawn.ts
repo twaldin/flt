@@ -3,13 +3,15 @@ import { projectInstructions } from '../instructions'
 import { projectSkills } from '../skills'
 import { createWorktree, isGitRepo } from '../worktree'
 import { loadState, setAgent, hasAgent } from '../state'
+import { getPreset } from '../presets'
 import * as tmux from '../tmux'
 import { resolve } from 'path'
 
 interface SpawnArgs {
   name: string
-  cli: string
+  cli?: string
   model?: string
+  preset?: string
   dir?: string
   worktree?: boolean
   bootstrap?: string
@@ -18,12 +20,29 @@ interface SpawnArgs {
 export async function spawn(args: SpawnArgs): Promise<void> {
   const {
     name,
-    cli,
+    cli: explicitCli,
     model,
+    preset,
     dir: rawDir,
     worktree = true,
     bootstrap,
   } = args
+
+  let cli = explicitCli
+  let resolvedModel = model
+
+  if (preset) {
+    const presetConfig = getPreset(preset)
+    if (!presetConfig) {
+      throw new Error(`Preset "${preset}" does not exist. Use "flt presets list".`)
+    }
+    cli = cli ?? presetConfig.cli
+    resolvedModel = resolvedModel ?? presetConfig.model
+  }
+
+  if (!cli) {
+    throw new Error('Missing CLI adapter. Provide "--cli <cli>" or "--preset <name>".')
+  }
 
   // Validate name uniqueness
   if (hasAgent(name)) {
@@ -73,7 +92,7 @@ export async function spawn(args: SpawnArgs): Promise<void> {
       agentName: name,
       parentName,
       cli: adapter.name,
-      model: model ?? 'default',
+      model: resolvedModel ?? 'default',
     })
   }
 
@@ -81,7 +100,7 @@ export async function spawn(args: SpawnArgs): Promise<void> {
   projectSkills(workDir, adapter, name)
 
   // Build spawn command
-  const cliArgs = adapter.spawnArgs({ model, dir: workDir })
+  const cliArgs = adapter.spawnArgs({ model: resolvedModel, dir: workDir })
   const command = cliArgs.join(' ')
 
   const sessionName = `flt-${name}`
@@ -101,7 +120,7 @@ export async function spawn(args: SpawnArgs): Promise<void> {
   // Register in state before bootstrap — agent is live and discoverable immediately
   setAgent(name, {
     cli: adapter.name,
-    model: model ?? 'default',
+    model: resolvedModel ?? 'default',
     tmuxSession: sessionName,
     parentName,
     dir: workDir,
@@ -115,7 +134,7 @@ export async function spawn(args: SpawnArgs): Promise<void> {
     await sendBootstrap(sessionName, adapter, bootstrap)
   }
 
-  console.log(`Spawned ${name} (${adapter.name}/${model ?? 'default'}) in ${sessionName}`)
+  console.log(`Spawned ${name} (${adapter.name}/${resolvedModel ?? 'default'}) in ${sessionName}`)
 }
 
 async function waitForReady(

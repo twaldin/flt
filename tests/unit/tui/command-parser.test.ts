@@ -41,6 +41,7 @@ describe('command-parser', () => {
     expect(isValidCommand('send')).toBe(true)
     expect(isValidCommand('logs')).toBe(true)
     expect(isValidCommand('spawn')).toBe(true)
+    expect(isValidCommand('presets')).toBe(true)
     expect(isValidCommand('kill')).toBe(true)
     expect(isValidCommand('theme')).toBe(true)
     expect(isValidCommand('invalid')).toBe(false)

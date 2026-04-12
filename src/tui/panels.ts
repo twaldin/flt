@@ -15,11 +15,12 @@ const FLT_BANNER = [
 ]
 
 const MODE_HINTS: Record<Mode, string> = {
-  normal: 'j/k select | Enter focus | r reply | m inbox | : command | q quit',
+  normal: 'j/k select | Enter focus | r reply | m inbox | K kill | : command | q quit',
   'log-focus': 'j/k scroll | i insert | Ctrl-d/u page | G/g bottom/top | Esc back',
   insert: 'typing to selected agent | Esc exit insert mode',
   command: 'Enter execute | Tab complete | Esc cancel',
   inbox: 'r reply to last sender | Esc close',
+  'kill-confirm': 'y confirm | n cancel | Esc cancel',
 }
 
 export interface LayoutMetrics {
@@ -107,12 +108,16 @@ function renderSidebar(screen: Screen, state: AppState, top: number, left: numbe
     if (row + 2 >= top + height) break
     const agent = state.agents[i]
     const selected = i === state.selectedIndex
+    const notification = state.notifications[agent.name]
 
     const prefix = selected ? '▸ ' : '  '
+    const badgeDot = notification && !selected ? (notification === 'message' ? '● ' : '◐ ') : '  '
     const status = `${statusSymbol(agent.status)} ${agent.name}`
     const age = formatAge(agent.spawnedAt)
-    const line1 = `${prefix}${status} ${age}`
-    putLine(screen, row, left, width, line1, selected ? COLORS.cyan : statusColor(agent.status), selected ? ATTR_BOLD : 0)
+    const line1 = `${prefix}${badgeDot}${status} ${age}`
+    const badgeColor = notification === 'message' ? COLORS.blue : notification === 'status' ? COLORS.yellow : undefined
+    const lineColor = badgeColor && !selected ? badgeColor : selected ? COLORS.cyan : statusColor(agent.status)
+    putLine(screen, row, left, width, line1, lineColor, selected ? ATTR_BOLD : 0)
     row += 1
 
     const line2 = `    ${agent.cli}/${agent.model}`
@@ -216,6 +221,12 @@ function renderCommandBar(screen: Screen, state: AppState, row: number, col: num
   if (row < 0 || row >= screen.rows || width <= 0) return
 
   putLine(screen, row, col, width, '', COLORS.default)
+
+  if (state.mode === 'kill-confirm') {
+    const prompt = `Kill ${state.killConfirmAgent}? [y/n]`
+    screen.put(row, col, prompt, COLORS.red, '', ATTR_BOLD)
+    return
+  }
 
   if (state.mode !== 'command') {
     putLine(screen, row, col, width, ':command...', COLORS.gray, ATTR_DIM)

@@ -1,6 +1,6 @@
 import type { AgentState } from '../state'
 
-export type Mode = 'normal' | 'log-focus' | 'insert' | 'command' | 'inbox'
+export type Mode = 'normal' | 'log-focus' | 'insert' | 'command' | 'inbox' | 'kill-confirm'
 
 export interface AgentView extends AgentState {
   name: string
@@ -33,6 +33,8 @@ export interface AppState {
   termHeight: number
   termWidth: number
   banner: Banner | null
+  notifications: Record<string, 'message' | 'status'>
+  killConfirmAgent?: string
 }
 
 export function createInitialState(width = 80, height = 24): AppState {
@@ -50,5 +52,7 @@ export function createInitialState(width = 80, height = 24): AppState {
     termHeight: height,
     termWidth: width,
     banner: null,
+    notifications: {},
+    killConfirmAgent: undefined,
   }
 }
