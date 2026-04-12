@@ -87,14 +87,24 @@ export function useFleetPoller(
       dp({ type: 'SET_AGENTS', agents: agentViews })
     }
 
+    // Detect our own session — can't capture the TUI's own pane
+    const selfName = process.env.FLT_AGENT_NAME
+    const selfSession = selfName ? `flt-${selfName}` : null
+
     if (sel && agentViews.some(a => a.name === sel)) {
       const agent = agents[sel]
-      if (agent) {
+      if (agent && agent.tmuxSession === selfSession) {
+        const selfMsg = `This is you (${sel}) — the flt TUI is running in this session.\n\nSelect another agent to view its output.`
+        if (lastContentRef.current !== selfMsg) {
+          lastContentRef.current = selfMsg
+          dp({ type: 'SET_LOG_CONTENT', content: selfMsg })
+        }
+      } else if (agent) {
         try {
+          const logPaneHeight = Math.max(10, st.termHeight - 5)
           if (!isInsert) {
             const leftPanelWidth = Math.floor(st.termWidth * 0.28)
             const logPaneWidth = Math.max(40, st.termWidth - leftPanelWidth - 4)
-            const logPaneHeight = Math.max(10, st.termHeight - 5)
             resizeWindow(agent.tmuxSession, logPaneWidth, logPaneHeight)
           }
 
