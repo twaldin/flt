@@ -1,5 +1,9 @@
 import type { CliAdapter, SpawnOpts, ReadyState, AgentStatus } from './types'
 
+function stripAnsi(s: string): string {
+  return s.replace(/\x1b\[[0-9;?]*[A-Za-z]/g, '').replace(/\x1b\][^\x07]*\x07/g, '')
+}
+
 export const codexAdapter: CliAdapter = {
   name: 'codex',
   cliCommand: 'codex',
@@ -13,6 +17,7 @@ export const codexAdapter: CliAdapter = {
   },
 
   detectReady(pane: string): ReadyState {
+    pane = stripAnsi(pane)
     const lines = pane.split('\n')
     const full = lines.join('\n')
 
@@ -36,6 +41,7 @@ export const codexAdapter: CliAdapter = {
   },
 
   handleDialog(pane: string): string[] | null {
+    pane = stripAnsi(pane)
     const text = pane.split('\n').slice(-20).join('\n')
 
     // Update prompt — skip the update (select option 2)
@@ -57,6 +63,7 @@ export const codexAdapter: CliAdapter = {
   },
 
   detectStatus(pane: string): AgentStatus {
+    pane = stripAnsi(pane)
     const lines = pane.split('\n').map(l => l.trim()).filter(Boolean)
     const last10 = lines.slice(-10).join('\n')
     const last20 = lines.slice(-20).join('\n')

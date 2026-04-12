@@ -1,5 +1,9 @@
 import type { CliAdapter, SpawnOpts, ReadyState, AgentStatus } from './types'
 
+function stripAnsi(s: string): string {
+  return s.replace(/\x1b\[[0-9;?]*[A-Za-z]/g, '').replace(/\x1b\][^\x07]*\x07/g, '')
+}
+
 export const aiderAdapter: CliAdapter = {
   name: 'aider',
   cliCommand: 'aider',
@@ -13,6 +17,7 @@ export const aiderAdapter: CliAdapter = {
   },
 
   detectReady(pane: string): ReadyState {
+    pane = stripAnsi(pane)
     const lines = pane.split('\n').map(l => l.trim()).filter(Boolean)
     const last20 = lines.slice(-20).join('\n')
 
@@ -29,6 +34,7 @@ export const aiderAdapter: CliAdapter = {
   },
 
   detectStatus(pane: string): AgentStatus {
+    pane = stripAnsi(pane)
     const lines = pane.split('\n').map(l => l.trim()).filter(Boolean)
     const last10 = lines.slice(-10).join('\n')
 

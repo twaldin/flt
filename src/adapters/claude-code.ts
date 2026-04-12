@@ -1,5 +1,10 @@
 import type { CliAdapter, SpawnOpts, ReadyState, AgentStatus } from './types'
 
+// Strip ANSI escape sequences for pattern matching
+function stripAnsi(s: string): string {
+  return s.replace(/\x1b\[[0-9;?]*[A-Za-z]/g, '').replace(/\x1b\][^\x07]*\x07/g, '')
+}
+
 export const claudeCodeAdapter: CliAdapter = {
   name: 'claude-code',
   cliCommand: 'claude',
@@ -13,23 +18,23 @@ export const claudeCodeAdapter: CliAdapter = {
   },
 
   detectReady(pane: string): ReadyState {
-    const lines = pane.split('\n')
-    const last20 = lines.slice(-20).join('\n')
+    const clean = stripAnsi(pane)
+    const lines = clean.split('\n')
+    const all = lines.join('\n')
 
     // Check for bypass permissions confirmation dialog
-    if (/bypass.?permissions/i.test(last20) && /Yes, I accept/i.test(last20)) {
+    if (/bypass.?permissions/i.test(all) && /Yes, I accept/i.test(all)) {
       return 'dialog'
     }
 
     // Check for workspace trust dialog
-    if (/trust this folder/i.test(last20) || /Do you trust the files/i.test(last20)) {
+    if (/trust this folder/i.test(all) || /Do you trust the files/i.test(all)) {
       return 'dialog'
     }
 
     // Check for ready prompt indicators
-    // Claude Code shows ❯ or > when ready. Check each line individually.
-    const hasPrompt = lines.some(l => /^\s*[>❯]\s*$/.test(l))
-    const hasStatusBar = /bypass permissions/i.test(last20) || /Claude Code/i.test(last20)
+    const hasPrompt = lines.some(l => /^\s*[>❯]\s*$/.test(l.trim()))
+    const hasStatusBar = /bypass permissions/i.test(all) || /Claude Code/i.test(all)
     if (hasPrompt && hasStatusBar) {
       return 'ready'
     }
@@ -38,15 +43,15 @@ export const claudeCodeAdapter: CliAdapter = {
   },
 
   handleDialog(pane: string): string[] | null {
-    const text = pane.split('\n').slice(-20).join('\n')
+    const clean = stripAnsi(pane)
 
     // Bypass permissions: need to type "2" then Enter to accept
-    if (/bypass.?permissions/i.test(text) && /Yes, I accept/i.test(text)) {
+    if (/bypass.?permissions/i.test(clean) && /Yes, I accept/i.test(clean)) {
       return ['2', 'Enter']
     }
 
     // Workspace trust: just Enter
-    if (/trust this folder/i.test(text) || /Do you trust the files/i.test(text)) {
+    if (/trust this folder/i.test(clean) || /Do you trust the files/i.test(clean)) {
       return ['Enter']
     }
 
@@ -54,7 +59,8 @@ export const claudeCodeAdapter: CliAdapter = {
   },
 
   detectStatus(pane: string): AgentStatus {
-    const lines = pane.split('\n').map(l => l.trim()).filter(Boolean)
+    const clean = stripAnsi(pane)
+    const lines = clean.split('\n').map(l => l.trim()).filter(Boolean)
     const last10 = lines.slice(-10).join('\n')
 
     // Rate limited
@@ -72,7 +78,7 @@ export const claudeCodeAdapter: CliAdapter = {
       return 'running'
     }
 
-    // Idle at prompt — check individual lines
+    // Idle at prompt
     if (lines.some(l => /^\s*[>❯]\s*$/.test(l))) {
       return 'idle'
     }

@@ -6,6 +6,7 @@ interface InitArgs {
   orchestrator?: boolean
   cli?: string
   model?: string
+  preset?: string
 }
 
 export function getInboxPath(): string {
@@ -27,8 +28,9 @@ export async function init(args: InitArgs): Promise<void> {
     const { spawn } = await import('./spawn')
     await spawn({
       name: 'orchestrator',
-      cli: args.cli || 'claude-code',
+      cli: args.preset ? undefined : (args.cli || 'claude-code'),
       model: args.model,
+      preset: args.preset,
       worktree: false,
     })
     console.log('Agent orchestrator spawned. Use "flt list" to check status.')

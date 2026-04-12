@@ -2,6 +2,10 @@ import type { CliAdapter, SpawnOpts, ReadyState, AgentStatus } from './types'
 import { existsSync, readdirSync } from 'fs'
 import { homedir } from 'os'
 
+function stripAnsi(s: string): string {
+  return s.replace(/\x1b\[[0-9;?]*[A-Za-z]/g, '').replace(/\x1b\][^\x07]*\x07/g, '')
+}
+
 // Gemini CLI requires Node 20+. Find a suitable node binary.
 function findNodePath(): string | null {
   const home = homedir()
@@ -53,6 +57,7 @@ export const geminiAdapter: CliAdapter = {
   },
 
   detectReady(pane: string): ReadyState {
+    pane = stripAnsi(pane)
     const lines = pane.split('\n').map(l => l.trim()).filter(Boolean)
     const last20 = lines.slice(-20).join('\n')
 
@@ -69,6 +74,7 @@ export const geminiAdapter: CliAdapter = {
   },
 
   detectStatus(pane: string): AgentStatus {
+    pane = stripAnsi(pane)
     const lines = pane.split('\n').map(l => l.trim()).filter(Boolean)
     const last10 = lines.slice(-10).join('\n')
 

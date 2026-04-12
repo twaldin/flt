@@ -1,5 +1,9 @@
 import type { CliAdapter, SpawnOpts, ReadyState, AgentStatus } from './types'
 
+function stripAnsi(s: string): string {
+  return s.replace(/\x1b\[[0-9;?]*[A-Za-z]/g, '').replace(/\x1b\][^\x07]*\x07/g, '')
+}
+
 export const opencodeAdapter: CliAdapter = {
   name: 'opencode',
   cliCommand: 'opencode',
@@ -13,6 +17,7 @@ export const opencodeAdapter: CliAdapter = {
   },
 
   detectReady(pane: string): ReadyState {
+    pane = stripAnsi(pane)
     const lines = pane.split('\n')
     // "Ask anything" appears in the input area; version in the bottom status bar.
     // They can be 30+ lines apart in a tall terminal, so scan the full pane.
@@ -32,6 +37,7 @@ export const opencodeAdapter: CliAdapter = {
   },
 
   detectStatus(pane: string): AgentStatus {
+    pane = stripAnsi(pane)
     const lines = pane.split('\n').map(l => l.trim()).filter(Boolean)
     const last10 = lines.slice(-10).join('\n')
 

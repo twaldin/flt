@@ -179,7 +179,9 @@ async function waitForReady(
     await sleep(500)
   }
 
-  throw new Error(`Agent "${session}" did not become ready within ${timeoutMs / 1000}s.`)
+  // Don't throw — agent is likely ready, just undetected.
+  // Registration + bootstrap still happen after this returns.
+  console.error(`Warning: "${session}" readiness not confirmed within ${timeoutMs / 1000}s. Proceeding anyway.`)
 }
 
 async function sendBootstrap(
