@@ -98,12 +98,7 @@ export async function spawn(args: SpawnArgs): Promise<void> {
   // Poll for readiness (60s timeout — some CLIs have multiple sequential dialogs)
   await waitForReady(sessionName, adapter, 60_000)
 
-  // Send bootstrap message if provided
-  if (bootstrap) {
-    await sendBootstrap(sessionName, adapter, bootstrap)
-  }
-
-  // Register in state
+  // Register in state before bootstrap — agent is live and discoverable immediately
   setAgent(name, {
     cli: adapter.name,
     model: model ?? 'default',
@@ -114,6 +109,11 @@ export async function spawn(args: SpawnArgs): Promise<void> {
     worktreeBranch,
     spawnedAt: new Date().toISOString(),
   })
+
+  // Send bootstrap message if provided
+  if (bootstrap) {
+    await sendBootstrap(sessionName, adapter, bootstrap)
+  }
 
   console.log(`Spawned ${name} (${adapter.name}/${model ?? 'default'}) in ${sessionName}`)
 }
