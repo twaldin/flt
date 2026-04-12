@@ -21,16 +21,18 @@ export async function send(args: SendArgs): Promise<void> {
     if (caller.mode !== 'agent') {
       throw new Error('Cannot send to "parent" — not running as a fleet agent.')
     }
-    if (!caller.parentSession) {
-      throw new Error('No parent session found (FLT_PARENT_SESSION not set).')
-    }
 
-    session = caller.parentSession
     const state = loadState()
 
-    // Check if parent is the human orchestrator (use display-message, not send-keys)
-    if (state.orchestrator?.type === 'human' && state.orchestrator.tmuxSession === session) {
+    // Human orchestrator uses file-based inbox — no session needed
+    if (state.orchestrator?.type === 'human') {
       isHumanParent = true
+      session = state.orchestrator.tmuxSession // set for liveness check below (skipped for human)
+    } else {
+      if (!caller.parentSession) {
+        throw new Error('No parent session found (FLT_PARENT_SESSION not set).')
+      }
+      session = caller.parentSession
     }
   } else {
     const agent = getAgent(target)
@@ -46,8 +48,8 @@ export async function send(args: SendArgs): Promise<void> {
     } catch {}
   }
 
-  // Verify session is alive
-  if (!tmux.hasSession(session)) {
+  // Verify session is alive (skip for human parent — inbox is file-based)
+  if (!isHumanParent && !tmux.hasSession(session)) {
     throw new Error(`Target session "${session}" is not running.`)
   }
 
