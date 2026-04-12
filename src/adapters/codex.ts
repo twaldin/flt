@@ -14,23 +14,22 @@ export const codexAdapter: CliAdapter = {
 
   detectReady(pane: string): ReadyState {
     const lines = pane.split('\n')
-    const last20 = lines.slice(-20).join('\n')
+    const full = lines.join('\n')
 
-    // Any "Press enter to continue" dialog (trust, full-auto, update, etc.)
-    if (/Press enter to continue/i.test(last20)) {
-      return 'dialog'
-    }
-
-    // Any numbered menu with › selector (update prompt, sandbox prompt, etc.)
-    if (/›\s+\d+\./m.test(last20) && !/[❯]\s*$/m.test(last20)) {
-      return 'dialog'
-    }
-
-    // Ready: ›/❯ prompt visible + status bar with model info + "left"
-    const hasPrompt = lines.some(l => /^\s*[❯›]/.test(l))
-    const hasStatusBar = /\d+%\s+left/i.test(last20) || /model:/i.test(last20)
+    // Check for ready FIRST — prompt visible + status bar with model info
+    // This prevents treating info banners (Update available) as blocking dialogs
+    const hasPrompt = lines.some(l => /^\s*[❯›]\s+\S/.test(l) || /^\s*[❯›]\s*$/.test(l))
+    const hasStatusBar = /\d+%\s+left/i.test(full) || /model:/i.test(full)
     if (hasPrompt && hasStatusBar) {
       return 'ready'
+    }
+
+    // Blocking dialogs (only checked when prompt is NOT visible)
+    if (/Press enter to continue/i.test(full)) {
+      return 'dialog'
+    }
+    if (/›\s+\d+\./m.test(full) && !hasPrompt) {
+      return 'dialog'
     }
 
     return 'loading'

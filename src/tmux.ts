@@ -105,3 +105,40 @@ export function sendKeysAsync(session: string, keys: string[]): void {
 export function sendLiteralAsync(session: string, text: string): void {
   Bun.spawn(['tmux', 'send-keys', '-t', session, '-l', text], { stdout: 'ignore', stderr: 'ignore' })
 }
+
+/**
+ * Batched keystroke sender — collects literal chars for 16ms
+ * then sends them as a single tmux call. Reduces process spawns
+ * from N-per-keystroke to ~1 per 16ms frame.
+ */
+const keyBuffers = new Map<string, { text: string; timer: ReturnType<typeof setTimeout> | null }>()
+
+export function sendLiteralBatched(session: string, char: string): void {
+  let buf = keyBuffers.get(session)
+  if (!buf) {
+    buf = { text: '', timer: null }
+    keyBuffers.set(session, buf)
+  }
+  buf.text += char
+  if (buf.timer) clearTimeout(buf.timer)
+  buf.timer = setTimeout(() => {
+    const text = buf!.text
+    buf!.text = ''
+    buf!.timer = null
+    if (text) {
+      Bun.spawn(['tmux', 'send-keys', '-t', session, '-l', text], { stdout: 'ignore', stderr: 'ignore' })
+    }
+  }, 16)
+}
+
+/** Flush any pending batched keystrokes immediately */
+export function flushBatchedKeys(session: string): void {
+  const buf = keyBuffers.get(session)
+  if (buf && buf.text) {
+    if (buf.timer) clearTimeout(buf.timer)
+    const text = buf.text
+    buf.text = ''
+    buf.timer = null
+    Bun.spawn(['tmux', 'send-keys', '-t', session, '-l', text], { stdout: 'ignore', stderr: 'ignore' })
+  }
+}

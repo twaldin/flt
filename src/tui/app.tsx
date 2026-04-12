@@ -10,7 +10,7 @@ import { StatusBar } from './components/status-bar'
 import { InboxPanel } from './components/inbox-panel'
 import { parseCommand, enrichMessageWithFiles } from './command-parser'
 import { send } from '../commands/send'
-import { sendKeysAsync, sendLiteralAsync } from '../tmux'
+import { sendKeysAsync, sendLiteralBatched, flushBatchedKeys } from '../tmux'
 import { listAdapters } from '../adapters/registry'
 import { spawn } from '../commands/spawn'
 
@@ -40,12 +40,15 @@ export function App(): React.ReactElement {
       if (!selectedAgent) return
       const session = selectedAgent.tmuxSession
 
-      // All keystroke forwarding is non-blocking (Bun.spawn, fire-and-forget)
+      // Special keys flush the batch buffer first, then send the key
       if (key.return) {
+        flushBatchedKeys(session)
         sendKeysAsync(session, ['Enter'])
       } else if (key.backspace || key.delete) {
+        flushBatchedKeys(session)
         sendKeysAsync(session, ['BSpace'])
       } else if (key.tab) {
+        flushBatchedKeys(session)
         sendKeysAsync(session, ['Tab'])
       } else if (key.upArrow) {
         sendKeysAsync(session, ['Up'])
@@ -56,13 +59,15 @@ export function App(): React.ReactElement {
       } else if (key.rightArrow) {
         sendKeysAsync(session, ['Right'])
       } else if (key.ctrl && input === 'c') {
+        flushBatchedKeys(session)
         sendKeysAsync(session, ['C-c'])
       } else if (key.ctrl && input === 'z') {
         sendKeysAsync(session, ['C-z'])
       } else if (key.ctrl && input === 'l') {
         sendKeysAsync(session, ['C-l'])
       } else if (input) {
-        sendLiteralAsync(session, input)
+        // Literal chars get batched — flushed every 16ms as one tmux call
+        sendLiteralBatched(session, input)
       }
       return
     }
@@ -160,12 +165,18 @@ export function App(): React.ReactElement {
 
       const bootstrap = messageTokens.join(' ') || undefined
       dispatch({ type: 'SET_BANNER', banner: { text: `Spawning ${name} (${cli}/${model || 'default'})...`, color: 'yellow' } })
+      // Timeout: clear banner after 65s if spawn hangs
+      const bannerTimeout = setTimeout(() => {
+        dispatch({ type: 'SET_BANNER', banner: { text: `Spawn ${name}: still waiting (check flt logs ${name})`, color: 'yellow' } })
+      }, 65000)
       spawn({ name, cli, model, dir, bootstrap })
         .then(() => {
+          clearTimeout(bannerTimeout)
           dispatch({ type: 'SET_BANNER', banner: { text: `Spawned ${name}`, color: 'green' } })
           setTimeout(() => dispatch({ type: 'SET_BANNER', banner: null }), 3000)
         })
         .catch((e: Error) => {
+          clearTimeout(bannerTimeout)
           dispatch({ type: 'SET_BANNER', banner: { text: `Spawn failed: ${e.message}`, color: 'red' } })
           setTimeout(() => dispatch({ type: 'SET_BANNER', banner: null }), 5000)
         })
