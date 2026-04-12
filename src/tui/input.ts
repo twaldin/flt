@@ -262,6 +262,26 @@ export class RawKeyParser {
           else if (/^\x1b\[[0-9;]*B$/.test(seqText)) this.onEvent({ type: 'key', key: 'down', raw: seq })
           else if (/^\x1b\[[0-9;]*C$/.test(seqText)) this.onEvent({ type: 'key', key: 'right', raw: seq })
           else if (/^\x1b\[[0-9;]*D$/.test(seqText)) this.onEvent({ type: 'key', key: 'left', raw: seq })
+          else if (/^\x1b\[[0-9;]*u$/.test(seqText)) {
+            // Kitty keyboard protocol / CSI u: \x1b[<codepoint>u or \x1b[<codepoint>;<modifiers>u
+            // Ghostty and other modern terminals send keys in this format
+            const params = seqText.slice(2, -1) // strip \x1b[ and u
+            const codepoint = parseInt(params.split(';')[0], 10)
+            if (codepoint && !isNaN(codepoint)) {
+              if (codepoint === 13) this.onEvent({ type: 'key', key: 'enter', raw: seq })
+              else if (codepoint === 9) this.onEvent({ type: 'key', key: 'tab', raw: seq })
+              else if (codepoint === 27) this.onEvent({ type: 'key', key: 'escape', raw: seq })
+              else if (codepoint === 127) this.onEvent({ type: 'key', key: 'backspace', raw: seq })
+              else if (codepoint >= 32) {
+                this.onEvent({ type: 'text', text: String.fromCodePoint(codepoint), raw: seq })
+              }
+            }
+          }
+          else if (/^\x1b\[[0-9;]*~$/.test(seqText)) {
+            // VT-style function keys: \x1b[3~ = Delete, \x1b[5~ = PgUp, etc.
+            const num = parseInt(seqText.slice(2, -1).split(';')[0], 10)
+            if (num === 3) this.onEvent({ type: 'key', key: 'backspace', raw: seq })
+          }
 
           i = j + 1
           continue
