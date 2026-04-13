@@ -37,10 +37,46 @@ function agentsHash(agents: AgentView[]): string {
   return agents.map((a) => `${a.name}:${a.status}:${a.cli}:${a.model}`).join('|')
 }
 
-function detectAgentStatus(agentState: AgentState): AgentView['status'] {
+/** Extract total seconds from claude-code's activity timer.
+ *  Matches: "(40s · ↓ 81 tokens)", "(1m 22s · ↓ 413 tokens)", "(2m 43s · thinking)" */
+function extractTimerSeconds(pane: string): number | null {
+  // Match patterns like (40s, (1m 22s, (2m 43s inside parentheses with · separator
+  const match = pane.match(/\((?:(\d+)m\s*)?(\d+)s\s*·/)
+  if (!match) return null
+  const mins = match[1] ? parseInt(match[1], 10) : 0
+  const secs = parseInt(match[2], 10)
+  return mins * 60 + secs
+}
+
+function detectAgentStatus(agentState: AgentState, lastTimer: Record<string, number>): AgentView['status'] {
   try {
     const adapter = resolveAdapter(agentState.cli)
     const pane = capturePane(agentState.tmuxSession, 20)
+
+    // For claude-code: use timer-based detection
+    if (adapter.name === 'claude-code') {
+      const stripped = pane.replace(/\x1b\[[0-9;?]*[A-Za-z]/g, '')
+      const seconds = extractTimerSeconds(stripped)
+
+      if (seconds !== null) {
+        const prev = lastTimer[agentState.tmuxSession]
+        lastTimer[agentState.tmuxSession] = seconds
+        // Timer is ticking up → running
+        if (prev !== undefined && seconds > prev) return 'running'
+        // First time seeing a timer → assume running (next poll will confirm)
+        if (prev === undefined) return 'running'
+        // Timer didn't increment → just finished, check for idle prompt
+      }
+      // No timer found or timer frozen → check prompt
+      if (seconds === null) delete lastTimer[agentState.tmuxSession]
+      // Rate limited check
+      if (/rate.?limit|hit your limit/i.test(stripped)) return 'rate-limited'
+      // Prompt visible → idle
+      const lines = stripped.split('\n').map(l => l.trim()).filter(Boolean)
+      if (lines.some(l => /^[>❯]\s*$/.test(l))) return 'idle'
+      return 'unknown'
+    }
+
     return adapter.detectStatus(pane)
   } catch {
     return 'unknown'
@@ -61,6 +97,7 @@ export class App {
   private lastInboxRaw = ''
   private lastSelectedName: string | undefined
   private lastStatusByAgent: Record<string, string> = {}
+  private lastTimerByAgent: Record<string, number> = {}  // seconds from activity timer
   private bannerTimer: ReturnType<typeof setTimeout> | null = null
   private insertCaptureTimer: ReturnType<typeof setTimeout> | null = null
   private running = false
@@ -725,7 +762,7 @@ export class App {
         const existing = this.state.agents.find((a) => a.name === name)
         status = existing?.status ?? 'running'
       } else {
-        status = detectAgentStatus(agentState)
+        status = detectAgentStatus(agentState, this.lastTimerByAgent)
       }
 
       // Track status changes → notifications for non-selected agents

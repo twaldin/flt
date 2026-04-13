@@ -67,14 +67,14 @@ export const claudeCodeAdapter: CliAdapter = {
       return 'rate-limited'
     }
 
-    // Active spinner: has token counter (↓/↑ N tokens) or "esc to interrupt"
-    // These ONLY appear during active generation, never when idle
-    if (/tokens|esc to interrupt/i.test(last5)) {
+    // Timer-based detection is handled by App (needs cross-poll state).
+    // This is the fallback for non-TUI callers (flt list, etc.)
+    // Active: "(40s · ↓ 81 tokens)" or "(1m 22s · ↓ 413 tokens)" pattern
+    if (/\((?:\d+m\s+)?\d+s\s+/.test(last5) && /tokens/.test(last5)) {
       return 'running'
     }
 
-    // Idle: prompt visible (❯ with nothing after it, or just whitespace/cursor)
-    // The prompt ❯ is always visible in claude-code, but when idle it's on its own line
+    // Idle: prompt ❯ on its own line
     if (lines.some(l => /^[>❯]\s*$/.test(l))) {
       return 'idle'
     }
