@@ -100,6 +100,19 @@ program
   })
 
 program
+  .command('tail')
+  .description('Tail the inbox log (lightweight, no TUI)')
+  .action(async () => {
+    try {
+      const { tail } = await import('./commands/tail')
+      await tail()
+    } catch (e) {
+      console.error(`Error: ${(e as Error).message}`)
+      process.exit(1)
+    }
+  })
+
+program
   .command('logs <name>')
   .description('View agent terminal output')
   .option('-n, --lines <n>', 'Number of lines', '100')

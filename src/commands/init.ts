@@ -24,24 +24,26 @@ export function appendInbox(from: string, message: string): void {
 }
 
 export async function init(args: InitArgs): Promise<void> {
+  // Spawn orchestrator agent first, then fall through to TUI
   if (args.orchestrator) {
     const { spawn } = await import('./spawn')
-    // Agent name: either the value passed to -o (e.g. "cairn") or default "orchestrator"
     const agentName = typeof args.orchestrator === 'string' ? args.orchestrator : 'orchestrator'
-    // If agent name matches a preset, use it automatically
     const preset = args.preset ?? agentName
     const { getPreset } = await import('../presets')
     const hasPreset = !!getPreset(preset)
 
-    await spawn({
-      name: agentName,
-      cli: hasPreset ? undefined : (args.cli || 'claude-code'),
-      model: args.model,
-      preset: hasPreset ? preset : args.preset,
-      worktree: false,
-    })
-    console.log(`Agent ${agentName} spawned. Use "flt list" to check status.`)
-    return
+    try {
+      await spawn({
+        name: agentName,
+        cli: hasPreset ? undefined : (args.cli || 'claude-code'),
+        model: args.model,
+        preset: hasPreset ? preset : args.preset,
+        worktree: false,
+      })
+    } catch (e) {
+      console.error(`Warning: ${(e as Error).message}`)
+    }
+    // Fall through to TUI — don't return
   }
 
   // Human orchestrator — determine current tmux session
