@@ -60,14 +60,19 @@ export async function send(args: SendArgs): Promise<void> {
     throw new Error(`Target session "${session}" is not running.`)
   }
 
+  // Determine sender label
+  const senderName = caller.agentName ?? (caller.mode === 'human' ? 'tim' : 'unknown')
+
   if (isHumanParent) {
     // Write to inbox log — human's `flt init` tails this file
-    appendInbox(caller.agentName ?? 'agent', message)
+    appendInbox(senderName, message)
   } else {
-    if (message.length > 200 || message.includes('\n')) {
-      tmux.pasteBuffer(session, message)
+    // Prepend [SENDER]: so the receiving agent knows who sent the message
+    const tagged = `[${senderName.toUpperCase()}]: ${message}`
+    if (tagged.length > 200 || tagged.includes('\n')) {
+      tmux.pasteBuffer(session, tagged)
     } else {
-      tmux.sendLiteral(session, message)
+      tmux.sendLiteral(session, tagged)
     }
     await sleep(300)
     tmux.sendKeys(session, submitKeys)

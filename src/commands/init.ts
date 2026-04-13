@@ -18,7 +18,8 @@ export function appendInbox(from: string, message: string): void {
   const inboxPath = getInboxPath()
   mkdirSync(getStateDir(), { recursive: true })
   const ts = new Date().toLocaleTimeString('en-US', { hour12: false })
-  const line = `[${ts}] ${from}: ${message}\n`
+  const tag = from.toUpperCase()
+  const line = `[${ts}] [${tag}]: ${message}\n`
   const fd = require('fs').openSync(inboxPath, 'a')
   require('fs').writeSync(fd, line)
   require('fs').closeSync(fd)
