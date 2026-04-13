@@ -45,7 +45,7 @@ function extractTimer(pane: string): { seconds: number; active: boolean } | null
   const tail = pane.slice(-500)
 
   // Active: (Xs) or (Xm Ys) — in parentheses
-  const activeMatch = tail.match(/\((?:(\d+)m\s+)?(\d+)s(?:\s|[·)]))/)
+  const activeMatch = tail.match(/\((?:(\d+)m\s+)?(\d+)s[\s·)]/)
   if (activeMatch) {
     const mins = activeMatch[1] ? parseInt(activeMatch[1], 10) : 0
     const secs = parseInt(activeMatch[2], 10)
