@@ -19,15 +19,17 @@ const program = new Command()
 program
   .command('init')
   .description('Initialize fleet orchestrator')
-  .option('-o, --orchestrator', 'Spawn an agent orchestrator instead of human mode')
+  .option('-o, --orchestrator [name]', 'Spawn an agent orchestrator (optionally named, e.g. -o cairn)')
   .option('--cli <cli>', 'CLI for agent orchestrator', 'claude-code')
   .option('--model <model>', 'Model for agent orchestrator')
+  .option('--preset <preset>', 'Preset for agent orchestrator')
   .action(async (opts) => {
     try {
       await init({
         orchestrator: opts.orchestrator,
         cli: opts.cli,
         model: opts.model,
+        preset: opts.preset,
       })
     } catch (e) {
       console.error(`Error: ${(e as Error).message}`)

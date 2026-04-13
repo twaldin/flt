@@ -3,7 +3,7 @@ import { existsSync, watchFile, readFileSync, writeFileSync, mkdirSync } from 'f
 import { join } from 'path'
 
 interface InitArgs {
-  orchestrator?: boolean
+  orchestrator?: boolean | string  // true or agent name
   cli?: string
   model?: string
   preset?: string
@@ -26,14 +26,21 @@ export function appendInbox(from: string, message: string): void {
 export async function init(args: InitArgs): Promise<void> {
   if (args.orchestrator) {
     const { spawn } = await import('./spawn')
+    // Agent name: either the value passed to -o (e.g. "cairn") or default "orchestrator"
+    const agentName = typeof args.orchestrator === 'string' ? args.orchestrator : 'orchestrator'
+    // If agent name matches a preset, use it automatically
+    const preset = args.preset ?? agentName
+    const { getPreset } = await import('../presets')
+    const hasPreset = !!getPreset(preset)
+
     await spawn({
-      name: 'orchestrator',
-      cli: args.preset ? undefined : (args.cli || 'claude-code'),
+      name: agentName,
+      cli: hasPreset ? undefined : (args.cli || 'claude-code'),
       model: args.model,
-      preset: args.preset,
+      preset: hasPreset ? preset : args.preset,
       worktree: false,
     })
-    console.log('Agent orchestrator spawned. Use "flt list" to check status.')
+    console.log(`Agent ${agentName} spawned. Use "flt list" to check status.`)
     return
   }
 
