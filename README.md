@@ -164,7 +164,11 @@ flt tail                     # Tail inbox (lightweight, no TUI)
 | OpenCode | `opencode` | Any via OpenRouter |
 | SWE-agent | `swe-agent` | Any via OpenRouter |
 
-Each adapter handles spawning with the right flags, detecting ready state, auto-approving permission dialogs, and detecting working vs idle status.
+Each adapter handles:
+- **Spawning** with the right flags (`--dangerously-skip-permissions`, `--yes`, etc.)
+- **Ready detection** — knows when the CLI has finished loading and is accepting input
+- **Dialog auto-approval** — permission prompts, trust dialogs, and update notices are automatically handled so agents can run unattended from cron without blocking on human approval
+- **Status detection** — per-CLI ground truth (spinner icon cycling for Claude Code, "esc to interrupt" for Codex, braille spinners for Gemini/OpenCode, pane-content-delta as universal fallback)
 
 ## Presets
 
@@ -198,15 +202,43 @@ SSH into the VPS and run these commands...
 
 For Claude Code agents, skills become slash commands. For all other CLIs, skills are appended to the instruction file (AGENTS.md, GEMINI.md, etc.).
 
+## Orchestrator Mode
+
+`flt init -o` spawns a persistent orchestrator agent that manages the fleet. The orchestrator is itself an flt agent — it uses the same `flt spawn`, `flt send`, `flt kill` commands you do.
+
+```bash
+# Spawn an orchestrator named "cairn" using opus
+flt init -o cairn -p cairn
+
+# The orchestrator now manages subagents:
+# - It reads its SOUL.md for identity and decision policy
+# - It spawns coders (haiku/codex for cheap tasks, sonnet for balanced, opus for thorough)
+# - It reviews agent work before merging
+# - Agents don't commit — the orchestrator merges their work
+```
+
+The orchestrator pattern enforces a trust boundary: agents propose changes in worktrees, the orchestrator reviews and merges. No rogue commits to main.
+
+## Unattended Operation
+
+flt is designed to run from cron without human babysitting. Every CLI adapter includes a dialog auto-approval poller that detects and handles permission prompts, trust dialogs, and update notices. Without this, a cron-spawned agent would silently block waiting for human input.
+
+```bash
+# This works unattended — dialog poller handles Claude Code's permission prompt
+*/30 * * * * flt spawn monitor -p monitor -d ~/project "run health checks"
+```
+
 ## Messaging
 
 ```bash
 flt send mycoder "also add tests"      # human → agent
 flt send parent "task complete"         # agent → parent (from inside agent)
-flt send sibling "check my PR"          # agent → agent
+flt send sibling "check my PR"         # agent → agent
 ```
 
-Messages are tagged with `[SENDER]:` for attribution. The inbox (`m` in TUI) groups messages by sender in card-style boxes.
+Messages are tagged with `[SENDER]:` for attribution. `flt send parent` does dual routing — the message goes to both the parent agent's tmux session AND the human inbox, so the orchestrator and human both see completion signals.
+
+The inbox (`m` in TUI) groups messages by sender in card-style boxes.
 
 ## Themes
 
@@ -231,19 +263,21 @@ Autocomplete is configurable in `~/.flt/models.json`:
 
 ```
 ~/.flt/
-  state.json         # Fleet state
+  state.json         # Fleet state (readable by agents via cat)
   config.json        # Settings, theme
   presets.json       # Spawn presets
   models.json        # Model autocomplete
   inbox.log          # Agent messages
-  skills/            # Global skills
+  skills/            # Global skills (injected into all agents)
   agents/<name>/
     SOUL.md          # Agent identity
-    state.md         # Agent state (for compaction)
+    state.md         # Agent state (for compaction/resume)
     skills/          # Per-agent skills
 ```
 
-Each agent runs in its own tmux session (`flt-<name>`). Git worktrees provide branch isolation by default.
+Each agent runs in its own tmux session (`flt-<name>`). Git worktrees provide branch isolation by default. State is flat JSON files — agents can read `~/.flt/state.json` to understand fleet state, which database-backed systems can't offer.
+
+The TUI is a raw ANSI screen buffer with damage tracking (not Ink/React). It maintains a double-buffered cell grid, diffs front vs back, and writes only changed cells in a single `stdout.write()`. This eliminates the render jitter that plagues Ink-based terminal tools when displaying live tmux output. Supports DEC 2026 synchronized output for zero-flicker on modern terminals like Ghostty.
 
 ## Status Detection
 
