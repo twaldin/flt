@@ -23,6 +23,7 @@ program
   .option('--cli <cli>', 'CLI for agent orchestrator', 'claude-code')
   .option('--model <model>', 'Model for agent orchestrator')
   .option('--preset <preset>', 'Preset for agent orchestrator')
+  .option('--dir <path>', 'Working directory for agent (created if missing)')
   .action(async (opts) => {
     try {
       await init({
@@ -30,6 +31,7 @@ program
         cli: opts.cli,
         model: opts.model,
         preset: opts.preset,
+        dir: opts.dir,
       })
     } catch (e) {
       console.error(`Error: ${(e as Error).message}`)

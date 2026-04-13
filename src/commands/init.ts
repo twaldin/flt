@@ -7,6 +7,7 @@ interface InitArgs {
   cli?: string
   model?: string
   preset?: string
+  dir?: string
 }
 
 export function getInboxPath(): string {
@@ -32,10 +33,21 @@ export async function init(args: InitArgs): Promise<void> {
     const { getPreset } = await import('../presets')
     const hasPreset = !!getPreset(preset)
 
-    // Agent dir: ~/.flt/agents/<name>/ if it exists, otherwise cwd
-    // Orchestrators live in their agent home; sub-agents get --dir pointed at projects
-    const agentHome = join(getStateDir(), 'agents', agentName)
-    const dir = existsSync(agentHome) ? agentHome : undefined
+    // Dir resolution: --dir flag > agent home > cwd
+    let dir = args.dir
+    if (dir) {
+      // Expand ~ and create if doesn't exist
+      if (dir.startsWith('~/')) dir = dir.replace('~', process.env.HOME || '')
+      if (!existsSync(dir)) {
+        mkdirSync(dir, { recursive: true })
+      }
+    } else {
+      const agentHome = join(getStateDir(), 'agents', agentName)
+      if (existsSync(agentHome)) {
+        dir = agentHome
+      }
+      // else: undefined → spawn.ts defaults to cwd
+    }
 
     try {
       await spawn({
