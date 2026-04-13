@@ -67,33 +67,16 @@ export const claudeCodeAdapter: CliAdapter = {
       return 'rate-limited'
     }
 
-    // Active work indicators — check last 3 non-empty lines.
-    // ACTIVE spinner: "✽ Tomfoolering… (2m 43s · ↓ 708 tokens · thinking)"
-    //   — has token counter (↓/↑ N tokens) or "esc to interrupt"
-    // DONE marker: "✻ Cogitated for 2m 53s" or "✢ Thought for 1m 22s"
-    //   — past tense verb + "for Xm Ys", NO token counter
-    const last3 = lines.slice(-3).join('\n')
-    if (/[✶✢✽✻✳]/.test(last3)) {
-      // If it has a token counter or "esc to interrupt" → actively working
-      if (/tokens|esc to interrupt/i.test(last3)) {
-        return 'running'
-      }
-      // If it says "<verb> for Xm" with no token counter → done, not running
-    }
-    if (/Thinking|Tomfoolering|Working|Reading.*files/i.test(last3) && /tokens|esc to interrupt/i.test(last3)) {
+    // Active spinner: has token counter (↓/↑ N tokens) or "esc to interrupt"
+    // These ONLY appear during active generation, never when idle
+    if (/tokens|esc to interrupt/i.test(last5)) {
       return 'running'
     }
 
-    // Context percentage in status bar — if visible, agent is alive
-    // Check if the prompt line is truly empty (idle) vs has content being typed
-    const promptLine = lines.findLast(l => /^\s*[>❯]/.test(l))
-    if (promptLine && /^\s*[>❯]\s*$/.test(promptLine)) {
+    // Idle: prompt visible (❯ with nothing after it, or just whitespace/cursor)
+    // The prompt ❯ is always visible in claude-code, but when idle it's on its own line
+    if (lines.some(l => /^[>❯]\s*$/.test(l))) {
       return 'idle'
-    }
-
-    // Has status bar but no empty prompt — likely mid-generation
-    if (/bypass permissions/i.test(last5) || /\d+%/.test(last5)) {
-      return 'running'
     }
 
     return 'unknown'
