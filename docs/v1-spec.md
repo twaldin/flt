@@ -169,11 +169,26 @@ The heartbeat cron already exists. Extend it:
 }
 ```
 
+### Context % Detection Per CLI
+
+How to scrape context usage from each CLI's tmux pane:
+
+| CLI | Display | Regex | Auto-compact? |
+|-----|---------|-------|---------------|
+| Claude Code | Custom statusline `●●●○○○○○○○ 34%` | `[●○]{5,} (\d+)%` | No — we trigger via heartbeat |
+| Gemini CLI | Footer `85% used` | `(\d+)% used` | Yes — `context_window_will_overflow` event |
+| Codex | `X% left` in status | `(\d+)%\s+left` | Yes — auto-compacts near limit |
+| Aider | Not shown | N/A | Yes — auto-summarizes chat history at `--max-chat-history-tokens` |
+| OpenCode | Not shown | N/A | Unknown |
+
+For CLIs that don't show context %, use pane-content-delta heuristics (if agent stops responding mid-generation, context may be full) or rely on the CLI's own auto-compaction.
+
 ### Open Questions
 
 - Should watchdog be part of heartbeat cron or a separate always-running process?
 - How many restart attempts before giving up? Exponential backoff?
 - Should the TUI show watchdog events (restarts, compactions) in a dedicated panel?
+- For CLIs without context % display, should flt track token estimates based on pane content length?
 
 ---
 
