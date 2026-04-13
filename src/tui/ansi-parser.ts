@@ -155,17 +155,14 @@ export function parseAnsi(
 
   const writeChar = (char: string): void => {
     if (row < 0 || row > maxRow || col < 0 || col > maxCol) {
-      col += 1
+      // Overflow: don't wrap to next row — just discard.
+      // Wrapping is handled by the terminal (tmux), not us.
+      // Each \n in the captured output already marks a new row.
       return
     }
 
     writeCell(grid, absRow(row), absCol(col), style, char)
     col += 1
-
-    if (col > maxCol) {
-      col = 0
-      row += 1
-    }
   }
 
   let i = 0
