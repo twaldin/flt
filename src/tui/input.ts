@@ -566,6 +566,12 @@ function handleInboxChar(char: string, bindings: InputBindings): void {
   }
 }
 
+function handlePresetsChar(char: string, bindings: InputBindings): void {
+  if (char === ':') {
+    bindings.openCommand('')
+  }
+}
+
 function handleSpecialKey(event: Extract<ParsedInputEvent, { type: 'key' }>, bindings: InputBindings): void {
   const state = bindings.getState()
 
@@ -684,6 +690,13 @@ function handleSpecialKey(event: Extract<ParsedInputEvent, { type: 'key' }>, bin
     if (event.key === 'escape') {
       bindings.setMode('normal')
     }
+    return
+  }
+
+  if (state.mode === 'presets') {
+    if (event.key === 'escape') {
+      bindings.setMode('normal')
+    }
   }
 }
 
@@ -729,6 +742,8 @@ function handleText(event: Extract<ParsedInputEvent, { type: 'text' }>, bindings
       handleLogFocusChar(char, bindings)
     } else if (state.mode === 'inbox') {
       handleInboxChar(char, bindings)
+    } else if (state.mode === 'presets') {
+      handlePresetsChar(char, bindings)
     }
   }
 }

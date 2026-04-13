@@ -238,11 +238,12 @@ export class App {
   }
 
   private setMode(mode: Mode): void {
-    if (this.state.mode === mode) return
+    const previousMode = this.state.mode
+    if (previousMode === mode) return
     this.state.mode = mode
     this.restartPolling()
     // Immediately capture content for the new mode
-    if (mode === 'log-focus' || mode === 'insert') {
+    if (mode === 'log-focus' || mode === 'insert' || (mode === 'normal' && previousMode === 'presets')) {
       this.captureSelectedPane()
     }
     this.render()
@@ -564,7 +565,7 @@ export class App {
           this.lastLogContent = output
           this.applyLogContent(output)
           this.clearBanner()
-          this.render()
+          this.setMode('presets')
         } catch (error) {
           const msg = error instanceof Error ? error.message : String(error)
           this.setBanner(`Presets failed: ${msg}`, 'red', 5000)
@@ -817,6 +818,12 @@ export class App {
     // In shell mode, capture shell pane instead of agent pane
     if (this.state.mode === 'shell') {
       this.captureShell()
+      if (changed) this.render()
+      return
+    }
+
+    // Keep :presets list visible until user exits the presets view.
+    if (this.state.mode === 'presets') {
       if (changed) this.render()
       return
     }

@@ -16,7 +16,7 @@ function mockAgent(name: string): AgentView {
   }
 }
 
-function createBindings(mode: 'normal' | 'log-focus' | 'insert' | 'command' | 'inbox') {
+function createBindings(mode: 'normal' | 'log-focus' | 'insert' | 'command' | 'inbox' | 'presets') {
   const state = createInitialState(100, 40)
   state.mode = mode
   state.agents = [mockAgent('alpha'), mockAgent('beta')]
@@ -118,6 +118,20 @@ describe('input dispatch', () => {
     const { bindings, calls } = createBindings('log-focus')
     handleInputEvent({ type: 'key', key: 'ctrl-d', raw: Buffer.from([0x04]) }, bindings)
     expect(calls).toContain('page-down')
+  })
+
+  it('closes presets mode with escape', () => {
+    const { state, bindings, calls } = createBindings('presets')
+    handleInputEvent({ type: 'key', key: 'escape', raw: Buffer.from([0x1b]) }, bindings)
+    expect(calls).toContain('mode:normal')
+    expect(state.mode).toBe('normal')
+  })
+
+  it('opens command from presets mode with colon', () => {
+    const { state, bindings, calls } = createBindings('presets')
+    handleInputEvent({ type: 'text', text: ':', raw: Buffer.from(':') }, bindings)
+    expect(calls).toContain('open:')
+    expect(state.mode).toBe('command')
   })
 
   it('returns completion hint for partial command', () => {

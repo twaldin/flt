@@ -20,6 +20,7 @@ const MODE_HINTS: Record<Mode, string> = {
   insert: 'typing to selected agent | Esc exit insert mode',
   command: 'Enter execute | Tab complete | Esc cancel',
   inbox: 'r reply to last sender | Esc close',
+  presets: ': cmd | Esc close',
   'kill-confirm': 'y confirm | n cancel | Esc cancel',
   shell: 'typing in shell | Esc close',
 }
@@ -263,6 +264,16 @@ function renderLogPane(screen: Screen, state: AppState, top: number, left: numbe
 
   if (state.mode === 'inbox') {
     renderInbox(screen, state, top, left, width, height)
+    return
+  }
+
+  if (state.mode === 'presets') {
+    const lines = state.logContent.split('\n')
+    const viewableLines = Math.max(1, height)
+    const maxStart = Math.max(0, lines.length - viewableLines)
+    const startIdx = clamp(state.logScrollOffset, 0, maxStart)
+    const visible = lines.slice(startIdx, startIdx + viewableLines)
+    screen.putAnsi(top, left, width, viewableLines, visible.join('\n'))
     return
   }
 

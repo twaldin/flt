@@ -87,7 +87,7 @@ describe('theme system', () => {
 
     it('statusMode has all required modes', () => {
       const theme = getTheme()
-      const modes: Mode[] = ['normal', 'log-focus', 'insert', 'command', 'inbox']
+      const modes: Mode[] = ['normal', 'log-focus', 'insert', 'command', 'inbox', 'presets', 'kill-confirm', 'shell']
       for (const mode of modes) {
         expect(theme.statusMode).toHaveProperty(mode)
       }
@@ -96,7 +96,7 @@ describe('theme system', () => {
 
   describe('modeColor', () => {
     it('returns a color for each mode', () => {
-      const modes: Mode[] = ['normal', 'log-focus', 'insert', 'command', 'inbox']
+      const modes: Mode[] = ['normal', 'log-focus', 'insert', 'command', 'inbox', 'presets', 'kill-confirm', 'shell']
       for (const mode of modes) {
         const color = modeColor(mode)
         expect(typeof color).toBe('string')

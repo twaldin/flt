@@ -85,6 +85,7 @@ const DARK_THEME: ThemeColors = {
     insert: ANSI_COLORS.green,
     command: ANSI_COLORS.magenta,
     inbox: ANSI_COLORS.blue,
+    presets: ANSI_COLORS.blue,
     'kill-confirm': ANSI_COLORS.red,
     shell: ANSI_COLORS.brightCyan,  },
 }
@@ -121,6 +122,7 @@ const MINIMAL_THEME: ThemeColors = {
     insert: ANSI_COLORS.green,
     command: ANSI_COLORS.white,
     inbox: ANSI_COLORS.white,
+    presets: ANSI_COLORS.white,
     'kill-confirm': ANSI_COLORS.white,
     shell: ANSI_COLORS.brightCyan,  },
 }
@@ -154,6 +156,7 @@ const CATPPUCCIN_MOCHA: ThemeColors = {
     insert: rgb(166, 227, 161),          // green
     command: rgb(203, 166, 247),         // mauve
     inbox: rgb(116, 199, 236),           // sapphire
+    presets: rgb(116, 199, 236),         // sapphire
     'kill-confirm': rgb(243, 139, 168),  // red
     shell: ANSI_COLORS.brightCyan,  },
 }
@@ -185,6 +188,7 @@ const GRUVBOX_DARK: ThemeColors = {
     insert: rgb(152, 151, 26),           // green
     command: rgb(177, 98, 134),          // purple
     inbox: rgb(69, 133, 136),            // aqua
+    presets: rgb(69, 133, 136),          // aqua
     'kill-confirm': rgb(204, 36, 29),    // red
     shell: ANSI_COLORS.brightCyan,  },
 }
@@ -216,6 +220,7 @@ const TOKYO_NIGHT: ThemeColors = {
     insert: rgb(158, 206, 106),          // green
     command: rgb(187, 154, 247),         // purple
     inbox: rgb(125, 207, 255),           // cyan
+    presets: rgb(125, 207, 255),         // cyan
     'kill-confirm': rgb(247, 118, 142),  // red
     shell: ANSI_COLORS.brightCyan,  },
 }
@@ -247,6 +252,7 @@ const NORD: ThemeColors = {
     insert: rgb(163, 190, 140),          // green
     command: rgb(180, 142, 173),         // purple
     inbox: rgb(129, 161, 193),           // frost dark
+    presets: rgb(129, 161, 193),         // frost dark
     'kill-confirm': rgb(191, 97, 106),   // red
     shell: ANSI_COLORS.brightCyan,  },
 }
@@ -278,6 +284,7 @@ const DRACULA: ThemeColors = {
     insert: rgb(80, 250, 123),          // green
     command: rgb(189, 147, 249),         // purple
     inbox: rgb(139, 233, 253),           // cyan
+    presets: rgb(139, 233, 253),         // cyan
     'kill-confirm': rgb(255, 85, 85),    // red
     shell: ANSI_COLORS.brightCyan,  },
 }
@@ -308,6 +315,7 @@ const ONE_DARK: ThemeColors = {
     insert: rgb(152, 195, 121),          // green
     command: rgb(198, 120, 221),         // magenta
     inbox: rgb(86, 182, 194),            // cyan
+    presets: rgb(86, 182, 194),          // cyan
     'kill-confirm': rgb(224, 108, 117),  // red
     shell: ANSI_COLORS.brightCyan,  },
 }
