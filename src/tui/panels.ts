@@ -174,10 +174,14 @@ function renderSidebar(screen: Screen, state: AppState, top: number, left: numbe
     const bg = selected ? t.sidebarSelectedBg : ''
     const pad = ' '
     const namePrefix = continuation + connector  // "│ ├ " on name row
-    // Detail/padding rows: keep this level's vertical connector alive whenever
-    // this branch continues downward (either more siblings below or child rows below).
-    const branchContinues = connector === '├ ' || hasChildren
-    const detailPrefix = continuation + (connector ? (branchContinues ? '│ ' : '  ') : (branchContinues ? '│ ' : ''))
+    // Detail/padding rows: vertical line continues at this level if:
+    // - connector is ├ (more siblings below) → show │
+    // - connector is └ but has children → show │ (for children's tree)
+    // - no connector (root) → no │ (children draw their own continuation)
+    let detailPrefix = continuation
+    if (connector === '├ ') detailPrefix += '│ '
+    else if (connector === '└ ' && hasChildren) detailPrefix += '│ '
+    else if (connector) detailPrefix += '  '
     const innerWidth = Math.max(0, width - 2 - widthOf(namePrefix))
 
     // Padding row
