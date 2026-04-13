@@ -37,15 +37,30 @@ function agentsHash(agents: AgentView[]): string {
   return agents.map((a) => `${a.name}:${a.status}:${a.cli}:${a.model}`).join('|')
 }
 
-/** Extract total seconds from claude-code's activity timer.
- *  Matches: "(40s · ↓ 81 tokens)", "(1m 22s · ↓ 413 tokens)", "(2m 43s · thinking)" */
-function extractTimerSeconds(pane: string): number | null {
-  // Match patterns like (40s, (1m 22s, (2m 43s inside parentheses with · separator
-  const match = pane.match(/\((?:(\d+)m\s*)?(\d+)s\s*·/)
-  if (!match) return null
-  const mins = match[1] ? parseInt(match[1], 10) : 0
-  const secs = parseInt(match[2], 10)
-  return mins * 60 + secs
+/** Extract timer from claude-code's status area.
+ *  Active (in parens, ticks up): "(0s)", "(15s)", "(1m 22s · ↓ 413 tokens)"
+ *  Done (after "for", frozen):   "Crunched for 1m 20s", "Cogitated for 45s" */
+function extractTimer(pane: string): { seconds: number; active: boolean } | null {
+  // Check last ~500 chars only (timer is near the bottom)
+  const tail = pane.slice(-500)
+
+  // Active: (Xs) or (Xm Ys) — in parentheses
+  const activeMatch = tail.match(/\((?:(\d+)m\s+)?(\d+)s(?:\s|[·)]))/)
+  if (activeMatch) {
+    const mins = activeMatch[1] ? parseInt(activeMatch[1], 10) : 0
+    const secs = parseInt(activeMatch[2], 10)
+    return { seconds: mins * 60 + secs, active: true }
+  }
+
+  // Done: "for Xm Ys" or "for Xs" — after completion verb
+  const doneMatch = tail.match(/for\s+(?:(\d+)m\s+)?(\d+)s\b/)
+  if (doneMatch) {
+    const mins = doneMatch[1] ? parseInt(doneMatch[1], 10) : 0
+    const secs = parseInt(doneMatch[2], 10)
+    return { seconds: mins * 60 + secs, active: false }
+  }
+
+  return null
 }
 
 function detectAgentStatus(agentState: AgentState, lastTimer: Record<string, number>): AgentView['status'] {
@@ -56,24 +71,30 @@ function detectAgentStatus(agentState: AgentState, lastTimer: Record<string, num
     // For claude-code: use timer-based detection
     if (adapter.name === 'claude-code') {
       const stripped = pane.replace(/\x1b\[[0-9;?]*[A-Za-z]/g, '')
-      const seconds = extractTimerSeconds(stripped)
 
-      if (seconds !== null) {
-        const prev = lastTimer[agentState.tmuxSession]
-        lastTimer[agentState.tmuxSession] = seconds
-        // Timer is ticking up → running
-        if (prev !== undefined && seconds > prev) return 'running'
-        // First time seeing a timer → assume running (next poll will confirm)
-        if (prev === undefined) return 'running'
-        // Timer didn't increment → just finished, check for idle prompt
-      }
-      // No timer found or timer frozen → check prompt
-      if (seconds === null) delete lastTimer[agentState.tmuxSession]
-      // Rate limited check
+      // Rate limited
       if (/rate.?limit|hit your limit/i.test(stripped)) return 'rate-limited'
-      // Prompt visible → idle
-      const lines = stripped.split('\n').map(l => l.trim()).filter(Boolean)
-      if (lines.some(l => /^[>❯]\s*$/.test(l))) return 'idle'
+
+      const timer = extractTimer(stripped)
+
+      if (timer) {
+        if (!timer.active) {
+          // Done marker ("Crunched for 1m 20s") → idle
+          return 'idle'
+        }
+        // Active timer — check if it's ticking
+        const prev = lastTimer[agentState.tmuxSession]
+        lastTimer[agentState.tmuxSession] = timer.seconds
+        if (prev !== undefined && timer.seconds > prev) return 'running'
+        if (prev === undefined) return 'running'
+        // Timer frozen → transitioning, check prompt
+      }
+
+      if (!timer) delete lastTimer[agentState.tmuxSession]
+
+      // Fallback: check for idle prompt (❯ on its own line)
+      if (/❯\s*\n|>\s*\n/.test(stripped)) return 'idle'
+
       return 'unknown'
     }
 
