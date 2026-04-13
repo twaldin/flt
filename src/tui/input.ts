@@ -1,7 +1,7 @@
 import { StringDecoder } from 'string_decoder'
 import type { AgentView, AppState, InboxMessage, Mode } from './types'
 
-export type TmuxInsertKey = 'Enter' | 'BSpace' | 'Tab' | 'Up' | 'Down' | 'Left' | 'Right' | 'C-c'
+export type TmuxInsertKey = 'Enter' | 'BSpace' | 'Tab' | 'Up' | 'Down' | 'Left' | 'Right' | 'C-c' | 'M-BSpace' | 'C-u' | 'M-d'
 
 export type ParsedInputEvent =
   | { type: 'key'; key: string; raw: Buffer }
@@ -327,6 +327,20 @@ export class RawKeyParser {
           continue
         }
 
+        // Option+Backspace: \x1b\x7f → delete word
+        if (buf[i + 1] === 0x7f) {
+          this.onEvent({ type: 'key', key: 'alt-backspace', raw: buf.subarray(i, i + 2) })
+          i += 2
+          continue
+        }
+
+        // Option+d: \x1b d → delete word forward (common in shells)
+        if (buf[i + 1] === 0x64) {
+          this.onEvent({ type: 'key', key: 'alt-d', raw: buf.subarray(i, i + 2) })
+          i += 2
+          continue
+        }
+
         if (buf[i + 1] === 0x5b) {
           if (i + 2 >= buf.length) {
             this.pendingEscape = buf.subarray(i)
@@ -562,6 +576,15 @@ function handleSpecialKey(event: Extract<ParsedInputEvent, { type: 'key' }>, bin
       bindings.sendInsertKey('Left')
     } else if (event.key === 'right') {
       bindings.sendInsertKey('Right')
+    } else if (event.key === 'alt-backspace') {
+      bindings.flushInsert()
+      bindings.sendInsertKey('M-BSpace')
+    } else if (event.key === 'alt-d') {
+      bindings.flushInsert()
+      bindings.sendInsertKey('M-d')
+    } else if (event.key === 'ctrl-u') {
+      bindings.flushInsert()
+      bindings.sendInsertKey('C-u')
     } else if (event.key === 'ctrl-c') {
       bindings.flushInsert()
       bindings.sendInsertKey('C-c')
@@ -590,6 +613,15 @@ function handleSpecialKey(event: Extract<ParsedInputEvent, { type: 'key' }>, bin
       bindings.sendShellKey('Left')
     } else if (event.key === 'right') {
       bindings.sendShellKey('Right')
+    } else if (event.key === 'alt-backspace') {
+      bindings.flushShell()
+      bindings.sendShellKey('M-BSpace')
+    } else if (event.key === 'alt-d') {
+      bindings.flushShell()
+      bindings.sendShellKey('M-d')
+    } else if (event.key === 'ctrl-u') {
+      bindings.flushShell()
+      bindings.sendShellKey('C-u')
     } else if (event.key === 'ctrl-c') {
       bindings.flushShell()
       bindings.sendShellKey('C-c')
