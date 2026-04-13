@@ -37,65 +37,46 @@ function agentsHash(agents: AgentView[]): string {
   return agents.map((a) => `${a.name}:${a.status}:${a.cli}:${a.model}`).join('|')
 }
 
-/** Extract timer from claude-code's status area.
- *  Active (in parens, ticks up): "(0s)", "(15s)", "(1m 22s · ↓ 413 tokens)"
- *  Done (after "for", frozen):   "Crunched for 1m 20s", "Cogitated for 45s" */
-function extractTimer(pane: string): { seconds: number; active: boolean } | null {
-  // Check last ~500 chars only (timer is near the bottom)
-  const tail = pane.slice(-500)
-
-  // Active: (Xs) or (Xm Ys) — in parentheses
-  const activeMatch = tail.match(/\((?:(\d+)m\s+)?(\d+)s[\s·)]/)
-  if (activeMatch) {
-    const mins = activeMatch[1] ? parseInt(activeMatch[1], 10) : 0
-    const secs = parseInt(activeMatch[2], 10)
-    return { seconds: mins * 60 + secs, active: true }
-  }
-
-  // Done: "for Xm Ys" or "for Xs" — after completion verb
-  const doneMatch = tail.match(/for\s+(?:(\d+)m\s+)?(\d+)s\b/)
-  if (doneMatch) {
-    const mins = doneMatch[1] ? parseInt(doneMatch[1], 10) : 0
-    const secs = parseInt(doneMatch[2], 10)
-    return { seconds: mins * 60 + secs, active: false }
-  }
-
-  return null
+/** Extract the spinner icon from claude-code's status line.
+ *  The spinner cycles through ✽ ✳ ✢ ✻ ✶ · when active (changes every second).
+ *  When done, it freezes on one icon (always ✻). Compare between polls:
+ *  - Icon changed → running
+ *  - Icon same or absent → idle */
+function extractSpinnerIcon(pane: string): string | null {
+  const match = pane.match(/^[✶✢✽✻✳·✺✹✸✷✿❋]/m)
+  return match ? match[0] : null
 }
 
-function detectAgentStatus(agentState: AgentState, lastTimer: Record<string, number>): AgentView['status'] {
+function detectAgentStatus(agentState: AgentState, lastIcons: Record<string, string>): AgentView['status'] {
   try {
     const adapter = resolveAdapter(agentState.cli)
     const pane = capturePane(agentState.tmuxSession, 20)
 
-    // For claude-code: use timer-based detection
+    // For claude-code: spinner icon delta detection
     if (adapter.name === 'claude-code') {
       const stripped = pane.replace(/\x1b\[[0-9;?]*[A-Za-z]/g, '')
 
       // Rate limited
       if (/rate.?limit|hit your limit/i.test(stripped)) return 'rate-limited'
 
-      const timer = extractTimer(stripped)
+      const icon = extractSpinnerIcon(stripped)
+      const key = agentState.tmuxSession
 
-      if (timer) {
-        if (!timer.active) {
-          // Done marker ("Crunched for 1m 20s") → idle
-          return 'idle'
-        }
-        // Active timer — check if it's ticking
-        const prev = lastTimer[agentState.tmuxSession]
-        lastTimer[agentState.tmuxSession] = timer.seconds
-        if (prev !== undefined && timer.seconds > prev) return 'running'
-        if (prev === undefined) return 'running'
-        // Timer frozen → transitioning, check prompt
+      if (icon) {
+        const prev = lastIcons[key]
+        lastIcons[key] = icon
+        // Icon changed since last poll → actively working
+        if (prev && prev !== icon) return 'running'
+        // First time seeing icon or same icon → could be working or done
+        // Will resolve on next poll (1s later)
+        if (!prev) return 'running'
+        // Same icon twice → frozen → idle
+        return 'idle'
       }
 
-      if (!timer) delete lastTimer[agentState.tmuxSession]
-
-      // Fallback: check for idle prompt (❯ on its own line)
-      if (/❯\s*\n|>\s*\n/.test(stripped)) return 'idle'
-
-      return 'unknown'
+      // No spinner icon found → check prompt
+      delete lastIcons[key]
+      return 'idle'
     }
 
     return adapter.detectStatus(pane)
@@ -118,7 +99,7 @@ export class App {
   private lastInboxRaw = ''
   private lastSelectedName: string | undefined
   private lastStatusByAgent: Record<string, string> = {}
-  private lastTimerByAgent: Record<string, number> = {}  // seconds from activity timer
+  private lastIconByAgent: Record<string, string> = {}  // spinner icon for delta detection
   private bannerTimer: ReturnType<typeof setTimeout> | null = null
   private insertCaptureTimer: ReturnType<typeof setTimeout> | null = null
   private running = false
@@ -783,7 +764,7 @@ export class App {
         const existing = this.state.agents.find((a) => a.name === name)
         status = existing?.status ?? 'running'
       } else {
-        status = detectAgentStatus(agentState, this.lastTimerByAgent)
+        status = detectAgentStatus(agentState, this.lastIconByAgent)
       }
 
       // Track status changes → notifications for non-selected agents
