@@ -18,6 +18,19 @@ interface SpawnArgs {
 }
 
 export async function spawn(args: SpawnArgs): Promise<void> {
+  if (process.env.FLT_CONTROLLER !== '1') {
+    const { ensureController } = await import('./controller')
+    const { sendToController } = await import('../controller/client')
+    await ensureController()
+    const result = await sendToController({ action: 'spawn', args: args as unknown as Record<string, unknown> })
+    if (!result.ok) throw new Error(result.error ?? 'Spawn failed')
+    if (!process.env.FLT_TUI_ACTIVE) console.log(result.data)
+    return
+  }
+  return spawnDirect(args)
+}
+
+export async function spawnDirect(args: SpawnArgs): Promise<void> {
   const {
     name,
     cli: explicitCli,

@@ -92,9 +92,9 @@ program
 program
   .command('kill <name>')
   .description('Kill an agent and clean up')
-  .action((name) => {
+  .action(async (name) => {
     try {
-      kill({ name })
+      await kill({ name })
     } catch (e) {
       console.error(`Error: ${(e as Error).message}`)
       process.exit(1)
@@ -189,6 +189,105 @@ presetsCmd
     try {
       presetsRemove({ name })
       console.log(`Removed preset "${name}".`)
+    } catch (e) {
+      console.error(`Error: ${(e as Error).message}`)
+      process.exit(1)
+    }
+  })
+
+const workflowCmd = program
+  .command('workflow')
+  .description('Manage multi-step agent workflows')
+
+workflowCmd
+  .command('run <name>')
+  .description('Start a workflow from ~/.flt/workflows/')
+  .action(async (name) => {
+    try {
+      const { workflowRun } = await import('./commands/workflow')
+      await workflowRun(name)
+    } catch (e) {
+      console.error(`Error: ${(e as Error).message}`)
+      process.exit(1)
+    }
+  })
+
+workflowCmd
+  .command('status [name]')
+  .description('Show workflow run status')
+  .action((name) => {
+    try {
+      const { workflowStatus } = require('./commands/workflow')
+      workflowStatus(name)
+    } catch (e) {
+      console.error(`Error: ${(e as Error).message}`)
+      process.exit(1)
+    }
+  })
+
+workflowCmd
+  .command('list')
+  .description('List workflow definitions and runs')
+  .action(() => {
+    try {
+      const { workflowList } = require('./commands/workflow')
+      workflowList()
+    } catch (e) {
+      console.error(`Error: ${(e as Error).message}`)
+      process.exit(1)
+    }
+  })
+
+workflowCmd
+  .command('cancel <name>')
+  .description('Cancel a running workflow')
+  .action(async (name) => {
+    try {
+      const { workflowCancel } = await import('./commands/workflow')
+      await workflowCancel(name)
+    } catch (e) {
+      console.error(`Error: ${(e as Error).message}`)
+      process.exit(1)
+    }
+  })
+
+const controllerCmd = program
+  .command('controller')
+  .description('Manage the fleet controller daemon')
+
+controllerCmd
+  .command('start')
+  .description('Start the controller daemon')
+  .action(async () => {
+    try {
+      const { startController } = await import('./commands/controller')
+      await startController()
+    } catch (e) {
+      console.error(`Error: ${(e as Error).message}`)
+      process.exit(1)
+    }
+  })
+
+controllerCmd
+  .command('stop')
+  .description('Stop the controller daemon')
+  .action(() => {
+    try {
+      const { stopController } = require('./commands/controller')
+      stopController()
+    } catch (e) {
+      console.error(`Error: ${(e as Error).message}`)
+      process.exit(1)
+    }
+  })
+
+controllerCmd
+  .command('status')
+  .description('Show controller status')
+  .action(async () => {
+    try {
+      const { controllerStatus } = await import('./commands/controller')
+      await controllerStatus()
     } catch (e) {
       console.error(`Error: ${(e as Error).message}`)
       process.exit(1)

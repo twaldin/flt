@@ -70,6 +70,13 @@ export const codexAdapter: CliAdapter = {
     if (/esc to interrupt/i.test(last5)) return 'running'
     if (/background terminal running/i.test(last5)) return 'running'
 
+    // Idle: prompt visible (❯ or ›) without working indicator
+    const hasPrompt = last5.split('\n').some(l => /^\s*[❯›]\s*$/.test(l))
+    if (hasPrompt) return 'idle'
+
+    // Idle: status bar showing model/budget without working indicator
+    if (/\d+%\s+left/i.test(last5) && !/working/i.test(last5)) return 'idle'
+
     return 'unknown'
   },
 }

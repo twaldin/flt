@@ -53,7 +53,10 @@ export const opencodeAdapter: CliAdapter = {
     if (/[⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏]/.test(last10)) return 'running'
     if (/thinking|running/i.test(last10)) return 'running'
 
-    // Falls through to pane-delta detection in App
+    // Idle: "Ask anything" prompt visible without spinners
+    const full = pane.split('\n').join('\n')
+    if (/Ask anything/i.test(full)) return 'idle'
+
     return 'unknown'
   },
 }

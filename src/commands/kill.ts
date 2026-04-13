@@ -10,7 +10,20 @@ interface KillArgs {
   name: string
 }
 
-export function kill(args: KillArgs): void {
+export async function kill(args: KillArgs): Promise<void> {
+  if (process.env.FLT_CONTROLLER !== '1') {
+    const { ensureController } = await import('./controller')
+    const { sendToController } = await import('../controller/client')
+    await ensureController()
+    const result = await sendToController({ action: 'kill', args: args as unknown as Record<string, unknown> })
+    if (!result.ok) throw new Error(result.error ?? 'Kill failed')
+    if (!process.env.FLT_TUI_ACTIVE) console.log(result.data)
+    return
+  }
+  return killDirect(args)
+}
+
+export function killDirect(args: KillArgs): void {
   const { name } = args
   const agent = getAgent(name)
 

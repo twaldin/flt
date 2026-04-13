@@ -1,0 +1,34 @@
+export interface WorkflowDef {
+  name: string
+  steps: WorkflowStepDef[]
+}
+
+export interface WorkflowStepDef {
+  id: string
+  preset: string
+  dir?: string
+  task: string
+  on_complete?: string
+  on_fail?: string
+  max_retries?: number
+  run?: string
+}
+
+export interface WorkflowRun {
+  id: string
+  workflow: string
+  currentStep: string
+  status: 'running' | 'completed' | 'failed' | 'cancelled'
+  history: WorkflowStepResult[]
+  retries: Record<string, number>
+  vars: Record<string, Record<string, string>>  // per-step resolved vars: vars[stepId] = { worktree, dir, branch }
+  startedAt: string
+  completedAt?: string
+}
+
+export interface WorkflowStepResult {
+  step: string
+  result: 'completed' | 'failed' | 'skipped'
+  at: string
+  agent?: string
+}

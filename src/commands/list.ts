@@ -1,5 +1,4 @@
 import { loadState } from '../state'
-import { resolveAdapter } from '../adapters/registry'
 import * as tmux from '../tmux'
 
 interface AgentInfo {
@@ -27,13 +26,7 @@ export function list(): void {
   for (const [name, agent] of Object.entries(agents)) {
     let status = 'dead'
     if (tmux.hasSession(agent.tmuxSession)) {
-      try {
-        const adapter = resolveAdapter(agent.cli)
-        const pane = tmux.capturePane(agent.tmuxSession)
-        status = adapter.detectStatus(pane)
-      } catch {
-        status = 'alive'
-      }
+      status = agent.status ?? 'unknown'
     }
 
     infos[name] = {

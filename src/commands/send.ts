@@ -11,6 +11,18 @@ interface SendArgs {
 }
 
 export async function send(args: SendArgs): Promise<void> {
+  if (process.env.FLT_CONTROLLER !== '1') {
+    const { ensureController } = await import('./controller')
+    const { sendToController } = await import('../controller/client')
+    await ensureController()
+    const result = await sendToController({ action: 'send', args: args as unknown as Record<string, unknown> })
+    if (!result.ok) throw new Error(result.error ?? 'Send failed')
+    return
+  }
+  return sendDirect(args)
+}
+
+export async function sendDirect(args: SendArgs): Promise<void> {
   const { target, message } = args
   const caller = detectCaller()
 

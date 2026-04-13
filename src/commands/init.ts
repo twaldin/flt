@@ -1,5 +1,5 @@
-import { setOrchestrator, getOrchestrator, loadState, getStateDir } from '../state'
-import { existsSync, watchFile, readFileSync, writeFileSync, mkdirSync } from 'fs'
+import { setOrchestrator, getOrchestrator, getStateDir } from '../state'
+import { existsSync, writeFileSync, mkdirSync } from 'fs'
 import { join } from 'path'
 import { homedir } from 'os'
 
@@ -94,6 +94,10 @@ export async function init(args: InitArgs): Promise<void> {
   if (!existsSync(inboxPath)) {
     writeFileSync(inboxPath, '')
   }
+
+  // Ensure controller is running (handles reconciliation + status polling)
+  const { ensureController } = await import('./controller')
+  await ensureController()
 
   // Render TUI
   const { renderTui } = await import('../tui/render')

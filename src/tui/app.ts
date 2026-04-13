@@ -1,6 +1,6 @@
 import { existsSync, readFileSync } from 'fs'
 import { homedir } from 'os'
-import { resolveAdapter, listAdapters } from '../adapters/registry'
+import { listAdapters } from '../adapters/registry'
 import { kill } from '../commands/kill'
 import { formatPresetList, presetsAdd, presetsRemove } from '../commands/presets'
 import { send } from '../commands/send'
@@ -38,77 +38,6 @@ function agentsHash(agents: AgentView[]): string {
   return agents.map((a) => `${a.name}:${a.status}:${a.cli}:${a.model}`).join('|')
 }
 
-/** Extract the spinner icon from claude-code's status line.
- *  The spinner cycles through ✽ ✳ ✢ ✻ ✶ · when active (changes every second).
- *  When done, it freezes on one icon (always ✻). Compare between polls:
- *  - Icon changed → running
- *  - Icon same or absent → idle */
-function extractSpinnerIcon(pane: string): string | null {
-  // U+00B7 · Middle Dot, U+2722 ✢ Four Teardrop-Spoked Asterisk,
-  // U+2733 ✳ Eight Spoked Asterisk, U+2217 ∗ Asterisk Operator,
-  // U+273B ✻ Teardrop-Spoked Asterisk, U+273D ✽ Heavy Teardrop-Spoked Asterisk
-  const match = pane.match(/^[\u00B7\u2722\u2733\u2217\u273B\u273D]/m)
-  return match ? match[0] : null
-}
-
-function simpleHash(s: string): string {
-  let h = 0
-  for (let i = 0; i < s.length; i++) h = ((h << 5) - h + s.charCodeAt(i)) | 0
-  return String(h)
-}
-
-function detectAgentStatus(agentState: AgentState, lastIcons: Record<string, string>, lastHashes: Record<string, string>): AgentView['status'] {
-  try {
-    const adapter = resolveAdapter(agentState.cli)
-    const pane = capturePane(agentState.tmuxSession, 20)
-
-    // For claude-code: spinner icon delta detection
-    if (adapter.name === 'claude-code') {
-      const stripped = pane.replace(/\x1b\[[0-9;?]*[A-Za-z]/g, '')
-
-      // Rate limited — only check the last 2 lines (status bar area)
-      // to avoid false positives from agent output mentioning "rate limit"
-      const last2 = stripped.split('\n').slice(-2).join('\n')
-      if (/rate.?limit|hit your limit/i.test(last2)) return 'rate-limited'
-
-      const icon = extractSpinnerIcon(stripped)
-      const key = agentState.tmuxSession
-
-      if (icon) {
-        const prev = lastIcons[key]
-        lastIcons[key] = icon
-        // Icon changed since last poll → actively working
-        if (prev && prev !== icon) return 'running'
-        // Same icon twice → frozen → idle
-        if (prev && prev === icon) return 'idle'
-        // First time seeing icon — check if it's on a done line ("for Xm Ys")
-        // If done line present, it's idle. Otherwise assume running (next poll confirms).
-        if (/for\s+\d+[ms]/i.test(stripped)) return 'idle'
-        return 'running'
-      }
-
-      // No spinner icon found → idle
-      delete lastIcons[key]
-      return 'idle'
-    }
-
-    // For all other CLIs: use adapter detection first, then pane-delta fallback
-    const adapterResult = adapter.detectStatus(pane)
-    if (adapterResult !== 'unknown') return adapterResult
-
-    // Fallback: pane content changed since last poll → running, static → idle
-    const key = agentState.tmuxSession
-    const hash = simpleHash(pane)
-    const prevHash = lastHashes[key]
-    lastHashes[key] = hash
-    if (prevHash && prevHash !== hash) return 'running'
-    if (prevHash && prevHash === hash) return 'idle'
-    return 'idle'
-  } catch {
-    return 'unknown'
-  }
-}
-
 export class App {
   screen: Screen
   state: AppState
@@ -123,8 +52,7 @@ export class App {
   private lastInboxRaw = ''
   private lastSelectedName: string | undefined
   private lastStatusByAgent: Record<string, string> = {}
-  private lastIconByAgent: Record<string, string> = {}  // spinner icon for claude-code delta detection
-  private lastPaneHash: Record<string, string> = {}  // pane content hash for generic delta detection
+  // Status detection moved to controller poller — these are no longer needed
   private bannerTimer: ReturnType<typeof setTimeout> | null = null
   private insertCaptureTimer: ReturnType<typeof setTimeout> | null = null
   private running = false
@@ -790,7 +718,8 @@ export class App {
         const existing = this.state.agents.find((a) => a.name === name)
         status = existing?.status ?? 'running'
       } else {
-        status = detectAgentStatus(agentState, this.lastIconByAgent, this.lastPaneHash)
+        // Read status from state.json (written by controller poller)
+        status = agentState.status ?? 'idle'
       }
 
       // Track status changes → notifications for non-selected agents

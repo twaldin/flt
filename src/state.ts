@@ -1,5 +1,6 @@
-import { readFileSync, writeFileSync, mkdirSync } from 'fs'
+import { readFileSync, writeFileSync, mkdirSync, renameSync } from 'fs'
 import { join } from 'path'
+import type { AgentStatus } from './adapters/types'
 
 export interface OrchestratorState {
   tmuxSession: string
@@ -17,6 +18,8 @@ export interface AgentState {
   worktreePath?: string
   worktreeBranch?: string
   spawnedAt: string
+  status?: AgentStatus
+  statusAt?: string
 }
 
 export interface FleetState {
@@ -57,7 +60,10 @@ export function loadState(): FleetState {
 
 export function saveState(state: FleetState): void {
   mkdirSync(getStateDir(), { recursive: true })
-  writeFileSync(getStatePath(), JSON.stringify(state, null, 2) + '\n')
+  const path = getStatePath()
+  const tmp = path + '.tmp'
+  writeFileSync(tmp, JSON.stringify(state, null, 2) + '\n')
+  renameSync(tmp, path)
 }
 
 export function getAgent(name: string): AgentState | undefined {

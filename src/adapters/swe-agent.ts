@@ -46,7 +46,8 @@ export const sweAgentAdapter: CliAdapter = {
       return 'error'
     }
 
-    // SWE-agent is headless — falls through to pane-delta detection
+    // Idle: "What do you want to do?" prompt visible
+    if (/What do you want to do/i.test(last10)) return 'idle'
 
     return 'unknown'
   },
