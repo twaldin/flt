@@ -59,8 +59,10 @@ function detectAgentStatus(agentState: AgentState, lastIcons: Record<string, str
     if (adapter.name === 'claude-code') {
       const stripped = pane.replace(/\x1b\[[0-9;?]*[A-Za-z]/g, '')
 
-      // Rate limited
-      if (/rate.?limit|hit your limit/i.test(stripped)) return 'rate-limited'
+      // Rate limited — only check the last 2 lines (status bar area)
+      // to avoid false positives from agent output mentioning "rate limit"
+      const last2 = stripped.split('\n').slice(-2).join('\n')
+      if (/rate.?limit|hit your limit/i.test(last2)) return 'rate-limited'
 
       const icon = extractSpinnerIcon(stripped)
       const key = agentState.tmuxSession
