@@ -27,11 +27,17 @@ function rgb(r: number, g: number, b: number): string {
   return `38;2;${r};${g};${b}`
 }
 
+// Background color helper: rgb(r, g, b) → '48;2;R;G;B'
+function bgRgb(r: number, g: number, b: number): string {
+  return `48;2;${r};${g};${b}`
+}
+
 export interface ThemeColors {
   sidebarBorder: string
   sidebarTitle: string
   sidebarText: string
   sidebarSelected: string
+  sidebarSelectedBg: string
   sidebarMuted: string
   bannerBorder: string
   bannerText: string
@@ -55,8 +61,9 @@ export interface ThemeColors {
 const DARK_THEME: ThemeColors = {
   sidebarBorder: ANSI_COLORS.cyan,
   sidebarTitle: ANSI_COLORS.white,
-  sidebarText: ANSI_COLORS.gray,
-  sidebarSelected: ANSI_COLORS.cyan,
+  sidebarText: ANSI_COLORS.cyan,       // accent for alive agents
+  sidebarSelected: '30',               // black text on accent bg
+  sidebarSelectedBg: '46',             // cyan bg
   sidebarMuted: ANSI_COLORS.gray,
   bannerBorder: ANSI_COLORS.red,
   bannerText: ANSI_COLORS.red,
@@ -86,8 +93,9 @@ const LIGHT_THEME: ThemeColors = {
   ...DARK_THEME,
   sidebarBorder: ANSI_COLORS.blue,
   sidebarTitle: ANSI_COLORS.black,
-  sidebarText: ANSI_COLORS.black,
-  sidebarSelected: ANSI_COLORS.blue,
+  sidebarText: ANSI_COLORS.blue,       // accent
+  sidebarSelected: '37',               // white text on blue bg
+  sidebarSelectedBg: '44',             // blue bg
   bannerText: ANSI_COLORS.red,
   commandPrefix: ANSI_COLORS.blue,
   commandInput: ANSI_COLORS.black,
@@ -99,7 +107,9 @@ const MINIMAL_THEME: ThemeColors = {
   ...DARK_THEME,
   sidebarBorder: ANSI_COLORS.white,
   sidebarTitle: ANSI_COLORS.white,
-  sidebarSelected: ANSI_COLORS.white,
+  sidebarText: ANSI_COLORS.white,
+  sidebarSelected: '30',               // black on white
+  sidebarSelectedBg: '47',             // white bg
   bannerBorder: ANSI_COLORS.white,
   bannerText: ANSI_COLORS.white,
   logBorderInsert: ANSI_COLORS.white,
@@ -120,8 +130,9 @@ const MINIMAL_THEME: ThemeColors = {
 const CATPPUCCIN_MOCHA: ThemeColors = {
   sidebarBorder: rgb(137, 180, 250),    // blue
   sidebarTitle: rgb(205, 214, 244),      // text
-  sidebarText: rgb(166, 173, 200),       // subtext0
-  sidebarSelected: rgb(137, 180, 250),   // blue
+  sidebarText: rgb(137, 180, 250),       // blue — accent for alive agents
+  sidebarSelected: rgb(30, 30, 46),      // base (dark text on accent bg)
+  sidebarSelectedBg: bgRgb(137, 180, 250), // blue bg
   sidebarMuted: rgb(108, 112, 134),      // overlay0
   bannerBorder: rgb(243, 139, 168),      // red
   bannerText: rgb(243, 139, 168),        // red
@@ -150,8 +161,9 @@ const CATPPUCCIN_MOCHA: ThemeColors = {
 const GRUVBOX_DARK: ThemeColors = {
   sidebarBorder: rgb(69, 133, 136),      // aqua
   sidebarTitle: rgb(235, 219, 178),      // fg
-  sidebarText: rgb(168, 153, 132),       // fg4
-  sidebarSelected: rgb(69, 133, 136),    // aqua
+  sidebarText: rgb(69, 133, 136),        // aqua — accent
+  sidebarSelected: rgb(40, 40, 40),      // bg0 (dark text on accent bg)
+  sidebarSelectedBg: bgRgb(69, 133, 136), // aqua bg
   sidebarMuted: rgb(124, 111, 100),      // fg4
   bannerBorder: rgb(204, 36, 29),        // red
   bannerText: rgb(204, 36, 29),          // red
@@ -180,8 +192,9 @@ const GRUVBOX_DARK: ThemeColors = {
 const TOKYO_NIGHT: ThemeColors = {
   sidebarBorder: rgb(122, 162, 247),     // blue
   sidebarTitle: rgb(192, 202, 245),      // fg
-  sidebarText: rgb(134, 150, 187),       // comment
-  sidebarSelected: rgb(122, 162, 247),   // blue
+  sidebarText: rgb(122, 162, 247),       // blue — accent
+  sidebarSelected: rgb(26, 27, 38),      // bg_dark (dark text on accent bg)
+  sidebarSelectedBg: bgRgb(122, 162, 247), // blue bg
   sidebarMuted: rgb(86, 95, 137),        // dark5
   bannerBorder: rgb(247, 118, 142),      // red
   bannerText: rgb(247, 118, 142),        // red
@@ -210,8 +223,9 @@ const TOKYO_NIGHT: ThemeColors = {
 const NORD: ThemeColors = {
   sidebarBorder: rgb(136, 192, 208),     // frost
   sidebarTitle: rgb(236, 239, 244),      // snow storm
-  sidebarText: rgb(216, 222, 233),       // snow storm
-  sidebarSelected: rgb(136, 192, 208),   // frost
+  sidebarText: rgb(136, 192, 208),       // frost — accent
+  sidebarSelected: rgb(46, 52, 64),      // polar night (dark text on accent bg)
+  sidebarSelectedBg: bgRgb(136, 192, 208), // frost bg
   sidebarMuted: rgb(107, 112, 137),      // polar night
   bannerBorder: rgb(191, 97, 106),       // aurora red
   bannerText: rgb(191, 97, 106),         // aurora red
@@ -240,8 +254,9 @@ const NORD: ThemeColors = {
 const DRACULA: ThemeColors = {
   sidebarBorder: rgb(139, 233, 253),     // cyan
   sidebarTitle: rgb(248, 248, 242),      // fg
-  sidebarText: rgb(189, 147, 249),       // purple
-  sidebarSelected: rgb(139, 233, 253),   // cyan
+  sidebarText: rgb(139, 233, 253),       // cyan — accent
+  sidebarSelected: rgb(40, 42, 54),      // bg (dark text on accent bg)
+  sidebarSelectedBg: bgRgb(139, 233, 253), // cyan bg
   sidebarMuted: rgb(98, 114, 164),       // comment
   bannerBorder: rgb(255, 85, 85),        // red
   bannerText: rgb(255, 85, 85),          // red
@@ -410,39 +425,24 @@ export function modeColor(mode: Mode): string {
 export function statusColor(status: AgentView['status']): string {
   const theme = getTheme()
   switch (status) {
-    case 'spawning':
-      return theme.statusSpawning
-    case 'ready':
-    case 'idle':
-      return theme.statusIdle
-    case 'running':
-      return theme.statusRunning
-    case 'error':
-    case 'rate-limited':
-      return theme.statusError
     case 'exited':
     case 'unknown':
-    default:
       return COLORS.gray
+    default:
+      return theme.sidebarText
   }
 }
 
 export function statusSymbol(status: AgentView['status']): string {
   switch (status) {
-    case 'spawning':
-      return '◐'
-    case 'ready':
-      return '●'
     case 'running':
       return '▶'
     case 'idle':
-      return '●'
+    case 'ready':
+      return '⏸'
     case 'exited':
       return '○'
-    case 'error':
-      return '✕'
-    case 'rate-limited':
-      return '⏸'
+    case 'spawning':
     case 'unknown':
     default:
       return '?'

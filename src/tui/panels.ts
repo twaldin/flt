@@ -99,7 +99,7 @@ function renderSidebar(screen: Screen, state: AppState, top: number, left: numbe
   let row = top
   const t = getTheme()
   putLine(screen, row, left, width, `Agents (${state.agents.length})`, t.sidebarTitle, ATTR_BOLD)
-  row += 1
+  row += 2  // blank line after header
 
   if (state.agents.length === 0) {
     putLine(screen, row, left, width, 'No agents', t.sidebarMuted, ATTR_DIM)
@@ -107,26 +107,42 @@ function renderSidebar(screen: Screen, state: AppState, top: number, left: numbe
   }
 
   for (let i = 0; i < state.agents.length; i += 1) {
-    if (row + 2 >= top + height) break
+    if (row + 4 >= top + height) break
     const agent = state.agents[i]
     const selected = i === state.selectedIndex
     const notification = state.notifications[agent.name]
 
-    const prefix = selected ? '▸ ' : '  '
-    const badgeDot = notification && !selected ? (notification === 'message' ? '● ' : '◐ ') : '  '
-    const status = `${statusSymbol(agent.status)} ${agent.name}`
+    const agentColor = selected ? t.sidebarSelected : statusColor(agent.status)
+    const bg = selected ? t.sidebarSelectedBg : ''
+    const pad = ' '  // horizontal padding
+    const innerWidth = Math.max(0, width - 2)  // content area minus left+right padding
+
+    // Padding row above name
+    screen.put(row, left, ' '.repeat(width), agentColor, bg)
+    row += 1
+
+    // Name row: pad + badge + status dot + name ... age + pad
+    const badge = notification && !selected ? (notification === 'message' ? '● ' : '◐ ') : ''
+    const dot = statusSymbol(agent.status)
     const age = formatAge(agent.spawnedAt)
-    const line1 = `${prefix}${badgeDot}${status} ${age}`
-    const lineColor = selected ? t.sidebarSelected : statusColor(agent.status)
-    putLine(screen, row, left, width, line1, lineColor, selected ? ATTR_BOLD : 0)
+    const nameText = `${badge}${dot} ${agent.name}`
+    const agePad = Math.max(0, innerWidth - widthOf(nameText) - widthOf(age))
+    const line1 = `${pad}${nameText}${' '.repeat(agePad)}${age}${pad}`
+    screen.put(row, left, padRight(line1, width), agentColor, bg, ATTR_BOLD)
     row += 1
 
-    const line2 = `    ${agent.cli}/${agent.model}`
-    putLine(screen, row, left, width, line2, t.sidebarText)
+    // Tree: pad + cli/model
+    const line2 = `${pad} ├ ${agent.cli}/${agent.model}`
+    screen.put(row, left, padRight(line2, width), agentColor, bg)
     row += 1
 
-    const line3 = `    ${shortenPath(agent.dir)}`
-    putLine(screen, row, left, width, line3, t.sidebarMuted)
+    // Tree: pad + dir
+    const line3 = `${pad} └ ${shortenPath(agent.dir)}`
+    screen.put(row, left, padRight(line3, width), agentColor, bg)
+    row += 1
+
+    // Padding row below dir
+    screen.put(row, left, ' '.repeat(width), agentColor, bg)
     row += 1
   }
 
@@ -201,7 +217,7 @@ function renderLogPane(screen: Screen, state: AppState, top: number, left: numbe
   }
 
   const lines = state.logContent.split('\n')
-  const viewableLines = Math.max(1, height - 1)
+  const viewableLines = Math.max(1, height)
 
   const maxStart = Math.max(0, lines.length - viewableLines)
   const startIdx = clamp(state.logScrollOffset, 0, maxStart)
@@ -215,17 +231,6 @@ function renderLogPane(screen: Screen, state: AppState, top: number, left: numbe
   }
 
   screen.putAnsi(top, left, width, viewableLines, block)
-
-  const totalLines = lines.length
-  const percent = totalLines <= viewableLines
-    ? 100
-    : Math.round((startIdx / Math.max(1, totalLines - viewableLines)) * 100)
-  const indicator = `${percent}%${state.autoFollow ? ' FOLLOW' : ''}`
-
-  const indicatorRow = top + height - 1
-  putLine(screen, indicatorRow, left, width, '', COLORS.gray)
-  const indicatorCol = left + Math.max(0, width - widthOf(indicator))
-  screen.put(indicatorRow, indicatorCol, truncate(indicator, width), COLORS.gray)
 }
 
 function renderCommandBar(screen: Screen, state: AppState, row: number, col: number, width: number): void {
@@ -303,15 +308,31 @@ function renderStatusBar(screen: Screen, state: AppState, row: number, col: numb
   }
 }
 
-export function calculateLayout(cols: number, rows: number): LayoutMetrics {
+export function calculateLayout(cols: number, rows: number, agents?: AgentView[]): LayoutMetrics {
   const safeCols = Math.max(1, cols)
   const safeRows = Math.max(1, rows)
 
   const statusHeight = Math.min(2, safeRows)
   const contentHeight = Math.max(0, safeRows - statusHeight)
 
+  // Dynamic sidebar width based on content
+  const bannerMaxWidth = 27  // widest FLT_BANNER line
   const minLogWidth = 24
-  let sidebarWidth = Math.floor(safeCols * 0.28)
+  let contentWidth = bannerMaxWidth
+
+  if (agents && agents.length > 0) {
+    for (const agent of agents) {
+      // Name line: "● name    XXh" — dot(2) + name + gap(4) + age(3)
+      contentWidth = Math.max(contentWidth, 2 + agent.name.length + 4 + 3)
+      // CLI/model line: " ├ cli/model"
+      contentWidth = Math.max(contentWidth, 4 + agent.cli.length + 1 + agent.model.length)
+      // Dir line: " └ path"
+      contentWidth = Math.max(contentWidth, 4 + shortenPath(agent.dir).length)
+    }
+  }
+
+  // +2 for box borders, +2 for horizontal padding inside agent entries
+  let sidebarWidth = contentWidth + 4
   sidebarWidth = clamp(sidebarWidth, 18, Math.max(18, safeCols - minLogWidth))
   if (safeCols - sidebarWidth < 1) sidebarWidth = Math.max(1, safeCols - 1)
 
@@ -342,7 +363,7 @@ export function calculateLayout(cols: number, rows: number): LayoutMetrics {
 export function renderLayout(screen: Screen, state: AppState): void {
   const cols = screen.cols
   const rows = screen.rows
-  const layout = calculateLayout(cols, rows)
+  const layout = calculateLayout(cols, rows, state.agents)
 
   screen.clear(0, 0, cols, rows)
 
@@ -353,11 +374,10 @@ export function renderLayout(screen: Screen, state: AppState): void {
     renderSidebar(screen, state, 1, 1, layout.sidebarInnerWidth, layout.sidebarInnerHeight)
 
     if (layout.logHeight > 0) {
-      const borderColor = state.mode === 'insert' || state.mode === 'shell'
-        ? t.logBorderInsert
-        : state.mode === 'log-focus'
-          ? t.logBorderFocus
-          : t.logBorder
+      // Log border color matches the mode indicator color
+      const borderColor = state.mode === 'normal' || state.mode === 'kill-confirm'
+        ? t.logBorder
+        : modeColor(state.mode)
       screen.box(
         layout.logTop,
         layout.sidebarWidth,

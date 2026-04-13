@@ -132,10 +132,10 @@ describe('theme system', () => {
       expect(color1).toBe(color2)
     })
 
-    it('returns different colors for different statuses', () => {
+    it('returns gray for dead agents, theme color for alive', () => {
       const runningColor = statusColor('running')
-      const errorColor = statusColor('error')
-      expect(runningColor).not.toBe(errorColor)
+      const exitedColor = statusColor('exited')
+      expect(runningColor).not.toBe(exitedColor)
     })
   })
 

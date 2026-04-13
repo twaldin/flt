@@ -698,6 +698,16 @@ function handleText(event: Extract<ParsedInputEvent, { type: 'text' }>, bindings
     return
   }
 
+  // File path pasted in normal/log-focus → open :send <agent> <path>
+  if ((state.mode === 'normal' || state.mode === 'log-focus') && event.text.length > 3) {
+    const trimmed = event.text.trim()
+    if (trimmed.startsWith('/') || trimmed.startsWith('~')) {
+      const agent = state.selectedAgent?.name ?? ''
+      bindings.openCommand(`send ${agent} ${trimmed}`)
+      return
+    }
+  }
+
   for (const char of event.text) {
     if (state.mode === 'normal') {
       handleNormalChar(char, bindings)
