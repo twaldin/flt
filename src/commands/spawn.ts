@@ -99,9 +99,11 @@ export async function spawn(args: SpawnArgs): Promise<void> {
   // Project skills into workspace
   projectSkills(workDir, adapter, name)
 
-  // Build spawn command
+  // Build spawn command — shell-quote args that contain special chars
   const cliArgs = adapter.spawnArgs({ model: resolvedModel, dir: workDir })
-  const command = cliArgs.join(' ')
+  const command = cliArgs.map(arg =>
+    /[[\]{}()*?!$&;|<>'"\\` ~#]/.test(arg) ? `'${arg.replace(/'/g, "'\\''")}'` : arg
+  ).join(' ')
 
   const sessionName = `flt-${name}`
 
