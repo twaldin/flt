@@ -27,9 +27,9 @@ What do you want to do?`
     expect(sweAgentAdapter.detectReady(pane)).toBe('loading')
   })
 
-  it('detects idle status', () => {
+  it('returns unknown for idle (headless, uses pane-delta)', () => {
     const pane = 'What do you want to do?'
-    expect(sweAgentAdapter.detectStatus(pane)).toBe('idle')
+    expect(sweAgentAdapter.detectStatus(pane)).toBe('unknown')
   })
 
   it('has Escape+Enter submit keys', () => {

@@ -46,14 +46,7 @@ export const sweAgentAdapter: CliAdapter = {
       return 'error'
     }
 
-    // mini thinking/working
-    if (/running|executing|thinking/i.test(last10)) {
-      return 'running'
-    }
-
-    if (/What do you want to do/i.test(last10)) {
-      return 'idle'
-    }
+    // SWE-agent is headless — falls through to pane-delta detection
 
     return 'unknown'
   },

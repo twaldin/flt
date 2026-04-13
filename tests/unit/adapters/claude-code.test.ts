@@ -53,19 +53,16 @@ All tools will be executed without confirmation.
     expect(claudeCodeAdapter.detectReady(pane)).toBe('loading')
   })
 
-  it('detects idle status', () => {
-    const pane = 'some output\n> \nstatus bar'
-    expect(claudeCodeAdapter.detectStatus(pane)).toBe('idle')
-  })
-
-  it('detects running status', () => {
+  it('detects running from active timer', () => {
     const pane = '✶ Thinking… (1m 22s · ↓ 413 tokens · esc to interrupt)'
     expect(claudeCodeAdapter.detectStatus(pane)).toBe('running')
   })
 
-  it('detects idle after completion marker', () => {
+  it('returns unknown for idle (TUI uses spinner delta)', () => {
+    // Adapter fallback can't detect idle without cross-poll state
+    // TUI handles idle via spinner icon delta detection
     const pane = '✻ Cogitated for 2m 53s\n❯ \nbypass permissions on'
-    expect(claudeCodeAdapter.detectStatus(pane)).toBe('idle')
+    expect(claudeCodeAdapter.detectStatus(pane)).toBe('unknown')
   })
 
   it('detects rate-limited status', () => {

@@ -67,16 +67,11 @@ export const claudeCodeAdapter: CliAdapter = {
       return 'rate-limited'
     }
 
-    // Timer-based detection is handled by App (needs cross-poll state).
-    // This is the fallback for non-TUI callers (flt list, etc.)
-    // Active: "(40s · ↓ 81 tokens)" or "(1m 22s · ↓ 413 tokens)" pattern
-    if (/\((?:\d+m\s+)?\d+s\s+/.test(last5) && /tokens/.test(last5)) {
+    // Spinner icon detection (fallback for non-TUI callers like flt list)
+    // Active spinner cycles through ✽✳✢✻✶· — but we can't track delta here
+    // Best we can do: check if there's an active timer pattern
+    if (/\((?:\d+m\s+)?\d+s[\s·)]/.test(last5)) {
       return 'running'
-    }
-
-    // Idle: prompt ❯ on its own line
-    if (lines.some(l => /^[>❯]\s*$/.test(l))) {
-      return 'idle'
     }
 
     return 'unknown'

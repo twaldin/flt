@@ -35,25 +35,14 @@ export const aiderAdapter: CliAdapter = {
 
   detectStatus(pane: string): AgentStatus {
     pane = stripAnsi(pane)
-    const lines = pane.split('\n').map(l => l.trim()).filter(Boolean)
-    const last10 = lines.slice(-10).join('\n')
+    const last5 = pane.split('\n').slice(-5).join('\n')
 
-    if (/rate.?limit/i.test(last10) || /429/i.test(last10)) {
-      return 'rate-limited'
-    }
+    // Aider shows "Waiting for <model>" with ░█ spinner while working
+    if (/Waiting for/i.test(last5) || /[░█]{2,}/.test(last5)) return 'running'
+    if (/Thinking|Editing|Applying/i.test(last5)) return 'running'
 
-    if (/error/i.test(last10) && /fatal|crash/i.test(last10)) {
-      return 'error'
-    }
-
-    // Aider thinking
-    if (/Thinking|Editing|Applying/i.test(last10)) {
-      return 'running'
-    }
-
-    if (/^>\s*$/m.test(last10) || /aider>/i.test(last10)) {
-      return 'idle'
-    }
+    // Aider prompt: "> ", "patch> ", "multi> ", etc.
+    if (/^\s*(?:\w+\s+)?>\s*$/m.test(last5)) return 'idle'
 
     return 'unknown'
   },

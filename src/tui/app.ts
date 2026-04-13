@@ -50,7 +50,13 @@ function extractSpinnerIcon(pane: string): string | null {
   return match ? match[0] : null
 }
 
-function detectAgentStatus(agentState: AgentState, lastIcons: Record<string, string>): AgentView['status'] {
+function simpleHash(s: string): string {
+  let h = 0
+  for (let i = 0; i < s.length; i++) h = ((h << 5) - h + s.charCodeAt(i)) | 0
+  return String(h)
+}
+
+function detectAgentStatus(agentState: AgentState, lastIcons: Record<string, string>, lastHashes: Record<string, string>): AgentView['status'] {
   try {
     const adapter = resolveAdapter(agentState.cli)
     const pane = capturePane(agentState.tmuxSession, 20)
@@ -85,7 +91,18 @@ function detectAgentStatus(agentState: AgentState, lastIcons: Record<string, str
       return 'idle'
     }
 
-    return adapter.detectStatus(pane)
+    // For all other CLIs: use adapter detection first, then pane-delta fallback
+    const adapterResult = adapter.detectStatus(pane)
+    if (adapterResult !== 'unknown') return adapterResult
+
+    // Fallback: pane content changed since last poll → running, static → idle
+    const key = agentState.tmuxSession
+    const hash = simpleHash(pane)
+    const prevHash = lastHashes[key]
+    lastHashes[key] = hash
+    if (prevHash && prevHash !== hash) return 'running'
+    if (prevHash && prevHash === hash) return 'idle'
+    return 'idle'
   } catch {
     return 'unknown'
   }
@@ -105,7 +122,8 @@ export class App {
   private lastInboxRaw = ''
   private lastSelectedName: string | undefined
   private lastStatusByAgent: Record<string, string> = {}
-  private lastIconByAgent: Record<string, string> = {}  // spinner icon for delta detection
+  private lastIconByAgent: Record<string, string> = {}  // spinner icon for claude-code delta detection
+  private lastPaneHash: Record<string, string> = {}  // pane content hash for generic delta detection
   private bannerTimer: ReturnType<typeof setTimeout> | null = null
   private insertCaptureTimer: ReturnType<typeof setTimeout> | null = null
   private running = false
@@ -770,7 +788,7 @@ export class App {
         const existing = this.state.agents.find((a) => a.name === name)
         status = existing?.status ?? 'running'
       } else {
-        status = detectAgentStatus(agentState, this.lastIconByAgent)
+        status = detectAgentStatus(agentState, this.lastIconByAgent, this.lastPaneHash)
       }
 
       // Track status changes → notifications for non-selected agents

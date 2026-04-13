@@ -49,14 +49,11 @@ export const opencodeAdapter: CliAdapter = {
       return 'error'
     }
 
-    if (/thinking|running/i.test(last10)) {
-      return 'running'
-    }
+    // OpenCode uses braille spinners when working
+    if (/[⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏]/.test(last10)) return 'running'
+    if (/thinking|running/i.test(last10)) return 'running'
 
-    if (/Ask anything/i.test(last10) || /\d+\.\d+\.\d+/.test(last10)) {
-      return 'idle'
-    }
-
+    // Falls through to pane-delta detection in App
     return 'unknown'
   },
 }

@@ -64,33 +64,18 @@ export const codexAdapter: CliAdapter = {
 
   detectStatus(pane: string): AgentStatus {
     pane = stripAnsi(pane)
-    const lines = pane.split('\n').map(l => l.trim()).filter(Boolean)
-    const last10 = lines.slice(-10).join('\n')
-    const last20 = lines.slice(-20).join('\n')
+    const last5 = pane.split('\n').slice(-5).join('\n')
 
-    if (/rate.?limit(ed|ing| exceeded| reached)/i.test(last10) || /429/i.test(last10)) {
-      return 'rate-limited'
-    }
+    // Codex shows explicit status: "Working", "Thinking", "Ready"
+    // in its status bar area (last few lines)
+    if (/Working|Thinking/i.test(last5)) return 'running'
+    if (/Ready/i.test(last5)) return 'idle'
 
-    if (/error/i.test(last10) && /fatal|crash/i.test(last10)) {
-      return 'error'
-    }
+    // Background terminal running indicator
+    if (/background terminal running/i.test(last5)) return 'running'
 
-    // Permission/approval prompt — auto-approve by sending Enter
-    if (/Would you like to run/i.test(last20) || /Press enter to confirm/i.test(last20)) {
-      return 'dialog' as AgentStatus
-    }
-
-    if (/[•●]/.test(last10) || /running|thinking|working/i.test(last10)) {
-      return 'running'
-    }
-
-    // Idle: prompt visible with status bar
-    const hasPrompt = lines.some(l => /^\s*[❯›]/.test(l))
-    const hasStatusBar = /\d+%\s+left/i.test(last10) || /model:/i.test(last10)
-    if (hasPrompt && hasStatusBar) {
-      return 'idle'
-    }
+    // Prompt visible with status bar
+    if (/\d+%\s+(left|context)/i.test(last5)) return 'idle'
 
     return 'unknown'
   },

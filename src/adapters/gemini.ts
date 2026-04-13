@@ -98,14 +98,14 @@ export const geminiAdapter: CliAdapter = {
       return 'error'
     }
 
-    // Gemini thinking/working indicators
-    if (/[✦⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏]/.test(last10)) {
-      return 'running'
-    }
+    // Gemini spinners: braille ⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏ (tool exec) or toggle ⊶⊷ (executing)
+    if (/[⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏⊶⊷]/.test(last10)) return 'running'
+    if (/Thinking\.\.\./i.test(last10)) return 'running'
 
-    if (/Type your message/i.test(last10) || /[>❯]\s*$/.test(last10)) {
-      return 'idle'
-    }
+    // Idle: "◇  Ready" or prompt
+    if (/Ready/i.test(last10) || /Type your message/i.test(last10)) return 'idle'
+    // Success markers mean task done
+    if (/[✓✔]/.test(last10) && !/[⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏⊶⊷]/.test(last10)) return 'idle'
 
     return 'unknown'
   },
