@@ -296,7 +296,14 @@ export class RawKeyParser {
     }, this.escapeTimeoutMs)
   }
 
+  private debugLog(msg: string): void {
+    try { require('fs').appendFileSync('/tmp/flt-input-debug.log', msg + '\n') } catch {}
+  }
+
   private parseBuffer(buf: Buffer): void {
+    const hex = Array.from(buf).map(b => b.toString(16).padStart(2, '0')).join(' ')
+    this.debugLog(`RAW: [${hex}] "${buf.toString('utf8').replace(/[^\x20-\x7e]/g, '.')}"`)
+
     let i = 0
 
     while (i < buf.length) {

@@ -171,27 +171,32 @@ export class App {
     if (this.state.mode === mode) return
     this.state.mode = mode
     this.restartPolling()
+    // Immediately capture content for the new mode
+    if (mode === 'log-focus' || mode === 'insert') {
+      this.captureSelectedPane()
+    }
     this.render()
   }
 
   private openShell(): void {
-    // Create or reuse a persistent shell tmux session
     if (!hasSession(this.shellSession)) {
       const cwd = process.cwd()
       const { createSession } = require('../tmux') as typeof import('../tmux')
       createSession(this.shellSession, cwd, process.env.SHELL || 'zsh', {})
     }
-    // Resize shell to match log pane
     const layout = calculateLayout(this.state.termWidth, this.state.termHeight)
     resizeWindow(this.shellSession, Math.max(20, layout.logInnerWidth), Math.max(5, layout.logInnerHeight))
     this.state.mode = 'shell'
+    this.captureShell() // immediate capture so content shows right away
     this.restartPolling()
     this.render()
   }
 
   private closeShell(): void {
     this.state.mode = 'normal'
+    this.lastLogContent = '' // force re-capture of agent content
     this.restartPolling()
+    this.poll() // immediate refresh
     this.render()
   }
 
