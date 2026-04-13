@@ -94,6 +94,18 @@ export function resizeWindow(session: string, width: number, height: number): vo
   tmuxNoThrow('resize-window', '-t', session, '-x', String(width), '-y', String(height))
 }
 
+/** Non-blocking paste via tmux buffer — handles semicolons and special chars */
+function sendViaPasteBuffer(session: string, text: string): void {
+  const tmpFile = join(tmpdir(), `flt-paste-${randomUUID().slice(0, 8)}`)
+  writeFileSync(tmpFile, text)
+  const bufName = `flt-${randomUUID().slice(0, 6)}`
+  try {
+    tmux('load-buffer', '-b', bufName, tmpFile)
+    tmux('paste-buffer', '-b', bufName, '-t', session, '-d')
+  } catch {}
+  try { unlinkSync(tmpFile) } catch {}
+}
+
 /** Non-blocking keystroke forwarding — fire and forget */
 export function sendKeysAsync(session: string, keys: string[]): void {
   for (const key of keys) {
@@ -103,7 +115,11 @@ export function sendKeysAsync(session: string, keys: string[]): void {
 
 /** Non-blocking literal text send — fire and forget */
 export function sendLiteralAsync(session: string, text: string): void {
-  Bun.spawn(['tmux', 'send-keys', '-t', session, '-l', text], { stdout: 'ignore', stderr: 'ignore' })
+  if (text.includes(';')) {
+    sendViaPasteBuffer(session, text)
+  } else {
+    Bun.spawn(['tmux', 'send-keys', '-t', session, '-l', text], { stdout: 'ignore', stderr: 'ignore' })
+  }
 }
 
 /**
@@ -125,7 +141,12 @@ export function sendLiteralBatched(session: string, char: string): void {
     const text = buf!.text
     buf!.text = ''
     buf!.timer = null
-    if (text) {
+    if (!text) return
+    // tmux treats bare ';' as a command separator even in argv mode.
+    // Use paste-buffer for text containing semicolons.
+    if (text.includes(';')) {
+      sendViaPasteBuffer(session, text)
+    } else {
       Bun.spawn(['tmux', 'send-keys', '-t', session, '-l', text], { stdout: 'ignore', stderr: 'ignore' })
     }
   }, 16)
