@@ -127,14 +127,12 @@ function treeOrder(agents: AgentView[]): TreeEntry[] {
         continuation += continues ? '│ ' : '  '
       }
 
-      // Connector: only on name row, empty for root-level agents
-      const connector = isRoot ? '' : (isLast ? '└ ' : '├ ')
+      // Connector: replaces the last │ on the name row
+      // ├ = more siblings below, └ = last child. Root = no connector.
+      const connector = isRoot ? '' : (isLast ? '└' : '├')
       const hasChildren = getChildren(agent.name).length > 0
 
       result.push({ agent, index: agents.indexOf(agent), continuation, connector, hasChildren })
-      // For root agents, the continuation flag is whether they have children
-      // (they always "continue" if they have children, since there's no sibling concept at root)
-      // For non-root, it's whether there are more siblings below (!isLast)
       const continues = isRoot ? hasChildren : !isLast
       walk(agent.name, [...ancestry, continues], false)
     })
@@ -173,15 +171,20 @@ function renderSidebar(screen: Screen, state: AppState, top: number, left: numbe
     const agentColor = selected ? t.sidebarSelected : statusColor(agent.status)
     const bg = selected ? t.sidebarSelectedBg : ''
     const pad = ' '
-    const namePrefix = continuation + connector  // "│ ├ " on name row
-    // Detail/padding rows: vertical line continues at this level if:
-    // - connector is ├ (more siblings below) → show │
-    // - connector is └ but has children → show │ (for children's tree)
-    // - no connector (root) → no │ (children draw their own continuation)
+    // Name row: continuation with last │ replaced by ├ or └
+    // e.g. continuation "│ │ " → namePrefix "│ ├ " (connector replaces last │)
+    let namePrefix: string
+    if (!connector) {
+      namePrefix = continuation  // root: no connector
+    } else {
+      // Replace the trailing "│" of continuation with the connector char
+      namePrefix = continuation.slice(0, -2) + connector + ' '
+    }
+
+    // Detail/padding rows: │ at this level if branch continues downward
     let detailPrefix = continuation
-    if (connector === '├ ') detailPrefix += '│ '
-    else if (connector === '└ ' && hasChildren) detailPrefix += '│ '
-    else if (connector) detailPrefix += '  '
+    // Root with children: add │ for the child tree
+    if (!connector && hasChildren) detailPrefix += '│ '
     const innerWidth = Math.max(0, width - 2 - widthOf(namePrefix))
 
     // Padding row
