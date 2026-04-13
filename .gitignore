@@ -3,3 +3,5 @@ dist/
 .DS_Store
 *.log
 .aider*
+AGENTS.md
+GEMINI.md
