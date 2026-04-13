@@ -70,14 +70,15 @@ function detectAgentStatus(agentState: AgentState, lastIcons: Record<string, str
         lastIcons[key] = icon
         // Icon changed since last poll → actively working
         if (prev && prev !== icon) return 'running'
-        // First time seeing icon or same icon → could be working or done
-        // Will resolve on next poll (1s later)
-        if (!prev) return 'running'
         // Same icon twice → frozen → idle
-        return 'idle'
+        if (prev && prev === icon) return 'idle'
+        // First time seeing icon — check if it's on a done line ("for Xm Ys")
+        // If done line present, it's idle. Otherwise assume running (next poll confirms).
+        if (/for\s+\d+[ms]/i.test(stripped)) return 'idle'
+        return 'running'
       }
 
-      // No spinner icon found → check prompt
+      // No spinner icon found → idle
       delete lastIcons[key]
       return 'idle'
     }
