@@ -1,4 +1,5 @@
 import { existsSync, readFileSync } from 'fs'
+import { homedir } from 'os'
 import { resolveAdapter, listAdapters } from '../adapters/registry'
 import { kill } from '../commands/kill'
 import { formatPresetList, presetsAdd, presetsRemove } from '../commands/presets'
@@ -499,7 +500,7 @@ export class App {
           i += 2
         } else if (spawnArgs[i] === '--dir' && i + 1 < spawnArgs.length) {
           const raw = spawnArgs[i + 1]
-          dir = raw.startsWith('~/') ? raw.replace('~', process.env.HOME || '') : raw
+          dir = raw.startsWith('~/') ? raw.replace('~', process.env.HOME || homedir()) : raw
           i += 2
         } else {
           messageTokens.push(spawnArgs[i])

@@ -1,4 +1,5 @@
 import { existsSync, readFileSync, writeFileSync, mkdirSync } from 'fs'
+import { homedir } from 'os'
 import type { AgentView, Mode } from './types'
 
 // Standard ANSI 16-color codes
@@ -339,7 +340,7 @@ let currentTheme: ThemeColors = DARK_THEME
 
 function loadUserTheme(): Partial<ThemeColors> | null {
   try {
-    const themeFile = `${process.env.HOME || '~'}/.flt/theme.json`
+    const themeFile = `${process.env.HOME || homedir()}/.flt/theme.json`
     if (!existsSync(themeFile)) return null
     const content = readFileSync(themeFile, 'utf-8')
     return JSON.parse(content) as Partial<ThemeColors>
@@ -354,7 +355,7 @@ export function getThemeNames(): string[] {
 
 function persistThemeName(name: string): void {
   try {
-    const dir = `${process.env.HOME || '~'}/.flt`
+    const dir = `${process.env.HOME || homedir()}/.flt`
     mkdirSync(dir, { recursive: true })
     const configPath = `${dir}/config.json`
     let config: Record<string, unknown> = {}
@@ -368,7 +369,7 @@ function persistThemeName(name: string): void {
 
 function loadPersistedThemeName(): string | null {
   try {
-    const configPath = `${process.env.HOME || '~'}/.flt/config.json`
+    const configPath = `${process.env.HOME || homedir()}/.flt/config.json`
     if (!existsSync(configPath)) return null
     const config = JSON.parse(readFileSync(configPath, 'utf-8'))
     return typeof config.theme === 'string' ? config.theme : null
@@ -404,7 +405,7 @@ export function getCurrentThemeName(): string {
   }
 
   try {
-    const themeFile = `${process.env.HOME || '~'}/.flt/theme.json`
+    const themeFile = `${process.env.HOME || homedir()}/.flt/theme.json`
     if (existsSync(themeFile)) {
       const content = JSON.parse(readFileSync(themeFile, 'utf-8'))
       if (content.extends && BUILT_IN_THEMES[content.extends]) {

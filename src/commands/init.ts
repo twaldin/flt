@@ -1,6 +1,7 @@
 import { setOrchestrator, getOrchestrator, loadState, getStateDir } from '../state'
 import { existsSync, watchFile, readFileSync, writeFileSync, mkdirSync } from 'fs'
 import { join } from 'path'
+import { homedir } from 'os'
 
 interface InitArgs {
   orchestrator?: boolean | string  // true or agent name
@@ -38,7 +39,7 @@ export async function init(args: InitArgs): Promise<void> {
     let dir = args.dir
     if (dir) {
       // Expand ~ and create if doesn't exist
-      if (dir.startsWith('~/')) dir = dir.replace('~', process.env.HOME || '')
+      if (dir.startsWith('~/')) dir = dir.replace('~', process.env.HOME || homedir())
       if (!existsSync(dir)) {
         mkdirSync(dir, { recursive: true })
       }

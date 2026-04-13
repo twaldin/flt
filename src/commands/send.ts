@@ -3,6 +3,7 @@ import { resolveAdapter } from '../adapters/registry'
 import * as tmux from '../tmux'
 import { detectCaller } from '../detect'
 import { appendInbox } from './init'
+import { userInfo } from 'os'
 
 interface SendArgs {
   target: string
@@ -34,8 +35,8 @@ export async function send(args: SendArgs): Promise<void> {
       isHumanParent = true
       session = orchSession
     } else {
-      // Direct parent is an agent (e.g. cairn). Send to that agent's tmux session
-      // AND bubble a copy to the human inbox so Tim sees it too.
+      // Direct parent is an agent (e.g. reviewer). Send to that agent's tmux session
+      // and also bubble a copy to the human inbox.
       session = caller.parentSession
       if (state.orchestrator?.type === 'human') {
         appendInbox(caller.agentName ?? 'agent', message)
@@ -61,7 +62,7 @@ export async function send(args: SendArgs): Promise<void> {
   }
 
   // Determine sender label
-  const senderName = caller.agentName ?? (caller.mode === 'human' ? 'tim' : 'unknown')
+  const senderName = caller.agentName ?? (caller.mode === 'human' ? detectUsername() : 'unknown')
 
   if (isHumanParent) {
     // Write to inbox log — human's `flt init` tails this file
@@ -86,4 +87,12 @@ export async function send(args: SendArgs): Promise<void> {
 
 function sleep(ms: number): Promise<void> {
   return new Promise(r => setTimeout(r, ms))
+}
+
+function detectUsername(): string {
+  try {
+    return userInfo().username || 'user'
+  } catch {
+    return 'user'
+  }
 }

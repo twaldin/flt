@@ -11,6 +11,8 @@ bun install -g flt
 ```
 
 Requires: [tmux](https://github.com/tmux/tmux), [Bun](https://bun.sh)
+Requires separate adapter CLIs on your `PATH` (for example `claude`, `codex`, `gemini`) and `git` for worktree-based spawns.
+`flt` is Bun-first: Bun is required as the runtime (`node` alone is not supported).
 
 ## Quick start
 
@@ -19,11 +21,11 @@ Requires: [tmux](https://github.com/tmux/tmux), [Bun](https://bun.sh)
 flt init
 
 # Spawn an agent
-flt spawn mycoder --cli claude-code --model sonnet --dir ~/project "fix the parser bug"
+flt spawn mycoder --cli claude-code --model sonnet --dir ~/project --no-worktree "fix the parser bug"
 
 # Or use a preset
 flt presets add coder --cli codex --model gpt-5.3-codex
-flt spawn mycoder --preset coder --dir ~/project "fix the parser bug"
+flt spawn mycoder --preset coder --dir ~/project --no-worktree "fix the parser bug"
 
 # Send a message to an agent
 flt send mycoder "also add tests"
@@ -34,6 +36,8 @@ flt logs mycoder
 # Kill when done
 flt kill mycoder
 ```
+
+If you omit `--no-worktree`, `--dir` must point to a git repository.
 
 ## TUI
 
@@ -137,7 +141,7 @@ Messages are tagged with `[SENDER]:` for clear attribution. The inbox (`m` in TU
 
 ## Themes
 
-8 built-in themes: `dark`, `light`, `minimal`, `catppuccin`, `gruvbox`, `tokyo-night`, `nord`, `dracula`.
+9 built-in themes: `dark`, `light`, `minimal`, `catppuccin`, `gruvbox`, `tokyo-night`, `nord`, `dracula`, `one-dark`.
 
 ```
 :theme dracula

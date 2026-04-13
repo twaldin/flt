@@ -1,44 +1,7 @@
 import type { CliAdapter, SpawnOpts, ReadyState, AgentStatus } from './types'
-import { existsSync, readdirSync } from 'fs'
-import { homedir } from 'os'
 
 function stripAnsi(s: string): string {
   return s.replace(/\x1b\[[0-9;?]*[A-Za-z]/g, '').replace(/\x1b\][^\x07]*\x07/g, '')
-}
-
-// Gemini CLI requires Node 20+. Find a suitable node binary.
-function findNodePath(): string | null {
-  const home = homedir()
-  const candidates = [
-    '/opt/homebrew/opt/node@24/bin',
-    '/opt/homebrew/opt/node@22/bin',
-    '/opt/homebrew/opt/node@20/bin',
-    '/usr/local/opt/node@24/bin',
-    '/usr/local/opt/node@22/bin',
-    '/usr/local/opt/node@20/bin',
-  ]
-
-  // Add nvm-managed Node 20+ versions (highest first)
-  const nvmDir = `${home}/.nvm/versions/node`
-  if (existsSync(nvmDir)) {
-    try {
-      const versions = readdirSync(nvmDir)
-        .filter(v => /^v(2[0-9]|[3-9]\d)/.test(v))
-        .sort((a, b) => {
-          const [ma, na] = a.slice(1).split('.').map(Number)
-          const [mb, nb] = b.slice(1).split('.').map(Number)
-          return mb - ma || nb - na
-        })
-      for (const v of versions) {
-        candidates.push(`${nvmDir}/${v}/bin`)
-      }
-    } catch {}
-  }
-
-  for (const dir of candidates) {
-    if (existsSync(`${dir}/node`)) return dir
-  }
-  return null
 }
 
 export const geminiAdapter: CliAdapter = {
@@ -48,10 +11,8 @@ export const geminiAdapter: CliAdapter = {
   submitKeys: ['Enter'],
 
   spawnArgs(opts: SpawnOpts): string[] {
-    const nodePath = findNodePath()
-    // Prepend node 20+ to PATH so gemini uses it
-    const prefix = nodePath ? `PATH=${nodePath}:$PATH ` : ''
-    const args = [`${prefix}gemini`]
+    // Let PATH resolve `node`/`gemini` at runtime.
+    const args = ['gemini']
     if (opts.model) args.push('--model', opts.model)
     return args
   },
