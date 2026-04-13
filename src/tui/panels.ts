@@ -132,7 +132,11 @@ function treeOrder(agents: AgentView[]): TreeEntry[] {
       const hasChildren = getChildren(agent.name).length > 0
 
       result.push({ agent, index: agents.indexOf(agent), continuation, connector, hasChildren })
-      walk(agent.name, [...ancestry, !isLast], false)
+      // For root agents, the continuation flag is whether they have children
+      // (they always "continue" if they have children, since there's no sibling concept at root)
+      // For non-root, it's whether there are more siblings below (!isLast)
+      const continues = isRoot ? hasChildren : !isLast
+      walk(agent.name, [...ancestry, continues], false)
     })
   }
 
