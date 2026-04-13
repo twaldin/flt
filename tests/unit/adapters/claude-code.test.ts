@@ -59,8 +59,13 @@ All tools will be executed without confirmation.
   })
 
   it('detects running status', () => {
-    const pane = '✶ Thinking about the problem...'
+    const pane = '✶ Thinking… (1m 22s · ↓ 413 tokens · esc to interrupt)'
     expect(claudeCodeAdapter.detectStatus(pane)).toBe('running')
+  })
+
+  it('detects idle after completion marker', () => {
+    const pane = '✻ Cogitated for 2m 53s\n❯ \nbypass permissions on'
+    expect(claudeCodeAdapter.detectStatus(pane)).toBe('idle')
   })
 
   it('detects rate-limited status', () => {
