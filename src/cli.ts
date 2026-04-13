@@ -20,10 +20,10 @@ program
   .command('init')
   .description('Initialize fleet orchestrator')
   .option('-o, --orchestrator [name]', 'Spawn an agent orchestrator (optionally named, e.g. -o cairn)')
-  .option('--cli <cli>', 'CLI for agent orchestrator', 'claude-code')
-  .option('--model <model>', 'Model for agent orchestrator')
-  .option('--preset <preset>', 'Preset for agent orchestrator')
-  .option('--dir <path>', 'Working directory for agent (created if missing)')
+  .option('-c, --cli <cli>', 'CLI for agent orchestrator', 'claude-code')
+  .option('-m, --model <model>', 'Model for agent orchestrator')
+  .option('-p, --preset <preset>', 'Preset for agent orchestrator')
+  .option('-d, --dir <path>', 'Working directory for agent (created if missing)')
   .action(async (opts) => {
     try {
       await init({
@@ -42,11 +42,11 @@ program
 program
   .command('spawn <name>')
   .description('Spawn an agent in a tmux session')
-  .option('--cli <cli>', `CLI adapter (${listAdapters().join(', ')})`)
-  .option('--preset <name>', 'Preset name to populate CLI/model defaults')
-  .option('--model <model>', 'Model to use')
-  .option('--dir <path>', 'Working directory (default: cwd)')
-  .option('--no-worktree', 'Skip git worktree creation')
+  .option('-c, --cli <cli>', `CLI adapter (${listAdapters().join(', ')})`)
+  .option('-p, --preset <name>', 'Preset name to populate CLI/model defaults')
+  .option('-m, --model <model>', 'Model to use')
+  .option('-d, --dir <path>', 'Working directory (default: cwd)')
+  .option('-W, --no-worktree', 'Skip git worktree creation')
   .argument('[bootstrap]', 'Initial message to send after agent is ready')
   .action(async (name, bootstrap, opts) => {
     try {
@@ -117,7 +117,7 @@ program
 program
   .command('logs <name>')
   .description('View agent terminal output')
-  .option('-n, --lines <n>', 'Number of lines', '100')
+  .option('-n, --lines <n>', 'Number of lines to show', '100')
   .action((name, opts) => {
     try {
       logs({ name, lines: parseInt(opts.lines, 10) })
@@ -134,8 +134,8 @@ const skillsCmd = program
 skillsCmd
   .command('list')
   .description('List available skills')
-  .option('--agent <name>', 'Filter by agent name')
-  .option('--cli <cli>', 'Filter by CLI adapter')
+  .option('-a, --agent <name>', 'Filter by agent name')
+  .option('-c, --cli <cli>', 'Filter by CLI adapter')
   .action((opts) => {
     try {
       skillsList({ agent: opts.agent, cli: opts.cli })
@@ -164,9 +164,9 @@ presetsCmd
 presetsCmd
   .command('add <name>')
   .description('Add a preset')
-  .requiredOption('--cli <cli>', `CLI adapter (${listAdapters().join(', ')})`)
-  .requiredOption('--model <model>', 'Model to use')
-  .option('--description <desc>', 'Optional description')
+  .requiredOption('-c, --cli <cli>', `CLI adapter (${listAdapters().join(', ')})`)
+  .requiredOption('-m, --model <model>', 'Model to use')
+  .option('-D, --description <desc>', 'Optional description')
   .action((name, opts) => {
     try {
       presetsAdd({
