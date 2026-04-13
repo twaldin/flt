@@ -181,14 +181,28 @@ function renderSidebar(screen: Screen, state: AppState, top: number, left: numbe
       namePrefix = continuation.slice(0, -2) + connector + ' '
     }
 
-    // Detail/padding rows: │ at this level if branch continues downward
-    let detailPrefix = continuation
-    // Root with children: add │ for the child tree
-    if (!connector && hasChildren) detailPrefix += '│ '
+    // Above-name prefix: continuation only (no connector, no extra │ for root)
+    const abovePrefix = continuation
+
+    // Below-name prefix: │ continues at this level only if branch goes further down
+    // - Root with children: add │ (children's tree starts below)
+    // - ├ connector: │ continues (more siblings)
+    // - └ connector with children: │ continues (for children)
+    // - └ connector no children: line STOPS — strip last │ from continuation
+    let belowPrefix: string
+    if (!connector && hasChildren) {
+      belowPrefix = continuation + '│ '
+    } else if (connector === '└' && !hasChildren) {
+      // Last child, no grandchildren — remove the parent's │ from this level
+      belowPrefix = continuation.slice(0, -2) + '  '
+    } else {
+      belowPrefix = continuation
+    }
+
     const innerWidth = Math.max(0, width - 2 - widthOf(namePrefix))
 
-    // Padding row
-    screen.put(row, left, padRight(`${pad}${detailPrefix}`, width), agentColor, bg)
+    // Padding row above name
+    screen.put(row, left, padRight(`${pad}${abovePrefix}`, width), agentColor, bg)
     row += 1
 
     // Name row
@@ -202,17 +216,17 @@ function renderSidebar(screen: Screen, state: AppState, top: number, left: numbe
     row += 1
 
     // Detail: cli/model
-    const line2 = `${pad}${detailPrefix}  ${agent.cli}/${agent.model}`
+    const line2 = `${pad}${belowPrefix}  ${agent.cli}/${agent.model}`
     screen.put(row, left, padRight(line2, width), agentColor, bg)
     row += 1
 
     // Detail: dir
-    const line3 = `${pad}${detailPrefix}  ${shortenPath(agent.dir)}`
+    const line3 = `${pad}${belowPrefix}  ${shortenPath(agent.dir)}`
     screen.put(row, left, padRight(line3, width), agentColor, bg)
     row += 1
 
-    // Padding row
-    screen.put(row, left, padRight(`${pad}${detailPrefix}`, width), agentColor, bg)
+    // Padding row below
+    screen.put(row, left, padRight(`${pad}${belowPrefix}`, width), agentColor, bg)
     row += 1
   }
 
