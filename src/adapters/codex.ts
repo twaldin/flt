@@ -66,16 +66,9 @@ export const codexAdapter: CliAdapter = {
     pane = stripAnsi(pane)
     const last5 = pane.split('\n').slice(-5).join('\n')
 
-    // Codex shows explicit status: "Working", "Thinking", "Ready"
-    // in its status bar area (last few lines)
-    if (/Working|Thinking/i.test(last5)) return 'running'
-    if (/Ready/i.test(last5)) return 'idle'
-
-    // Background terminal running indicator
+    // Codex ground truth: "• Working (Xs • esc to interrupt)" present = active
+    if (/esc to interrupt/i.test(last5)) return 'running'
     if (/background terminal running/i.test(last5)) return 'running'
-
-    // Prompt visible with status bar
-    if (/\d+%\s+(left|context)/i.test(last5)) return 'idle'
 
     return 'unknown'
   },
