@@ -170,8 +170,10 @@ function renderSidebar(screen: Screen, state: AppState, top: number, left: numbe
     const bg = selected ? t.sidebarSelectedBg : ''
     const pad = ' '
     const namePrefix = continuation + connector  // "│ ├ " on name row
-    // Detail/padding rows: continuation from ancestors + │ if this agent has children
-    const detailPrefix = continuation + (connector ? (hasChildren ? '│ ' : '  ') : (hasChildren ? '│ ' : ''))
+    // Detail/padding rows: keep this level's vertical connector alive whenever
+    // this branch continues downward (either more siblings below or child rows below).
+    const branchContinues = connector === '├ ' || hasChildren
+    const detailPrefix = continuation + (connector ? (branchContinues ? '│ ' : '  ') : (branchContinues ? '│ ' : ''))
     const innerWidth = Math.max(0, width - 2 - widthOf(namePrefix))
 
     // Padding row
@@ -237,26 +239,88 @@ function renderBanner(screen: Screen, state: AppState, top: number, left: number
 function renderInbox(screen: Screen, state: AppState, top: number, left: number, width: number, height: number): void {
   if (width <= 0 || height <= 0) return
 
+  const t = getTheme()
   const lines = Math.max(1, height)
-  putLine(screen, top, left, width, `Inbox (${state.inboxMessages.length})`, getTheme().sidebarSelected, ATTR_BOLD)
+  putLine(screen, top, left, width, `Inbox (${state.inboxMessages.length})`, t.sidebarText, ATTR_BOLD)
 
-  const usable = Math.max(0, lines - 2)
-  const recent = state.inboxMessages.slice(-usable)
+  if (lines <= 2) return
 
-  for (let i = 0; i < usable; i += 1) {
-    const row = top + 1 + i
-    const msg = recent[i]
-    if (!msg) {
-      putLine(screen, row, left, width, '', COLORS.gray)
-      continue
+  const bodyTop = top + 1
+  const bodyHeight = Math.max(0, lines - 2)
+  const bodyBottom = bodyTop + bodyHeight - 1
+  const footerRow = top + lines - 1
+  const cardGap = 1
+
+  interface SenderCard {
+    from: string
+    messages: typeof state.inboxMessages
+    lastIndex: number
+  }
+
+  const grouped = new Map<string, SenderCard>()
+  state.inboxMessages.forEach((msg, idx) => {
+    const existing = grouped.get(msg.from)
+    if (existing) {
+      existing.messages.push(msg)
+      existing.lastIndex = idx
+      return
     }
-    const line = `[${msg.timestamp}] ${msg.from}: ${msg.text}`
-    putLine(screen, row, left, width, line, COLORS.gray)
+    grouped.set(msg.from, { from: msg.from, messages: [msg], lastIndex: idx })
+  })
+
+  const cards = Array.from(grouped.values())
+    .sort((a, b) => a.lastIndex - b.lastIndex)
+    .map((card) => {
+      const linesInCard = card.messages.map((msg) => `[${msg.timestamp}] ${msg.text}`)
+      const contentLines = [card.from, ...linesInCard]
+      const cardHeight = 2 + contentLines.length
+      return { ...card, contentLines, cardHeight }
+    })
+
+  if (cards.length === 0) {
+    putLine(screen, bodyTop, left, width, 'No inbox messages', t.sidebarMuted, ATTR_DIM)
+    putLine(screen, footerRow, left, width, '[r] reply to last sender', COLORS.gray)
+    return
   }
 
-  if (lines >= 2) {
-    putLine(screen, top + lines - 1, left, width, '[r] reply to last sender', COLORS.gray)
+  const selected: Array<(typeof cards)[number]> = []
+  let usedHeight = 0
+
+  for (let i = cards.length - 1; i >= 0; i -= 1) {
+    const card = cards[i]
+    const needed = card.cardHeight + (selected.length > 0 ? cardGap : 0)
+    if (usedHeight + needed > bodyHeight) break
+    selected.unshift(card)
+    usedHeight += needed
   }
+
+  const renderStart = Math.max(bodyTop, bodyBottom - usedHeight + 1)
+  let row = renderStart
+
+  for (let i = 0; i < selected.length; i += 1) {
+    const card = selected[i]
+    screen.box(row, left, width, card.cardHeight, 'round', t.sidebarBorder)
+
+    if (width > 2) {
+      putLine(screen, row + 1, left + 1, width - 2, card.from, t.sidebarText, ATTR_BOLD)
+      for (let j = 0; j < card.messages.length; j += 1) {
+        const msgRow = row + 2 + j
+        putLine(
+          screen,
+          msgRow,
+          left + 1,
+          width - 2,
+          `[${card.messages[j].timestamp}] ${card.messages[j].text}`,
+          t.sidebarMuted,
+        )
+      }
+    }
+
+    row += card.cardHeight
+    if (i < selected.length - 1) row += cardGap
+  }
+
+  putLine(screen, footerRow, left, width, '[r] reply to last sender', COLORS.gray)
 }
 
 function renderLogPane(screen: Screen, state: AppState, top: number, left: number, width: number, height: number): void {
