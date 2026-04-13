@@ -79,12 +79,15 @@ export async function spawn(args: SpawnArgs): Promise<void> {
     worktreeBranch = wt.branch
   }
 
-  // Determine parent info
-  const parentName = process.env.FLT_AGENT_NAME ?? 'orchestrator'
-  // If spawned by an agent, parent is on flt socket. If by human, use orchestrator session.
-  const parentSession = process.env.FLT_AGENT_NAME
-    ? `flt-${process.env.FLT_AGENT_NAME}`
-    : (state.orchestrator?.tmuxSession ?? 'unknown')
+  // Determine parent info — verify parent session exists, fall back to orchestrator
+  const callerName = process.env.FLT_AGENT_NAME
+  const callerSession = callerName ? `flt-${callerName}` : null
+  const orchSession = state.orchestrator?.tmuxSession ?? 'unknown'
+
+  const parentName = callerName ?? 'orchestrator'
+  const parentSession = callerSession && tmux.hasSession(callerSession)
+    ? callerSession
+    : orchSession
 
   // Project instructions into workspace
   if (adapter.instructionFile) {
@@ -185,9 +188,6 @@ async function waitForReady(
 
   // Don't throw — agent is likely ready, just undetected.
   // Registration + bootstrap still happen after this returns.
-  if (!process.env.FLT_TUI_ACTIVE) {
-    console.error(`Warning: "${session}" readiness not confirmed within ${timeoutMs / 1000}s. Proceeding anyway.`)
-  }
 }
 
 async function sendBootstrap(

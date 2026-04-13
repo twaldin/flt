@@ -9,7 +9,7 @@ export interface WorktreeInfo {
 }
 
 function git(cwd: string, ...args: string[]): string {
-  return execFileSync('git', args, { cwd, encoding: 'utf-8', timeout: 15_000 }).trim()
+  return execFileSync('git', args, { cwd, encoding: 'utf-8', timeout: 15_000, stdio: ['pipe', 'pipe', 'pipe'] }).trim()
 }
 
 function gitNoThrow(cwd: string, ...args: string[]): string | null {
