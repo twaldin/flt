@@ -71,7 +71,7 @@ export function pasteBuffer(session: string, text: string): void {
 
 /** Target the first window of a session (avoids capturing wrong window if agent created extras) */
 function paneTarget(session: string): string {
-  return `${session}:0`
+  return `${session}:^`  // ^ = lowest-numbered window
 }
 
 export function capturePane(session: string, lines = 100): string {
