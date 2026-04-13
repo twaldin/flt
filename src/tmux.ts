@@ -71,8 +71,33 @@ export function pasteBuffer(session: string, text: string): void {
 
 export function capturePane(session: string, lines = 100): string {
   // -e preserves ANSI escape sequences (colors) in the output
-  const result = tmuxNoThrow('capture-pane', '-t', session, '-p', '-e', '-S', `-${lines}`)
-  return result ?? ''
+  try {
+    return execFileSync('tmux', [
+      'capture-pane', '-t', session, '-p', '-e', '-S', `-${lines}`,
+    ], {
+      encoding: 'utf-8',
+      timeout: 10_000,
+      stdio: ['pipe', 'pipe', 'pipe'],
+    }).trim()
+  } catch {
+    return ''
+  }
+}
+
+/** Capture only the currently visible pane — no scrollback, no trimming issues.
+ *  Returns exactly paneHeight lines, matching the tmux pane 1:1. */
+export function capturePaneVisible(session: string): string {
+  try {
+    return execFileSync('tmux', [
+      'capture-pane', '-t', session, '-p', '-e',
+    ], {
+      encoding: 'utf-8',
+      timeout: 10_000,
+      stdio: ['pipe', 'pipe', 'pipe'],
+    }).trimStart()  // trim leading whitespace only — preserve trailing pane rows
+  } catch {
+    return ''
+  }
 }
 
 export function getPanePid(session: string): number | null {

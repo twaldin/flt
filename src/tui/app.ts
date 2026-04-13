@@ -6,7 +6,7 @@ import { send } from '../commands/send'
 import { spawn } from '../commands/spawn'
 import { listPresets } from '../presets'
 import { allAgents, type AgentState } from '../state'
-import { capturePane, flushBatchedKeys, hasSession, resizeWindow, sendKeysAsync, sendLiteralBatched } from '../tmux'
+import { capturePane, capturePaneVisible, flushBatchedKeys, hasSession, resizeWindow, sendKeysAsync, sendLiteralBatched } from '../tmux'
 import { getInboxPath } from '../commands/init'
 import { parseCommand, enrichMessageWithFiles } from './command-parser'
 import { setupInput, type InputBindings, type TmuxInsertKey } from './input'
@@ -18,9 +18,16 @@ function parseInbox(content: string): InboxMessage[] {
   const messages: InboxMessage[] = []
   for (const line of content.split('\n')) {
     if (!line.trim()) continue
-    const match = line.match(/^\[(\S+)\]\s+(\S+):\s+(.+)$/)
-    if (match) {
-      messages.push({ timestamp: match[1], from: match[2], text: match[3] })
+    // New format: [HH:MM:SS] [SENDER]: message
+    const tagMatch = line.match(/^\[(\S+)\]\s+\[([^\]]+)\]:\s+(.+)$/)
+    if (tagMatch) {
+      messages.push({ timestamp: tagMatch[1], from: tagMatch[2], text: tagMatch[3] })
+      continue
+    }
+    // Legacy format: [HH:MM:SS] sender: message
+    const legacyMatch = line.match(/^\[(\S+)\]\s+(\S+):\s+(.+)$/)
+    if (legacyMatch) {
+      messages.push({ timestamp: legacyMatch[1], from: legacyMatch[2], text: legacyMatch[3] })
     }
   }
   return messages
@@ -184,7 +191,7 @@ export class App {
       const { createSession } = require('../tmux') as typeof import('../tmux')
       createSession(this.shellSession, cwd, process.env.SHELL || 'zsh', {})
     }
-    const layout = calculateLayout(this.state.termWidth, this.state.termHeight)
+    const layout = calculateLayout(this.state.termWidth, this.state.termHeight, this.state.agents)
     resizeWindow(this.shellSession, Math.max(20, layout.logInnerWidth), Math.max(5, layout.logInnerHeight))
     this.state.mode = 'shell'
     this.captureShell() // immediate capture so content shows right away
@@ -211,7 +218,7 @@ export class App {
   private captureShell(): void {
     if (!hasSession(this.shellSession)) return
     try {
-      const layout = calculateLayout(this.state.termWidth, this.state.termHeight)
+      const layout = calculateLayout(this.state.termWidth, this.state.termHeight, this.state.agents)
       const content = capturePane(this.shellSession, Math.max(200, layout.logInnerHeight * 3))
       if (content !== this.shellContent) {
         this.shellContent = content
@@ -285,8 +292,8 @@ export class App {
   }
 
   private logViewHeight(): number {
-    const layout = calculateLayout(this.state.termWidth, this.state.termHeight)
-    return Math.max(1, layout.logInnerHeight - 1)
+    const layout = calculateLayout(this.state.termWidth, this.state.termHeight, this.state.agents)
+    return Math.max(1, layout.logInnerHeight)
   }
 
   private maxScroll(content: string): number {
@@ -638,7 +645,10 @@ export class App {
     const agent = agents[selected.name]
     if (!agent) return
     try {
-      const content = capturePane(agent.tmuxSession, Math.max(200, (this.state.termHeight - 5) * 3))
+      // In insert mode we're always auto-following — capture visible pane only
+      const content = this.state.autoFollow
+        ? capturePaneVisible(agent.tmuxSession)
+        : capturePane(agent.tmuxSession, Math.max(200, (this.state.termHeight - 5) * 3))
       if (content !== this.lastLogContent) {
         this.lastLogContent = content
         this.state.logContent = content
@@ -758,7 +768,7 @@ export class App {
         }
       } else if (agent) {
         try {
-          const layout = calculateLayout(this.state.termWidth, this.state.termHeight)
+          const layout = calculateLayout(this.state.termWidth, this.state.termHeight, this.state.agents)
           const paneWidth = Math.max(20, layout.logInnerWidth)
           const paneHeight = Math.max(10, layout.logInnerHeight)
 
@@ -766,7 +776,12 @@ export class App {
             resizeWindow(agent.tmuxSession, paneWidth, paneHeight)
           }
 
-          const content = capturePane(agent.tmuxSession, Math.max(200, paneHeight * 3))
+          // In auto-follow: capture only the visible pane (no scrollback).
+          // This gives exactly paneHeight rows — a 1:1 match with the tmux pane.
+          // When scrolled up: capture with scrollback for history.
+          const content = this.state.autoFollow
+            ? capturePaneVisible(agent.tmuxSession)
+            : capturePane(agent.tmuxSession, Math.max(200, paneHeight * 3))
           if (content !== this.lastLogContent) {
             this.lastLogContent = content
             if (this.applyLogContent(content)) changed = true
