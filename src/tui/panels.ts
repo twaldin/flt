@@ -93,6 +93,39 @@ function shortenPath(path: string): string {
   return path
 }
 
+/** Build tree-ordered list of agents with depth, based on parentName */
+function treeOrder(agents: AgentView[]): { agent: AgentView; depth: number; index: number }[] {
+  const byName = new Map(agents.map(a => [a.name, a]))
+  const result: { agent: AgentView; depth: number; index: number }[] = []
+  const visited = new Set<string>()
+
+  function walk(parentName: string, depth: number): void {
+    for (const agent of agents) {
+      if (visited.has(agent.name)) continue
+      const isChild = agent.parentName === parentName
+      // Top-level: parent is 'orchestrator' or parent doesn't exist as an agent
+      const isTopLevel = depth === 0 && !byName.has(agent.parentName)
+      if (isChild || isTopLevel) {
+        visited.add(agent.name)
+        const index = agents.indexOf(agent)
+        result.push({ agent, depth, index })
+        walk(agent.name, depth + 1)
+      }
+    }
+  }
+
+  // Start with agents whose parent is 'orchestrator' or missing
+  walk('orchestrator', 0)
+  // Catch any orphans
+  for (const agent of agents) {
+    if (!visited.has(agent.name)) {
+      result.push({ agent, depth: 0, index: agents.indexOf(agent) })
+    }
+  }
+
+  return result
+}
+
 function renderSidebar(screen: Screen, state: AppState, top: number, left: number, width: number, height: number): void {
   if (width <= 0 || height <= 0) return
 
@@ -106,38 +139,40 @@ function renderSidebar(screen: Screen, state: AppState, top: number, left: numbe
     return
   }
 
-  for (let i = 0; i < state.agents.length; i += 1) {
+  const ordered = treeOrder(state.agents)
+
+  for (const { agent, depth, index } of ordered) {
     if (row + 4 >= top + height) break
-    const agent = state.agents[i]
-    const selected = i === state.selectedIndex
+    const selected = index === state.selectedIndex
     const notification = state.notifications[agent.name]
 
     const agentColor = selected ? t.sidebarSelected : statusColor(agent.status)
     const bg = selected ? t.sidebarSelectedBg : ''
-    const pad = ' '  // horizontal padding
-    const innerWidth = Math.max(0, width - 2)  // content area minus left+right padding
+    const indent = '  '.repeat(depth)
+    const pad = ' '
+    const innerWidth = Math.max(0, width - 2 - indent.length)
 
     // Padding row above name
     screen.put(row, left, ' '.repeat(width), agentColor, bg)
     row += 1
 
-    // Name row: pad + badge + status dot + name ... age + pad
+    // Name row: indent + status dot + name ... age
     const badge = notification && !selected ? (notification === 'message' ? '● ' : '◐ ') : ''
     const dot = statusSymbol(agent.status)
     const age = formatAge(agent.spawnedAt)
     const nameText = `${badge}${dot} ${agent.name}`
     const agePad = Math.max(0, innerWidth - widthOf(nameText) - widthOf(age))
-    const line1 = `${pad}${nameText}${' '.repeat(agePad)}${age}${pad}`
+    const line1 = `${pad}${indent}${nameText}${' '.repeat(agePad)}${age}${pad}`
     screen.put(row, left, padRight(line1, width), agentColor, bg, ATTR_BOLD)
     row += 1
 
-    // Tree: pad + cli/model
-    const line2 = `${pad} ├ ${agent.cli}/${agent.model}`
+    // Tree: cli/model
+    const line2 = `${pad}${indent} ├ ${agent.cli}/${agent.model}`
     screen.put(row, left, padRight(line2, width), agentColor, bg)
     row += 1
 
-    // Tree: pad + dir
-    const line3 = `${pad} └ ${shortenPath(agent.dir)}`
+    // Tree: dir
+    const line3 = `${pad}${indent} └ ${shortenPath(agent.dir)}`
     screen.put(row, left, padRight(line3, width), agentColor, bg)
     row += 1
 
@@ -321,13 +356,20 @@ export function calculateLayout(cols: number, rows: number, agents?: AgentView[]
   let contentWidth = bannerMaxWidth
 
   if (agents && agents.length > 0) {
+    const byName = new Map(agents.map(a => [a.name, a]))
     for (const agent of agents) {
-      // Name line: "● name    XXh" — dot(2) + name + gap(4) + age(3)
-      contentWidth = Math.max(contentWidth, 2 + agent.name.length + 4 + 3)
-      // CLI/model line: " ├ cli/model"
-      contentWidth = Math.max(contentWidth, 4 + agent.cli.length + 1 + agent.model.length)
-      // Dir line: " └ path"
-      contentWidth = Math.max(contentWidth, 4 + shortenPath(agent.dir).length)
+      // Calculate tree depth for indent
+      let depth = 0
+      let p = agent.parentName
+      while (p && byName.has(p) && depth < 5) { depth++; p = byName.get(p)!.parentName }
+      const indent = depth * 2
+
+      // Name line: indent + "● name    XXh"
+      contentWidth = Math.max(contentWidth, indent + 2 + agent.name.length + 4 + 3)
+      // CLI/model line: indent + " ├ cli/model"
+      contentWidth = Math.max(contentWidth, indent + 4 + agent.cli.length + 1 + agent.model.length)
+      // Dir line: indent + " └ path"
+      contentWidth = Math.max(contentWidth, indent + 4 + shortenPath(agent.dir).length)
     }
   }
 
