@@ -133,8 +133,16 @@ function treeOrder(agents: AgentView[]): TreeEntry[] {
       const hasChildren = getChildren(agent.name).length > 0
 
       result.push({ agent, index: agents.indexOf(agent), continuation, connector, hasChildren })
-      const continues = isRoot ? hasChildren : !isLast
-      walk(agent.name, [...ancestry, continues], false)
+      // Ancestry for children's subtree:
+      // - Copy current ancestry
+      // - If this agent is last child (└), parent's │ stops → set parent's entry to false
+      // - Then push this agent's own line: !isLast (or hasChildren for root)
+      const childAncestry = [...ancestry]
+      if (isLast && childAncestry.length > 0) {
+        childAncestry[childAncestry.length - 1] = false
+      }
+      const showLine = isRoot ? hasChildren : !isLast
+      walk(agent.name, [...childAncestry, showLine], false)
     })
   }
 
@@ -184,18 +192,21 @@ function renderSidebar(screen: Screen, state: AppState, top: number, left: numbe
     // Above-name prefix: continuation only (no connector, no extra │ for root)
     const abovePrefix = continuation
 
-    // Below-name prefix: │ continues at this level only if branch goes further down
-    // - Root with children: add │ (children's tree starts below)
-    // - ├ connector: │ continues (more siblings)
-    // - └ connector with children: │ continues (for children)
-    // - └ connector no children: line STOPS — strip last │ from continuation
+    // Below-name prefix: what shows on detail/padding rows AFTER the name
+    // The last 2 chars of continuation represent THIS agent's parent level.
+    // After └ (last child), parent's │ must STOP on rows below the name.
+    // After ├ (not last), parent's │ continues.
     let belowPrefix: string
-    if (!connector && hasChildren) {
-      belowPrefix = continuation + '│ '
-    } else if (connector === '└' && !hasChildren) {
-      // Last child, no grandchildren — remove the parent's │ from this level
-      belowPrefix = continuation.slice(0, -2) + '  '
+    if (!connector) {
+      // Root: add │ if has children (starts the tree line for children)
+      belowPrefix = hasChildren ? continuation + '│ ' : continuation
+    } else if (connector === '└') {
+      // Last child: parent's │ stops. Replace last │ with space.
+      const stripped = continuation.slice(0, -2) + '  '
+      // But if THIS agent has children, start a NEW │ for them
+      belowPrefix = hasChildren ? stripped + '│ ' : stripped
     } else {
+      // ├: parent's │ continues (already in continuation)
       belowPrefix = continuation
     }
 
