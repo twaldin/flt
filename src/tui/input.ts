@@ -46,7 +46,7 @@ const PRESETS_ACTIONS = ['list', 'add', 'remove']
 const PRESETS_ADD_FLAGS = ['--cli', '--model', '--description']
 
 const MODEL_SUGGESTIONS: Record<string, string[]> = {
-  'claude-code': ['haiku', 'sonnet', 'opus'],
+  'claude-code': ['haiku', 'sonnet', 'opus', 'opus[1m]', 'sonnet[1m]'],
   codex: ['o3', 'o4-mini', 'gpt-4.1', 'gpt-5.4-mini'],
   gemini: ['gemini-2.5-pro', 'gemini-2.5-flash'],
   aider: ['sonnet', 'opus', 'gpt-4.1', 'o3'],

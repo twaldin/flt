@@ -32,12 +32,18 @@ export async function init(args: InitArgs): Promise<void> {
     const { getPreset } = await import('../presets')
     const hasPreset = !!getPreset(preset)
 
+    // Agent dir: ~/.flt/agents/<name>/ if it exists, otherwise cwd
+    // Orchestrators live in their agent home; sub-agents get --dir pointed at projects
+    const agentHome = join(getStateDir(), 'agents', agentName)
+    const dir = existsSync(agentHome) ? agentHome : undefined
+
     try {
       await spawn({
         name: agentName,
         cli: hasPreset ? undefined : (args.cli || 'claude-code'),
         model: args.model,
         preset: hasPreset ? preset : args.preset,
+        dir,
         worktree: false,
       })
     } catch (e) {
