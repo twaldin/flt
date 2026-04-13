@@ -45,14 +45,28 @@ const SPAWN_FLAGS = ['--cli', '--model', '--dir', '--preset']
 const PRESETS_ACTIONS = ['list', 'add', 'remove']
 const PRESETS_ADD_FLAGS = ['--cli', '--model', '--description']
 
-const MODEL_SUGGESTIONS: Record<string, string[]> = {
-  'claude-code': ['haiku', 'sonnet', 'opus', 'opus[1m]', 'sonnet[1m]'],
-  codex: ['o3', 'o4-mini', 'gpt-4.1', 'gpt-5.4-mini'],
-  gemini: ['gemini-2.5-pro', 'gemini-2.5-flash'],
-  aider: ['sonnet', 'opus', 'gpt-4.1', 'o3'],
-  opencode: ['gpt-5.3', 'gpt-5.4-mini', 'o3'],
-  'swe-agent': ['sonnet', 'gpt-4.1'],
+// Load model suggestions from ~/.flt/models.json (user-configurable)
+function loadModelSuggestions(): Record<string, string[]> {
+  const defaults: Record<string, string[]> = {
+    'claude-code': ['haiku', 'sonnet', 'opus', 'opus[1m]', 'sonnet[1m]'],
+    codex: ['gpt-5.3-codex', 'gpt-5.4-mini', 'gpt-5.4', 'o3', 'gpt-4.1'],
+    gemini: ['gemini-2.5-pro', 'gemini-2.5-flash'],
+    aider: ['sonnet', 'opus', 'gpt-4.1', 'o3'],
+    opencode: ['gpt-5.3', 'gpt-5.4-mini', 'o3'],
+    'swe-agent': ['sonnet', 'gpt-4.1'],
+  }
+  try {
+    const { readFileSync } = require('fs')
+    const { join } = require('path')
+    const home = process.env.HOME || require('os').homedir()
+    const loaded = JSON.parse(readFileSync(join(home, '.flt', 'models.json'), 'utf-8'))
+    return { ...defaults, ...loaded }
+  } catch {
+    return defaults
+  }
 }
+
+const MODEL_SUGGESTIONS = loadModelSuggestions()
 
 interface CompletionResult {
   completions: string[]
