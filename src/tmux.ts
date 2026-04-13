@@ -49,12 +49,12 @@ export function listSessions(): string[] {
 
 export function sendKeys(session: string, keys: string[]): void {
   for (const key of keys) {
-    tmux('send-keys', '-t', session, key)
+    tmux('send-keys', '-t', paneTarget(session), key)
   }
 }
 
 export function sendLiteral(session: string, text: string): void {
-  tmux('send-keys', '-t', session, '-l', text)
+  tmux('send-keys', '-t', paneTarget(session), '-l', text)
 }
 
 export function pasteBuffer(session: string, text: string): void {
@@ -63,17 +63,22 @@ export function pasteBuffer(session: string, text: string): void {
   writeFileSync(tmpFile, text)
   try {
     tmux('load-buffer', '-b', bufName, tmpFile)
-    tmux('paste-buffer', '-b', bufName, '-t', session, '-d')
+    tmux('paste-buffer', '-b', bufName, '-t', paneTarget(session), '-d')
   } finally {
     try { unlinkSync(tmpFile) } catch {}
   }
+}
+
+/** Target the first window of a session (avoids capturing wrong window if agent created extras) */
+function paneTarget(session: string): string {
+  return `${session}:0`
 }
 
 export function capturePane(session: string, lines = 100): string {
   // -e preserves ANSI escape sequences (colors) in the output
   try {
     return execFileSync('tmux', [
-      'capture-pane', '-t', session, '-p', '-e', '-S', `-${lines}`,
+      'capture-pane', '-t', paneTarget(session), '-p', '-e', '-S', `-${lines}`,
     ], {
       encoding: 'utf-8',
       timeout: 10_000,
@@ -89,7 +94,7 @@ export function capturePane(session: string, lines = 100): string {
 export function capturePaneVisible(session: string): string {
   try {
     return execFileSync('tmux', [
-      'capture-pane', '-t', session, '-p', '-e',
+      'capture-pane', '-t', paneTarget(session), '-p', '-e',
     ], {
       encoding: 'utf-8',
       timeout: 10_000,
@@ -126,7 +131,7 @@ function sendViaPasteBuffer(session: string, text: string): void {
   const bufName = `flt-${randomUUID().slice(0, 6)}`
   try {
     tmux('load-buffer', '-b', bufName, tmpFile)
-    tmux('paste-buffer', '-b', bufName, '-t', session, '-d')
+    tmux('paste-buffer', '-b', bufName, '-t', paneTarget(session), '-d')
   } catch {}
   try { unlinkSync(tmpFile) } catch {}
 }
@@ -134,7 +139,7 @@ function sendViaPasteBuffer(session: string, text: string): void {
 /** Non-blocking keystroke forwarding — fire and forget */
 export function sendKeysAsync(session: string, keys: string[]): void {
   for (const key of keys) {
-    Bun.spawn(['tmux', 'send-keys', '-t', session, key], { stdout: 'ignore', stderr: 'ignore' })
+    Bun.spawn(['tmux', 'send-keys', '-t', paneTarget(session), key], { stdout: 'ignore', stderr: 'ignore' })
   }
 }
 
@@ -143,7 +148,7 @@ export function sendLiteralAsync(session: string, text: string): void {
   if (text.includes(';')) {
     sendViaPasteBuffer(session, text)
   } else {
-    Bun.spawn(['tmux', 'send-keys', '-t', session, '-l', text], { stdout: 'ignore', stderr: 'ignore' })
+    Bun.spawn(['tmux', 'send-keys', '-t', paneTarget(session), '-l', text], { stdout: 'ignore', stderr: 'ignore' })
   }
 }
 
@@ -172,7 +177,7 @@ export function sendLiteralBatched(session: string, char: string): void {
     if (text.includes(';')) {
       sendViaPasteBuffer(session, text)
     } else {
-      Bun.spawn(['tmux', 'send-keys', '-t', session, '-l', text], { stdout: 'ignore', stderr: 'ignore' })
+      Bun.spawn(['tmux', 'send-keys', '-t', paneTarget(session), '-l', text], { stdout: 'ignore', stderr: 'ignore' })
     }
   }, 16)
 }
@@ -185,6 +190,6 @@ export function flushBatchedKeys(session: string): void {
     const text = buf.text
     buf.text = ''
     buf.timer = null
-    Bun.spawn(['tmux', 'send-keys', '-t', session, '-l', text], { stdout: 'ignore', stderr: 'ignore' })
+    Bun.spawn(['tmux', 'send-keys', '-t', paneTarget(session), '-l', text], { stdout: 'ignore', stderr: 'ignore' })
   }
 }
