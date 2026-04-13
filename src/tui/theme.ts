@@ -82,7 +82,7 @@ const DARK_THEME: ThemeColors = {
   statusMode: {
     normal: ANSI_COLORS.green,
     'log-focus': ANSI_COLORS.cyan,
-    insert: ANSI_COLORS.yellow,
+    insert: ANSI_COLORS.green,
     command: ANSI_COLORS.magenta,
     inbox: ANSI_COLORS.blue,
     'kill-confirm': ANSI_COLORS.red,
@@ -118,7 +118,7 @@ const MINIMAL_THEME: ThemeColors = {
   statusMode: {
     normal: ANSI_COLORS.white,
     'log-focus': ANSI_COLORS.white,
-    insert: ANSI_COLORS.white,
+    insert: ANSI_COLORS.green,
     command: ANSI_COLORS.white,
     inbox: ANSI_COLORS.white,
     'kill-confirm': ANSI_COLORS.white,
@@ -137,7 +137,7 @@ const CATPPUCCIN_MOCHA: ThemeColors = {
   bannerBorder: rgb(243, 139, 168),      // red
   bannerText: rgb(243, 139, 168),        // red
   logBorder: rgb(88, 91, 112),           // surface2
-  logBorderInsert: rgb(249, 226, 175),   // yellow
+  logBorderInsert: rgb(249, 226, 175),   // green
   logBorderFocus: rgb(166, 227, 161),    // green
   commandPrefix: rgb(137, 180, 250),     // blue
   commandInput: rgb(205, 214, 244),      // text
@@ -145,13 +145,13 @@ const CATPPUCCIN_MOCHA: ThemeColors = {
   statusBg: rgb(49, 50, 68),             // surface0
   statusText: rgb(205, 214, 244),        // text
   statusIdle: rgb(166, 227, 161),        // green
-  statusRunning: rgb(249, 226, 175),     // yellow
+  statusRunning: rgb(249, 226, 175),     // green
   statusError: rgb(243, 139, 168),       // red
   statusSpawning: rgb(250, 179, 135),    // peach
   statusMode: {
     normal: rgb(166, 227, 161),          // green
     'log-focus': rgb(137, 180, 250),     // blue
-    insert: rgb(249, 226, 175),          // yellow
+    insert: rgb(166, 227, 161),          // green
     command: rgb(203, 166, 247),         // mauve
     inbox: rgb(116, 199, 236),           // sapphire
     'kill-confirm': rgb(243, 139, 168),  // red
@@ -168,7 +168,7 @@ const GRUVBOX_DARK: ThemeColors = {
   bannerBorder: rgb(204, 36, 29),        // red
   bannerText: rgb(204, 36, 29),          // red
   logBorder: rgb(80, 73, 69),            // bg2
-  logBorderInsert: rgb(215, 153, 33),    // yellow
+  logBorderInsert: rgb(215, 153, 33),    // green
   logBorderFocus: rgb(152, 151, 26),     // green
   commandPrefix: rgb(69, 133, 136),      // aqua
   commandInput: rgb(235, 219, 178),      // fg
@@ -176,13 +176,13 @@ const GRUVBOX_DARK: ThemeColors = {
   statusBg: rgb(60, 56, 54),             // bg1
   statusText: rgb(235, 219, 178),        // fg
   statusIdle: rgb(152, 151, 26),         // green
-  statusRunning: rgb(215, 153, 33),      // yellow
+  statusRunning: rgb(215, 153, 33),      // green
   statusError: rgb(204, 36, 29),         // red
   statusSpawning: rgb(214, 93, 14),      // orange
   statusMode: {
     normal: rgb(152, 151, 26),           // green
     'log-focus': rgb(69, 133, 136),      // aqua
-    insert: rgb(215, 153, 33),           // yellow
+    insert: rgb(152, 151, 26),           // green
     command: rgb(177, 98, 134),          // purple
     inbox: rgb(69, 133, 136),            // aqua
     'kill-confirm': rgb(204, 36, 29),    // red
@@ -199,7 +199,7 @@ const TOKYO_NIGHT: ThemeColors = {
   bannerBorder: rgb(247, 118, 142),      // red
   bannerText: rgb(247, 118, 142),        // red
   logBorder: rgb(61, 66, 91),            // bg_highlight
-  logBorderInsert: rgb(224, 175, 104),   // yellow
+  logBorderInsert: rgb(224, 175, 104),   // green
   logBorderFocus: rgb(158, 206, 106),    // green
   commandPrefix: rgb(122, 162, 247),     // blue
   commandInput: rgb(192, 202, 245),      // fg
@@ -207,13 +207,13 @@ const TOKYO_NIGHT: ThemeColors = {
   statusBg: rgb(36, 40, 59),             // bg_dark
   statusText: rgb(192, 202, 245),        // fg
   statusIdle: rgb(158, 206, 106),        // green
-  statusRunning: rgb(224, 175, 104),     // yellow
+  statusRunning: rgb(224, 175, 104),     // green
   statusError: rgb(247, 118, 142),       // red
   statusSpawning: rgb(255, 158, 100),    // orange
   statusMode: {
     normal: rgb(158, 206, 106),          // green
     'log-focus': rgb(122, 162, 247),     // blue
-    insert: rgb(224, 175, 104),          // yellow
+    insert: rgb(158, 206, 106),          // green
     command: rgb(187, 154, 247),         // purple
     inbox: rgb(125, 207, 255),           // cyan
     'kill-confirm': rgb(247, 118, 142),  // red
@@ -244,7 +244,7 @@ const NORD: ThemeColors = {
   statusMode: {
     normal: rgb(163, 190, 140),          // green
     'log-focus': rgb(136, 192, 208),     // frost
-    insert: rgb(235, 203, 139),          // yellow
+    insert: rgb(163, 190, 140),          // green
     command: rgb(180, 142, 173),         // purple
     inbox: rgb(129, 161, 193),           // frost dark
     'kill-confirm': rgb(191, 97, 106),   // red
@@ -261,7 +261,7 @@ const DRACULA: ThemeColors = {
   bannerBorder: rgb(255, 85, 85),        // red
   bannerText: rgb(255, 85, 85),          // red
   logBorder: rgb(68, 71, 90),            // current line
-  logBorderInsert: rgb(241, 250, 140),   // yellow
+  logBorderInsert: rgb(241, 250, 140),   // green
   logBorderFocus: rgb(80, 250, 123),     // green
   commandPrefix: rgb(139, 233, 253),     // cyan
   commandInput: rgb(248, 248, 242),      // fg
@@ -269,13 +269,13 @@ const DRACULA: ThemeColors = {
   statusBg: rgb(40, 42, 54),             // bg
   statusText: rgb(248, 248, 242),        // fg
   statusIdle: rgb(80, 250, 123),         // green
-  statusRunning: rgb(241, 250, 140),     // yellow
+  statusRunning: rgb(241, 250, 140),     // green
   statusError: rgb(255, 85, 85),         // red
   statusSpawning: rgb(255, 184, 108),    // orange
   statusMode: {
     normal: rgb(80, 250, 123),           // green
     'log-focus': rgb(139, 233, 253),     // cyan
-    insert: rgb(241, 250, 140),          // yellow
+    insert: rgb(80, 250, 123),          // green
     command: rgb(189, 147, 249),         // purple
     inbox: rgb(139, 233, 253),           // cyan
     'kill-confirm': rgb(255, 85, 85),    // red
@@ -291,7 +291,7 @@ const ONE_DARK: ThemeColors = {
   bannerBorder: rgb(224, 108, 117),      // red
   bannerText: rgb(224, 108, 117),        // red
   logBorder: rgb(62, 68, 81),            // gutter
-  logBorderInsert: rgb(229, 192, 123),   // yellow
+  logBorderInsert: rgb(229, 192, 123),   // green
   logBorderFocus: rgb(152, 195, 121),    // green
   commandPrefix: rgb(97, 175, 239),      // blue
   commandInput: rgb(171, 178, 191),      // fg
@@ -299,13 +299,13 @@ const ONE_DARK: ThemeColors = {
   statusBg: rgb(40, 44, 52),             // bg
   statusText: rgb(171, 178, 191),        // fg
   statusIdle: rgb(152, 195, 121),        // green
-  statusRunning: rgb(229, 192, 123),     // yellow
+  statusRunning: rgb(229, 192, 123),     // green
   statusError: rgb(224, 108, 117),       // red
   statusSpawning: rgb(209, 154, 102),    // dark yellow
   statusMode: {
     normal: rgb(152, 195, 121),          // green
     'log-focus': rgb(97, 175, 239),      // blue
-    insert: rgb(229, 192, 123),          // yellow
+    insert: rgb(152, 195, 121),          // green
     command: rgb(198, 120, 221),         // magenta
     inbox: rgb(86, 182, 194),            // cyan
     'kill-confirm': rgb(224, 108, 117),  // red
