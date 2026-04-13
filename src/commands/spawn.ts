@@ -15,6 +15,8 @@ interface SpawnArgs {
   dir?: string
   worktree?: boolean
   bootstrap?: string
+  _callerName?: string
+  _callerDepth?: number
 }
 
 export async function spawn(args: SpawnArgs): Promise<void> {
@@ -22,7 +24,15 @@ export async function spawn(args: SpawnArgs): Promise<void> {
     const { ensureController } = await import('./controller')
     const { sendToController } = await import('../controller/client')
     await ensureController()
-    const result = await sendToController({ action: 'spawn', args: args as unknown as Record<string, unknown> })
+    // Capture caller context here and pass through RPC
+    const result = await sendToController({
+      action: 'spawn',
+      args: {
+        ...args,
+        _callerName: process.env.FLT_AGENT_NAME,
+        _callerDepth: parseInt(process.env.FLT_DEPTH ?? '0', 10),
+      } as unknown as Record<string, unknown>,
+    })
     if (!result.ok) throw new Error(result.error ?? 'Spawn failed')
     if (!process.env.FLT_TUI_ACTIVE) console.log(result.data)
     return
@@ -72,7 +82,7 @@ export async function spawnDirect(args: SpawnArgs): Promise<void> {
 
   // Check depth limit
   const state = loadState()
-  const callerDepth = parseInt(process.env.FLT_DEPTH ?? '0', 10)
+  const callerDepth = args._callerDepth ?? parseInt(process.env.FLT_DEPTH ?? '0', 10)
   if (callerDepth >= state.config.maxDepth) {
     throw new Error(`Max agent depth (${state.config.maxDepth}) reached.`)
   }
@@ -92,8 +102,8 @@ export async function spawnDirect(args: SpawnArgs): Promise<void> {
     worktreeBranch = wt.branch
   }
 
-  // Determine parent info — verify parent session exists, fall back to orchestrator
-  const callerName = process.env.FLT_AGENT_NAME
+  // Determine parent info — use passed-through caller context or env vars
+  const callerName = args._callerName ?? process.env.FLT_AGENT_NAME
   const callerSession = callerName ? `flt-${callerName}` : null
   const orchSession = state.orchestrator?.tmuxSession ?? 'unknown'
 

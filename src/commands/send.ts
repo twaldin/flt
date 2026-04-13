@@ -8,14 +8,22 @@ import { userInfo } from 'os'
 interface SendArgs {
   target: string
   message: string
+  _caller?: CallerContext
 }
+
+type CallerContext = ReturnType<typeof detectCaller>
 
 export async function send(args: SendArgs): Promise<void> {
   if (process.env.FLT_CONTROLLER !== '1') {
     const { ensureController } = await import('./controller')
     const { sendToController } = await import('../controller/client')
     await ensureController()
-    const result = await sendToController({ action: 'send', args: args as unknown as Record<string, unknown> })
+    // Capture caller context here (where FLT_AGENT_NAME is set) and pass it through
+    const caller = detectCaller()
+    const result = await sendToController({
+      action: 'send',
+      args: { ...args, _caller: caller } as unknown as Record<string, unknown>,
+    })
     if (!result.ok) throw new Error(result.error ?? 'Send failed')
     return
   }
@@ -23,8 +31,8 @@ export async function send(args: SendArgs): Promise<void> {
 }
 
 export async function sendDirect(args: SendArgs): Promise<void> {
-  const { target, message } = args
-  const caller = detectCaller()
+  const { target, message, _caller } = args
+  const caller = _caller ?? detectCaller()
 
   let session: string
   let submitKeys: string[] = ['Enter']
