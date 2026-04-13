@@ -43,7 +43,10 @@ function agentsHash(agents: AgentView[]): string {
  *  - Icon changed → running
  *  - Icon same or absent → idle */
 function extractSpinnerIcon(pane: string): string | null {
-  const match = pane.match(/^[✶✢✽✻✳·✺✹✸✷✿❋]/m)
+  // U+00B7 · Middle Dot, U+2722 ✢ Four Teardrop-Spoked Asterisk,
+  // U+2733 ✳ Eight Spoked Asterisk, U+2217 ∗ Asterisk Operator,
+  // U+273B ✻ Teardrop-Spoked Asterisk, U+273D ✽ Heavy Teardrop-Spoked Asterisk
+  const match = pane.match(/^[\u00B7\u2722\u2733\u2217\u273B\u273D]/m)
   return match ? match[0] : null
 }
 
