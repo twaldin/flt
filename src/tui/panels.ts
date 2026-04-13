@@ -98,6 +98,7 @@ interface TreeEntry {
   index: number
   continuation: string  // "│ │ " — vertical lines from ancestors, applies to ALL rows
   connector: string     // "├ " or "└ " — only on name row, empty for root agents
+  hasChildren: boolean  // does this agent have children in the tree?
 }
 
 /** Build tree-ordered list with continuation lines and connectors */
@@ -127,8 +128,9 @@ function treeOrder(agents: AgentView[]): TreeEntry[] {
 
       // Connector: only on name row, empty for root-level agents
       const connector = isRoot ? '' : (isLast ? '└ ' : '├ ')
+      const hasChildren = getChildren(agent.name).length > 0
 
-      result.push({ agent, index: agents.indexOf(agent), continuation, connector })
+      result.push({ agent, index: agents.indexOf(agent), continuation, connector, hasChildren })
       walk(agent.name, [...ancestry, !isLast], false)
     })
   }
@@ -136,7 +138,7 @@ function treeOrder(agents: AgentView[]): TreeEntry[] {
   walk('orchestrator', [], true)
   for (const agent of agents) {
     if (!visited.has(agent.name)) {
-      result.push({ agent, index: agents.indexOf(agent), continuation: '', connector: '' })
+      result.push({ agent, index: agents.indexOf(agent), continuation: '', connector: '', hasChildren: false })
     }
   }
 
@@ -158,7 +160,7 @@ function renderSidebar(screen: Screen, state: AppState, top: number, left: numbe
 
   const ordered = treeOrder(state.agents)
 
-  for (const { agent, index, continuation, connector } of ordered) {
+  for (const { agent, index, continuation, connector, hasChildren } of ordered) {
     if (row + 4 >= top + height) break
     const selected = index === state.selectedIndex
     const notification = state.notifications[agent.name]
@@ -166,36 +168,37 @@ function renderSidebar(screen: Screen, state: AppState, top: number, left: numbe
     const agentColor = selected ? t.sidebarSelected : statusColor(agent.status)
     const bg = selected ? t.sidebarSelectedBg : ''
     const pad = ' '
-    const fullPrefix = continuation + connector
-    const contIndent = continuation + '  '  // continuation + space past connector
-    const innerWidth = Math.max(0, width - 2 - widthOf(fullPrefix))
+    const namePrefix = continuation + connector  // "│ ├ " on name row
+    // Detail/padding rows: continuation from ancestors + │ if this agent has children
+    const detailPrefix = continuation + (connector ? (hasChildren ? '│ ' : '  ') : (hasChildren ? '│ ' : ''))
+    const innerWidth = Math.max(0, width - 2 - widthOf(namePrefix))
 
-    // Padding row: continuation lines extend through
-    screen.put(row, left, padRight(`${pad}${contIndent}`, width), agentColor, bg)
+    // Padding row
+    screen.put(row, left, padRight(`${pad}${detailPrefix}`, width), agentColor, bg)
     row += 1
 
-    // Name row: continuation + connector + status dot + name ... age
+    // Name row
     const badge = notification && !selected ? (notification === 'message' ? '● ' : '◐ ') : ''
     const dot = statusSymbol(agent.status)
     const age = formatAge(agent.spawnedAt)
     const nameText = `${badge}${dot} ${agent.name}`
     const agePad = Math.max(0, innerWidth - widthOf(nameText) - widthOf(age))
-    const line1 = `${pad}${fullPrefix}${nameText}${' '.repeat(agePad)}${age}${pad}`
+    const line1 = `${pad}${namePrefix}${nameText}${' '.repeat(agePad)}${age}${pad}`
     screen.put(row, left, padRight(line1, width), agentColor, bg, ATTR_BOLD)
     row += 1
 
-    // Detail: cli/model — continuation lines extend, indented past connector
-    const line2 = `${pad}${contIndent}  ${agent.cli}/${agent.model}`
+    // Detail: cli/model
+    const line2 = `${pad}${detailPrefix}  ${agent.cli}/${agent.model}`
     screen.put(row, left, padRight(line2, width), agentColor, bg)
     row += 1
 
     // Detail: dir
-    const line3 = `${pad}${contIndent}  ${shortenPath(agent.dir)}`
+    const line3 = `${pad}${detailPrefix}  ${shortenPath(agent.dir)}`
     screen.put(row, left, padRight(line3, width), agentColor, bg)
     row += 1
 
-    // Padding row: continuation lines extend through
-    screen.put(row, left, padRight(`${pad}${contIndent}`, width), agentColor, bg)
+    // Padding row
+    screen.put(row, left, padRight(`${pad}${detailPrefix}`, width), agentColor, bg)
     row += 1
   }
 
