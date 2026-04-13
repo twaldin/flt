@@ -93,10 +93,17 @@ function shortenPath(path: string): string {
   return path
 }
 
-/** Build tree-ordered list with connector prefix strings like "│ ├── " */
-function treeOrder(agents: AgentView[]): { agent: AgentView; prefix: string; index: number }[] {
+interface TreeEntry {
+  agent: AgentView
+  index: number
+  continuation: string  // "│ │ " — vertical lines from ancestors, applies to ALL rows
+  connector: string     // "├ " or "└ " — only on name row, empty for root agents
+}
+
+/** Build tree-ordered list with continuation lines and connectors */
+function treeOrder(agents: AgentView[]): TreeEntry[] {
   const byName = new Map(agents.map(a => [a.name, a]))
-  const result: { agent: AgentView; prefix: string; index: number }[] = []
+  const result: TreeEntry[] = []
   const visited = new Set<string>()
 
   function getChildren(parentName: string): AgentView[] {
@@ -106,28 +113,30 @@ function treeOrder(agents: AgentView[]): { agent: AgentView; prefix: string; ind
     ))
   }
 
-  function walk(parentName: string, ancestry: boolean[]): void {
+  function walk(parentName: string, ancestry: boolean[], isRoot: boolean): void {
     const children = getChildren(parentName)
     children.forEach((agent, i) => {
       visited.add(agent.name)
       const isLast = i === children.length - 1
-      // Build prefix from ancestry: │ for continuing parents, space for last
-      let prefix = ''
+
+      // Continuation: vertical lines from ancestors (shown on ALL 5 rows)
+      let continuation = ''
       for (const continues of ancestry) {
-        prefix += continues ? '│ ' : '  '
+        continuation += continues ? '│ ' : '  '
       }
-      prefix += isLast ? '└ ' : '├ '
-      const index = agents.indexOf(agent)
-      result.push({ agent, prefix, index })
-      walk(agent.name, [...ancestry, !isLast])
+
+      // Connector: only on name row, empty for root-level agents
+      const connector = isRoot ? '' : (isLast ? '└ ' : '├ ')
+
+      result.push({ agent, index: agents.indexOf(agent), continuation, connector })
+      walk(agent.name, [...ancestry, !isLast], false)
     })
   }
 
-  walk('orchestrator', [])
-  // Catch orphans
+  walk('orchestrator', [], true)
   for (const agent of agents) {
     if (!visited.has(agent.name)) {
-      result.push({ agent, prefix: '', index: agents.indexOf(agent) })
+      result.push({ agent, index: agents.indexOf(agent), continuation: '', connector: '' })
     }
   }
 
@@ -149,7 +158,7 @@ function renderSidebar(screen: Screen, state: AppState, top: number, left: numbe
 
   const ordered = treeOrder(state.agents)
 
-  for (const { agent, prefix, index } of ordered) {
+  for (const { agent, index, continuation, connector } of ordered) {
     if (row + 4 >= top + height) break
     const selected = index === state.selectedIndex
     const notification = state.notifications[agent.name]
@@ -157,36 +166,36 @@ function renderSidebar(screen: Screen, state: AppState, top: number, left: numbe
     const agentColor = selected ? t.sidebarSelected : statusColor(agent.status)
     const bg = selected ? t.sidebarSelectedBg : ''
     const pad = ' '
-    const prefixWidth = widthOf(prefix)
-    const innerWidth = Math.max(0, width - 2 - prefixWidth)
+    const fullPrefix = continuation + connector
+    const contIndent = continuation + '  '  // continuation + space past connector
+    const innerWidth = Math.max(0, width - 2 - widthOf(fullPrefix))
 
-    // Padding row above name
-    screen.put(row, left, ' '.repeat(width), agentColor, bg)
+    // Padding row: continuation lines extend through
+    screen.put(row, left, padRight(`${pad}${contIndent}`, width), agentColor, bg)
     row += 1
 
-    // Name row: prefix + status dot + name ... age
+    // Name row: continuation + connector + status dot + name ... age
     const badge = notification && !selected ? (notification === 'message' ? '● ' : '◐ ') : ''
     const dot = statusSymbol(agent.status)
     const age = formatAge(agent.spawnedAt)
     const nameText = `${badge}${dot} ${agent.name}`
     const agePad = Math.max(0, innerWidth - widthOf(nameText) - widthOf(age))
-    const line1 = `${pad}${prefix}${nameText}${' '.repeat(agePad)}${age}${pad}`
+    const line1 = `${pad}${fullPrefix}${nameText}${' '.repeat(agePad)}${age}${pad}`
     screen.put(row, left, padRight(line1, width), agentColor, bg, ATTR_BOLD)
     row += 1
 
-    // Detail: cli/model (indented past prefix)
-    const detailIndent = ' '.repeat(prefixWidth + 2)
-    const line2 = `${pad}${detailIndent}${agent.cli}/${agent.model}`
+    // Detail: cli/model — continuation lines extend, indented past connector
+    const line2 = `${pad}${contIndent}  ${agent.cli}/${agent.model}`
     screen.put(row, left, padRight(line2, width), agentColor, bg)
     row += 1
 
     // Detail: dir
-    const line3 = `${pad}${detailIndent}${shortenPath(agent.dir)}`
+    const line3 = `${pad}${contIndent}  ${shortenPath(agent.dir)}`
     screen.put(row, left, padRight(line3, width), agentColor, bg)
     row += 1
 
-    // Padding row below dir
-    screen.put(row, left, ' '.repeat(width), agentColor, bg)
+    // Padding row: continuation lines extend through
+    screen.put(row, left, padRight(`${pad}${contIndent}`, width), agentColor, bg)
     row += 1
   }
 
@@ -366,13 +375,12 @@ export function calculateLayout(cols: number, rows: number, agents?: AgentView[]
 
   if (agents && agents.length > 0) {
     const ordered = treeOrder(agents)
-    for (const { agent, prefix } of ordered) {
-      const pLen = prefix.length
-      // Name line: prefix + "● name    XXh"
+    for (const { agent, continuation, connector } of ordered) {
+      const pLen = (continuation + connector).length
+      const dLen = continuation.length + 4  // continuation + "    " detail indent
       contentWidth = Math.max(contentWidth, pLen + 2 + agent.name.length + 4 + 3)
-      // Detail lines: indent past prefix + "cli/model"
-      contentWidth = Math.max(contentWidth, pLen + 2 + agent.cli.length + 1 + agent.model.length)
-      contentWidth = Math.max(contentWidth, pLen + 2 + shortenPath(agent.dir).length)
+      contentWidth = Math.max(contentWidth, dLen + agent.cli.length + 1 + agent.model.length)
+      contentWidth = Math.max(contentWidth, dLen + shortenPath(agent.dir).length)
     }
   }
 
