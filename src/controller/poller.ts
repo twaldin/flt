@@ -3,7 +3,7 @@ import { join } from 'path'
 import { resolveAdapter, getAdapter } from '../adapters/registry'
 import type { AgentStatus } from '../adapters/types'
 import { allAgents, setAgent, loadState, saveState, type AgentState } from '../state'
-import { capturePane, hasSession, listSessions } from '../tmux'
+import { capturePane, hasSession, listSessions, sendKeys } from '../tmux'
 import { appendInbox } from '../commands/init'
 import { appendEvent } from '../activity'
 
@@ -157,6 +157,21 @@ export function pollOnce(): void {
     const pane = capturePane(agent.tmuxSession, 50)
     const paneHash = simpleHash(pane)
     let status = detectAgentStatusFromPane(name, agent, pane, paneHash)
+
+    // Auto-approve dialogs (trust prompts, permission prompts)
+    if (status === ('dialog' as AgentStatus)) {
+      try {
+        const adapter = resolveAdapter(agent.cli)
+        const keys = adapter.handleDialog(pane)
+        if (keys) {
+          for (const key of keys) {
+            sendKeys(agent.tmuxSession, [key])
+          }
+        }
+      } catch {}
+      status = 'unknown'  // don't record 'dialog' as a real status
+    }
+
     status = applyContentStableTimeout(name, paneHash, status)
 
     // Stuck detector: track how long an agent has been continuously 'running'

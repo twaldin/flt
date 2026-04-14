@@ -10,7 +10,7 @@ export const opencodeAdapter: CliAdapter = {
   submitKeys: ['Enter'],
 
   spawnArgs(opts: SpawnOpts): string[] {
-    const args = ['opencode']
+    const args = ['opencode', '--agent', 'flt']
     if (opts.model) args.push('--model', opts.model)
     return args
   },

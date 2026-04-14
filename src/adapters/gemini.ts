@@ -52,6 +52,10 @@ export const geminiAdapter: CliAdapter = {
 
   handleDialog(pane: string): string[] | null {
     pane = stripAnsi(pane)
+    // Trust folder dialog — option 1 is already selected, just press Enter
+    if (/Do you trust the files/i.test(pane) || /Trust folder/i.test(pane)) {
+      return ['Enter']
+    }
     // "Action Required" / "Allow execution" permission prompt
     // Select "Allow for this session" (option 2) so it doesn't prompt again
     if (/Action Required/i.test(pane) && /Allow/i.test(pane)) {
@@ -66,7 +70,10 @@ export const geminiAdapter: CliAdapter = {
     const last20 = lines.slice(-20).join('\n')
     const last10 = lines.slice(-10).join('\n')
 
-    // Permission prompt — auto-approve
+    // Trust folder or permission prompt — auto-approve
+    if (/Do you trust the files/i.test(last20) || /Trust folder/i.test(last20)) {
+      return 'dialog' as AgentStatus
+    }
     if (/Action Required/i.test(last20) && /Allow/i.test(last20)) {
       return 'dialog' as AgentStatus
     }

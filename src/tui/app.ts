@@ -262,6 +262,7 @@ export class App {
     this.state.mode = mode
     this.restartPolling()
 
+
     // Signal controller which agent is being typed into
     const typingFile = join(homedir(), '.flt', 'typing')
     if (mode === 'insert' && this.selectedAgent) {
