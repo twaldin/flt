@@ -179,7 +179,11 @@ export class Screen {
 
     for (let r = r0; r < r1; r += 1) {
       for (let c = c0; c < c1; c += 1) {
-        this.back[r][c] = cloneCell(EMPTY_CELL)
+        const cell = this.back[r][c]
+        cell.char = ' '
+        cell.fg = ''
+        cell.bg = ''
+        cell.attrs = 0
       }
     }
   }
@@ -220,7 +224,11 @@ export class Screen {
           }
 
           output += runCell.char || ' '
-          this.front[r][c] = cloneCell(runCell)
+          const fCell = this.front[r][c]
+          fCell.char = runCell.char
+          fCell.fg = runCell.fg
+          fCell.bg = runCell.bg
+          fCell.attrs = runCell.attrs
           cursorCol += 1
           c += 1
         }

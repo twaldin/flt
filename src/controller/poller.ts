@@ -40,7 +40,7 @@ function simpleHash(s: string): string {
   return String(h)
 }
 
-function detectAgentStatusFromPane(name: string, agent: AgentState, pane: string): AgentStatus {
+function detectAgentStatusFromPane(name: string, agent: AgentState, pane: string, paneHash: string): AgentStatus {
   try {
     const adapter = getAdapter(agent.cli)
     if (!adapter) return 'unknown'
@@ -86,20 +86,19 @@ function detectAgentStatusFromPane(name: string, agent: AgentState, pane: string
     const adapterResult = adapter.detectStatus(pane)
     if (adapterResult !== 'unknown') return adapterResult
 
-    // Fallback: content-delta with grace period
-    const hash = simpleHash(pane)
+    // Fallback: content-delta with grace period (reuse pre-computed hash)
     const prevHash = lastHashes[name]
-    lastHashes[name] = hash
+    lastHashes[name] = paneHash
 
     // If user is typing into this agent, ignore content changes
     if (cachedTypingAgent === name) return agent.status ?? 'idle'
 
-    if (prevHash && prevHash !== hash) {
+    if (prevHash && prevHash !== paneHash) {
       // Content changed — running, reset stable timer
       delete hashStableSince[name]
       return 'running'
     }
-    if (prevHash && prevHash === hash) {
+    if (prevHash && prevHash === paneHash) {
       // Content stable — only flip to idle after grace period
       if (!hashStableSince[name]) hashStableSince[name] = Date.now()
       return (Date.now() - hashStableSince[name]) >= CONTENT_IDLE_GRACE_MS ? 'idle' : (agent.status ?? 'idle')
@@ -110,8 +109,8 @@ function detectAgentStatusFromPane(name: string, agent: AgentState, pane: string
   }
 }
 
-function applyContentStableTimeout(name: string, pane: string, adapterStatus: AgentStatus): AgentStatus {
-  const hash = simpleHash(pane)
+function applyContentStableTimeout(name: string, paneHash: string, adapterStatus: AgentStatus): AgentStatus {
+  const hash = paneHash
   const prev = stableTracker[name]
 
   if (!prev || prev.hash !== hash) {
@@ -151,8 +150,9 @@ export function pollOnce(): void {
 
     const prevStatus = agent.status
     const pane = capturePane(agent.tmuxSession, 50)
-    let status = detectAgentStatusFromPane(name, agent, pane)
-    status = applyContentStableTimeout(name, pane, status)
+    const paneHash = simpleHash(pane)
+    let status = detectAgentStatusFromPane(name, agent, pane, paneHash)
+    status = applyContentStableTimeout(name, paneHash, status)
 
     if (status !== prevStatus) {
       agent.status = status

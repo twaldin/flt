@@ -295,6 +295,7 @@ const ONE_DARK: ThemeColors = {
   sidebarTitle: rgb(171, 178, 191),      // fg
   sidebarText: rgb(92, 99, 112),         // comment
   sidebarSelected: rgb(97, 175, 239),    // blue
+  sidebarSelectedBg: bgRgb(97, 175, 239), // blue bg
   sidebarMuted: rgb(92, 99, 112),        // comment
   bannerBorder: rgb(224, 108, 117),      // red
   bannerText: rgb(224, 108, 117),        // red

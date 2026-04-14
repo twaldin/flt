@@ -78,6 +78,7 @@ export class App {
   private lastInboxRaw = ''
   private lastSelectedName: string | undefined
   private lastStatusByAgent: Record<string, string> = {}
+  private lastResizedDims: Record<string, { width: number; height: number }> = {}
   // Status detection moved to controller poller — these are no longer needed
   private bannerTimer: ReturnType<typeof setTimeout> | null = null
   private insertCaptureTimer: ReturnType<typeof setTimeout> | null = null
@@ -695,13 +696,28 @@ export class App {
     }
 
     if (parsed.cmd === 'ascii') {
-      const { setAsciiWord, resetAscii } = require('./ascii') as typeof import('./ascii')
+      const { setAsciiWord, resetAscii, getCurrentAsciiConfig } = require('./ascii') as typeof import('./ascii')
       const word = parsed.args[0]
 
-      if (!word || word === 'reset') {
+      if (word === 'reset') {
         resetAscii()
         this.screen.forceDirty()
         this.setBanner('ASCII logo reset to flt', 'green', 2000)
+        return
+      }
+
+      // No args = toggle logo visibility
+      if (!word) {
+        const current = getCurrentAsciiConfig()
+        if (current.visible === false) {
+          setAsciiWord(current.word, current.font, true)
+          this.screen.forceDirty()
+          this.setBanner('ASCII logo shown', 'green', 2000)
+        } else {
+          setAsciiWord(current.word, current.font, false)
+          this.screen.forceDirty()
+          this.setBanner('ASCII logo hidden', 'green', 2000)
+        }
         return
       }
 
@@ -921,7 +937,11 @@ export class App {
           const paneHeight = Math.max(10, layout.logInnerHeight)
 
           if (!isInsert) {
-            resizeWindow(agent.tmuxSession, paneWidth, paneHeight)
+            const last = this.lastResizedDims[agent.tmuxSession]
+            if (!last || last.width !== paneWidth || last.height !== paneHeight) {
+              resizeWindow(agent.tmuxSession, paneWidth, paneHeight)
+              this.lastResizedDims[agent.tmuxSession] = { width: paneWidth, height: paneHeight }
+            }
           }
 
           // In auto-follow: capture only the visible pane (no scrollback).

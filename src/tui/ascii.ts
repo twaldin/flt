@@ -5,9 +5,10 @@ import figlet from 'figlet'
 export interface AsciiConfig {
   word: string
   font: string | null
+  visible: boolean
 }
 
-let currentConfig: AsciiConfig = { word: 'flt', font: null }
+let currentConfig: AsciiConfig = { word: 'flt', font: null, visible: true }
 let cachedLines: string[] = []
 let cachedRawWidth = 0
 
@@ -48,18 +49,21 @@ function loadAsciiConfig(): void {
     if (!existsSync(configPath)) return
     const config = JSON.parse(readFileSync(configPath, 'utf-8'))
     if (config.ascii && typeof config.ascii === 'object') {
-      const { word, font } = config.ascii as { word?: unknown; font?: unknown }
+      const { word, font, visible } = config.ascii as { word?: unknown; font?: unknown; visible?: unknown }
       if (typeof word === 'string' && word) {
         currentConfig.word = word
       }
       if (font === null || typeof font === 'string') {
         currentConfig.font = font as string | null
       }
+      if (typeof visible === 'boolean') {
+        currentConfig.visible = visible
+      }
     }
   } catch {}
 }
 
-export function persistAsciiConfig(word: string, font: string | null): void {
+function persistAsciiConfig(): void {
   try {
     const dir = `${process.env.HOME || homedir()}/.flt`
     mkdirSync(dir, { recursive: true })
@@ -68,15 +72,15 @@ export function persistAsciiConfig(word: string, font: string | null): void {
     if (existsSync(configPath)) {
       config = JSON.parse(readFileSync(configPath, 'utf-8'))
     }
-    config.ascii = { word, font }
+    config.ascii = { word: currentConfig.word, font: currentConfig.font, visible: currentConfig.visible }
     writeFileSync(configPath, JSON.stringify(config, null, 2) + '\n')
   } catch {}
 }
 
-export function setAsciiWord(word: string, fontPath: string | null = null): void {
-  currentConfig = { word, font: fontPath }
+export function setAsciiWord(word: string, fontPath: string | null = null, visible = true): void {
+  currentConfig = { word, font: fontPath, visible }
   rebuildCache()
-  persistAsciiConfig(word, fontPath)
+  persistAsciiConfig()
 }
 
 export function resetAscii(): void {
@@ -89,6 +93,7 @@ export function getCurrentAsciiConfig(): AsciiConfig {
 
 /** Returns logo lines, each truncated to maxWidth characters */
 export function getAsciiLogo(maxWidth: number): string[] {
+  if (!currentConfig.visible) return []
   if (cachedLines.length === 0) rebuildCache()
   if (maxWidth <= 0) return []
   return cachedLines.map(line => {

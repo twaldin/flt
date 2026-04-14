@@ -93,7 +93,7 @@ interface TreeEntry {
 }
 
 /** Build tree-ordered list with continuation lines and connectors */
-function treeOrder(agents: AgentView[]): TreeEntry[] {
+export function treeOrder(agents: AgentView[]): TreeEntry[] {
   const byName = new Map(agents.map(a => [a.name, a]))
   const result: TreeEntry[] = []
   const visited = new Set<string>()
@@ -142,7 +142,7 @@ function treeOrder(agents: AgentView[]): TreeEntry[] {
   return result
 }
 
-function renderSidebar(screen: Screen, state: AppState, top: number, left: number, width: number, height: number): void {
+function renderSidebar(screen: Screen, state: AppState, top: number, left: number, width: number, height: number, ordered: TreeEntry[]): void {
   if (width <= 0 || height <= 0) return
 
   let row = top
@@ -160,8 +160,6 @@ function renderSidebar(screen: Screen, state: AppState, top: number, left: numbe
     putLine(screen, row, left, width, 'spawn <name> -p default', t.sidebarMuted, ATTR_DIM)
     return
   }
-
-  const ordered = treeOrder(state.agents)
 
   for (const { agent, index, continuation, connector, hasChildren } of ordered) {
     if (row + 4 >= top + height) break
@@ -532,7 +530,7 @@ function renderStatusBar(screen: Screen, state: AppState, row: number, col: numb
   }
 }
 
-export function calculateLayout(cols: number, rows: number, agents?: AgentView[]): LayoutMetrics {
+export function calculateLayout(cols: number, rows: number, agents?: AgentView[], precomputedOrder?: TreeEntry[]): LayoutMetrics {
   const safeCols = Math.max(1, cols)
   const safeRows = Math.max(1, rows)
 
@@ -545,7 +543,7 @@ export function calculateLayout(cols: number, rows: number, agents?: AgentView[]
   let contentWidth = bannerMaxWidth
 
   if (agents && agents.length > 0) {
-    const ordered = treeOrder(agents)
+    const ordered = precomputedOrder ?? treeOrder(agents)
     for (const { agent, continuation, connector } of ordered) {
       const pLen = (continuation + connector).length
       const dLen = continuation.length + 4  // continuation + "    " detail indent
@@ -587,7 +585,8 @@ export function calculateLayout(cols: number, rows: number, agents?: AgentView[]
 export function renderLayout(screen: Screen, state: AppState): void {
   const cols = screen.cols
   const rows = screen.rows
-  const layout = calculateLayout(cols, rows, state.agents)
+  const ordered = treeOrder(state.agents)
+  const layout = calculateLayout(cols, rows, state.agents, ordered)
 
   screen.clear(0, 0, cols, rows)
 
@@ -595,7 +594,7 @@ export function renderLayout(screen: Screen, state: AppState): void {
 
   if (layout.contentHeight > 0) {
     screen.box(0, 0, layout.sidebarWidth, layout.contentHeight, 'round', t.sidebarBorder)
-    renderSidebar(screen, state, 1, 1, layout.sidebarInnerWidth, layout.sidebarInnerHeight)
+    renderSidebar(screen, state, 1, 1, layout.sidebarInnerWidth, layout.sidebarInnerHeight, ordered)
 
     if (layout.logHeight > 0) {
       // Log border color matches the mode indicator color
