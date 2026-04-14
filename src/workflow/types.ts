@@ -19,6 +19,7 @@ export interface WorkflowRun {
   workflow: string
   currentStep: string
   status: 'running' | 'completed' | 'failed' | 'cancelled'
+  parentName: string  // who started this workflow — notifications go here
   history: WorkflowStepResult[]
   retries: Record<string, number>
   vars: Record<string, Record<string, string>>  // per-step resolved vars: vars[stepId] = { worktree, dir, branch }

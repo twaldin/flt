@@ -49,7 +49,7 @@ export function listWorkflowRuns(): WorkflowRun[] {
   return runs
 }
 
-export async function startWorkflow(name: string): Promise<WorkflowRun> {
+export async function startWorkflow(name: string, parentName?: string): Promise<WorkflowRun> {
   const def = loadWorkflowDef(name)
 
   // Check for existing active run
@@ -58,11 +58,16 @@ export async function startWorkflow(name: string): Promise<WorkflowRun> {
     throw new Error(`Workflow "${name}" is already running (step: ${existing.currentStep}).`)
   }
 
+  // Derive parent from caller if not provided
+  const callerName = parentName ?? process.env.FLT_AGENT_NAME
+  const resolvedParent = (callerName && callerName !== 'cron') ? callerName : 'human'
+
   const run: WorkflowRun = {
     id: `${name}-${Date.now()}`,
     workflow: name,
     currentStep: def.steps[0].id,
     status: 'running',
+    parentName: resolvedParent,
     history: [],
     retries: {},
     vars: {},
@@ -121,6 +126,8 @@ export async function advanceWorkflow(workflowName: string): Promise<void> {
     run.status = 'completed'
     run.completedAt = new Date().toISOString()
     saveWorkflowRun(run)
+    // Notify parent that workflow completed
+    await notifyWorkflowParent(run, `Workflow "${run.workflow}" completed.`)
     return
   }
 
@@ -289,6 +296,29 @@ function resolveTemplate(template: string, run: WorkflowRun): string {
 
 export function workflowAgentName(workflowName: string, stepId: string): string {
   return `${workflowName}-${stepId}`
+}
+
+async function notifyWorkflowParent(run: WorkflowRun, message: string): Promise<void> {
+  try {
+    const { appendInbox } = await import('../commands/init')
+    if (run.parentName === 'human' || run.parentName === 'cron') {
+      appendInbox('WORKFLOW', message)
+    } else {
+      const parent = getAgent(run.parentName)
+      if (parent) {
+        const { sendLiteral, sendKeys, hasSession } = await import('../tmux')
+        const { resolveAdapter } = await import('../adapters/registry')
+        if (hasSession(parent.tmuxSession)) {
+          const tagged = `[WORKFLOW]: ${message}`
+          sendLiteral(parent.tmuxSession, tagged)
+          const adapter = resolveAdapter(parent.cli)
+          sendKeys(parent.tmuxSession, adapter.submitKeys)
+        }
+      } else {
+        appendInbox('WORKFLOW', message)
+      }
+    }
+  } catch {}
 }
 
 // Map agent names to workflow names for the controller poller

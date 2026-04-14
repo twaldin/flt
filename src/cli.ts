@@ -217,10 +217,11 @@ const workflowCmd = program
 workflowCmd
   .command('run <name>')
   .description('Start a workflow from ~/.flt/workflows/')
-  .action(async (name) => {
+  .option('--parent <name>', 'Who gets notified on completion')
+  .action(async (name, opts) => {
     try {
       const { workflowRun } = await import('./commands/workflow')
-      await workflowRun(name)
+      await workflowRun(name, opts.parent)
     } catch (e) {
       console.error(`Error: ${(e as Error).message}`)
       process.exit(1)
