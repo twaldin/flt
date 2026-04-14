@@ -1,6 +1,8 @@
 import type { CliAdapter, SpawnOpts, ReadyState, AgentStatus } from './types'
 import { stripAnsi } from '../utils/stripAnsi'
 
+const OAUTH_PROXY = 'http://127.0.0.1:10531/v1'
+
 export const opencodeAdapter: CliAdapter = {
   name: 'opencode',
   cliCommand: 'opencode',
@@ -11,6 +13,14 @@ export const opencodeAdapter: CliAdapter = {
     const args = ['opencode']
     if (opts.model) args.push('--model', opts.model)
     return args
+  },
+
+  env(): Record<string, string> {
+    // OpenCode reads OPENAI_API_KEY and OPENAI_BASE_URL for GPT models
+    return {
+      OPENAI_BASE_URL: OAUTH_PROXY,
+      OPENAI_API_KEY: 'unused',
+    }
   },
 
   detectReady(pane: string): ReadyState {

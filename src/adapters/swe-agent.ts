@@ -1,5 +1,24 @@
 import type { CliAdapter, SpawnOpts, ReadyState, AgentStatus } from './types'
 import { stripAnsi } from '../utils/stripAnsi'
+import { existsSync, readFileSync } from 'fs'
+import { join } from 'path'
+
+const OAUTH_PROXY = 'http://127.0.0.1:10531/v1'
+
+function loadOpenRouterKey(): string | undefined {
+  for (const path of [
+    join(process.env.HOME ?? '', '.agentelo', '.env'),
+    join(process.env.HOME ?? '', '.env'),
+  ]) {
+    try {
+      if (!existsSync(path)) continue
+      const content = readFileSync(path, 'utf-8')
+      const match = content.match(/^OPENROUTER_API_KEY=(.+)$/m)
+      if (match) return match[1].trim()
+    } catch {}
+  }
+  return process.env.OPENROUTER_API_KEY
+}
 
 export const sweAgentAdapter: CliAdapter = {
   name: 'swe-agent',
@@ -11,6 +30,16 @@ export const sweAgentAdapter: CliAdapter = {
     const args = ['mini', '-y']
     if (opts.model) args.push('--model', opts.model)
     return args
+  },
+
+  env(): Record<string, string> {
+    const env: Record<string, string> = {
+      OPENAI_BASE_URL: OAUTH_PROXY,
+      OPENAI_API_KEY: 'unused',
+    }
+    const orKey = loadOpenRouterKey()
+    if (orKey) env.OPENROUTER_API_KEY = orKey
+    return env
   },
 
   detectReady(pane: string): ReadyState {

@@ -197,6 +197,12 @@ export class Screen {
 
   flush(): void {
     let output = ''
+
+    // Set terminal default background so unfilled areas match the theme
+    if (this.defaultBg) {
+      output += `\x1b[${this.defaultBg}m`
+    }
+
     let cursorRow = -1
     let cursorCol = -1
     let lastStyle = ''

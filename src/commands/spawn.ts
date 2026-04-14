@@ -151,7 +151,9 @@ export async function spawnDirect(args: SpawnArgs): Promise<void> {
   const sessionName = `flt-${name}`
 
   // Create tmux session with env vars
+  const adapterEnv = adapter.env?.() ?? {}
   tmux.createSession(sessionName, workDir, command, {
+    ...adapterEnv,
     FLT_AGENT_NAME: name,
     FLT_PARENT_SESSION: parentSession,
     FLT_PARENT_NAME: parentName,

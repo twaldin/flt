@@ -1,5 +1,22 @@
 import type { CliAdapter, SpawnOpts, ReadyState, AgentStatus } from './types'
 import { stripAnsi } from '../utils/stripAnsi'
+import { existsSync, readFileSync } from 'fs'
+import { join } from 'path'
+
+function loadGeminiKey(): string | undefined {
+  for (const path of [
+    join(process.env.HOME ?? '', '.env'),
+    join(process.env.HOME ?? '', '.config', 'gemini', '.env'),
+  ]) {
+    try {
+      if (!existsSync(path)) continue
+      const content = readFileSync(path, 'utf-8')
+      const match = content.match(/^GEMINI_API_KEY=(.+)$/m)
+      if (match) return match[1].trim()
+    } catch {}
+  }
+  return process.env.GEMINI_API_KEY
+}
 
 export const geminiAdapter: CliAdapter = {
   name: 'gemini',
@@ -8,10 +25,16 @@ export const geminiAdapter: CliAdapter = {
   submitKeys: ['Enter'],
 
   spawnArgs(opts: SpawnOpts): string[] {
-    // Let PATH resolve `node`/`gemini` at runtime.
     const args = ['gemini']
     if (opts.model) args.push('--model', opts.model)
     return args
+  },
+
+  env(): Record<string, string> {
+    const env: Record<string, string> = {}
+    const key = loadGeminiKey()
+    if (key) env.GEMINI_API_KEY = key
+    return env
   },
 
   detectReady(pane: string): ReadyState {

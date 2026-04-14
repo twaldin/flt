@@ -24,4 +24,6 @@ export interface CliAdapter {
   handleDialog(pane: string): string[] | null
   /** Detect agent activity status from pane content */
   detectStatus(pane: string): AgentStatus
+  /** Extra env vars needed by this CLI (API keys, base URLs, etc.) */
+  env?(): Record<string, string>
 }

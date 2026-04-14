@@ -1,5 +1,29 @@
 import type { CliAdapter, SpawnOpts, ReadyState, AgentStatus } from './types'
 import { stripAnsi } from '../utils/stripAnsi'
+import { existsSync, readFileSync } from 'fs'
+import { join } from 'path'
+
+const OAUTH_PROXY = 'http://127.0.0.1:10531/v1'
+
+function isGptModel(model: string): boolean {
+  return /^(gpt-|o[0-9])/i.test(model)
+}
+
+function loadOpenRouterKey(): string | undefined {
+  // Check common locations for OpenRouter API key
+  for (const path of [
+    join(process.env.HOME ?? '', '.agentelo', '.env'),
+    join(process.env.HOME ?? '', '.env'),
+  ]) {
+    try {
+      if (!existsSync(path)) continue
+      const content = readFileSync(path, 'utf-8')
+      const match = content.match(/^OPENROUTER_API_KEY=(.+)$/m)
+      if (match) return match[1].trim()
+    } catch {}
+  }
+  return process.env.OPENROUTER_API_KEY
+}
 
 export const aiderAdapter: CliAdapter = {
   name: 'aider',
@@ -9,8 +33,26 @@ export const aiderAdapter: CliAdapter = {
 
   spawnArgs(opts: SpawnOpts): string[] {
     const args = ['aider', '--yes', '--read', '.flt-instructions.md']
-    if (opts.model) args.push('--model', opts.model)
+    if (opts.model) {
+      args.push('--model', opts.model)
+      // GPT models: use OAuth proxy for free access
+      if (isGptModel(opts.model)) {
+        args.push('--openai-api-base', OAUTH_PROXY, '--openai-api-key', 'unused')
+      }
+      // OpenRouter models: use openrouter/ prefix natively
+      if (opts.model.startsWith('openrouter/')) {
+        const orKey = loadOpenRouterKey()
+        if (orKey) args.push('--api-key', `openrouter=${orKey}`)
+      }
+    }
     return args
+  },
+
+  env(): Record<string, string> {
+    const env: Record<string, string> = {}
+    const orKey = loadOpenRouterKey()
+    if (orKey) env.OPENROUTER_API_KEY = orKey
+    return env
   },
 
   detectReady(pane: string): ReadyState {
