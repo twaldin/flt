@@ -28,14 +28,15 @@ function detectAgentStatusFromPane(agent: AgentState, pane: string): AgentStatus
 
     const stripped = pane.replace(/\x1b\[[0-9;?]*[A-Za-z]/g, '').replace(/\x1b\][^\x07]*\x07/g, '')
 
-    // Claude-code: spinner icon delta detection
+    // Claude-code: pure spinner icon delta detection
+    // The spinner cycles through · ✢ ✳ ∗ ✻ ✽ when active (~1s per icon).
+    // When done, it freezes on ✻. Compare between polls:
+    //   icon changed → running
+    //   icon same    → idle
+    //   no icon      → idle
     if (adapter.name === 'claude-code') {
-      const lines = stripped.split('\n')
-      const last2 = lines.slice(-2).join('\n')
+      const last2 = stripped.split('\n').slice(-2).join('\n')
       if (/rate.?limit|hit your limit/i.test(last2)) return 'rate-limited'
-
-      // Active thinking indicators — definitive running signals
-      if (/thinking|streaming|Slithering|Brewing|Cooking|Baking/i.test(stripped)) return 'running'
 
       const icon = extractSpinnerIcon(stripped)
       const key = agent.tmuxSession
@@ -44,12 +45,8 @@ function detectAgentStatusFromPane(agent: AgentState, pane: string): AgentStatus
         const prev = lastIcons[key]
         lastIcons[key] = icon
         if (prev && prev !== icon) return 'running'
-        if (prev && prev === icon) return 'idle'
-        // Only check for "Brewed/Cooked for Xm Ys" on the SAME line as the icon
-        // to avoid false idle from old done lines still in the pane
-        const iconLine = lines.find(l => l.startsWith(icon))
-        if (iconLine && /for\s+\d+[ms]/i.test(iconLine)) return 'idle'
-        return 'running'
+        if (prev) return 'idle'
+        return 'running' // first time seeing icon — assume running, next poll confirms
       }
 
       delete lastIcons[key]
