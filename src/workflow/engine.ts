@@ -1,4 +1,4 @@
-import { readFileSync, writeFileSync, mkdirSync, existsSync, readdirSync } from 'fs'
+import { readFileSync, writeFileSync, mkdirSync, existsSync, readdirSync, renameSync } from 'fs'
 import { join } from 'path'
 import { execSync } from 'child_process'
 import { loadWorkflowDef } from './parser'
@@ -26,7 +26,10 @@ export function loadWorkflowRun(workflowName: string): WorkflowRun | null {
 export function saveWorkflowRun(run: WorkflowRun): void {
   const dir = getWorkflowRunDir(run.workflow)
   mkdirSync(dir, { recursive: true })
-  writeFileSync(getRunPath(run.workflow), JSON.stringify(run, null, 2) + '\n')
+  const path = getRunPath(run.workflow)
+  const tmp = path + '.tmp'
+  writeFileSync(tmp, JSON.stringify(run, null, 2) + '\n')
+  renameSync(tmp, path)
 }
 
 export function listWorkflowRuns(): WorkflowRun[] {
@@ -143,7 +146,7 @@ export async function handleStepFailure(workflowName: string): Promise<void> {
   const currentStepDef = def.steps.find(s => s.id === run.currentStep)
   if (!currentStepDef) return
 
-  const maxRetries = currentStepDef.max_retries ?? 1
+  const maxRetries = currentStepDef.max_retries ?? 0
   const retryCount = run.retries[currentStepDef.id] ?? 0
 
   if (retryCount < maxRetries) {
@@ -207,11 +210,25 @@ export async function cancelWorkflow(workflowName: string): Promise<void> {
   saveWorkflowRun(run)
 }
 
+function shellEscapeArg(value: string): string {
+  return `'${value.replace(/'/g, "'\\''")}'`
+}
+
+function resolveTemplateShell(template: string, run: WorkflowRun): string {
+  return template.replace(/\{steps\.([^.]+)\.(\w+)\}/g, (match, stepId, field) => {
+    const stepVars = run.vars[stepId]
+    if (!stepVars) return match
+    const value = stepVars[field]
+    if (value === undefined) return match
+    return shellEscapeArg(value)
+  })
+}
+
 async function executeStep(def: WorkflowDef, run: WorkflowRun, step: WorkflowStepDef): Promise<void> {
   if (step.run) {
     // Shell command step — execute and advance immediately
     try {
-      execSync(resolveTemplate(step.run, run), { stdio: 'inherit', timeout: 30_000 })
+      execSync(resolveTemplateShell(step.run, run), { stdio: 'inherit', timeout: 30_000 })
       run.history.push({ step: step.id, result: 'completed', at: new Date().toISOString() })
 
       const nextId = step.on_complete

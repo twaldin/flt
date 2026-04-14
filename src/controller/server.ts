@@ -105,7 +105,7 @@ async function handleAction(req: ControllerRequest): Promise<ControllerResponse>
     case 'kill': {
       const { killDirect } = await import('../commands/kill')
       try {
-        killDirect(req.args as Parameters<typeof killDirect>[0])
+        killDirect(req.args)
         return { ok: true, data: `Killed ${req.args.name}` }
       } catch (e) {
         return { ok: false, error: (e as Error).message }

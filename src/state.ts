@@ -1,4 +1,4 @@
-import { readFileSync, writeFileSync, mkdirSync, renameSync } from 'fs'
+import { readFileSync, writeFileSync, mkdirSync, renameSync, openSync, closeSync, unlinkSync } from 'fs'
 import { join } from 'path'
 import type { AgentStatus } from './adapters/types'
 
@@ -42,6 +42,27 @@ export function getStateDir(): string {
   return join(home(), '.flt')
 }
 
+function withStateLock<T>(fn: () => T): T {
+  mkdirSync(getStateDir(), { recursive: true })
+  const lockPath = getStatePath() + '.lock'
+  const deadline = Date.now() + 5000
+  while (Date.now() < deadline) {
+    try {
+      const fd = openSync(lockPath, 'wx')
+      closeSync(fd)
+      try {
+        return fn()
+      } finally {
+        try { unlinkSync(lockPath) } catch {}
+      }
+    } catch (e: unknown) {
+      if ((e as NodeJS.ErrnoException).code !== 'EEXIST') throw e
+      Bun.sleepSync(10)
+    }
+  }
+  throw new Error('State lock timeout after 5s')
+}
+
 function defaultState(): FleetState {
   return {
     agents: {},
@@ -71,15 +92,19 @@ export function getAgent(name: string): AgentState | undefined {
 }
 
 export function setAgent(name: string, agent: AgentState): void {
-  const state = loadState()
-  state.agents[name] = agent
-  saveState(state)
+  withStateLock(() => {
+    const state = loadState()
+    state.agents[name] = agent
+    saveState(state)
+  })
 }
 
 export function removeAgent(name: string): void {
-  const state = loadState()
-  delete state.agents[name]
-  saveState(state)
+  withStateLock(() => {
+    const state = loadState()
+    delete state.agents[name]
+    saveState(state)
+  })
 }
 
 export function hasAgent(name: string): boolean {
@@ -87,9 +112,11 @@ export function hasAgent(name: string): boolean {
 }
 
 export function setOrchestrator(orch: OrchestratorState): void {
-  const state = loadState()
-  state.orchestrator = orch
-  saveState(state)
+  withStateLock(() => {
+    const state = loadState()
+    state.orchestrator = orch
+    saveState(state)
+  })
 }
 
 export function getOrchestrator(): OrchestratorState | undefined {

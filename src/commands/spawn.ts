@@ -31,7 +31,7 @@ export async function spawn(args: SpawnArgs): Promise<void> {
         ...args,
         _callerName: process.env.FLT_AGENT_NAME,
         _callerDepth: parseInt(process.env.FLT_DEPTH ?? '0', 10),
-      } as unknown as Record<string, unknown>,
+      },
     })
     if (!result.ok) throw new Error(result.error ?? 'Spawn failed')
     if (!process.env.FLT_TUI_ACTIVE) console.log(result.data)

@@ -22,7 +22,7 @@ export async function send(args: SendArgs): Promise<void> {
     const caller = detectCaller()
     const result = await sendToController({
       action: 'send',
-      args: { ...args, _caller: caller } as unknown as Record<string, unknown>,
+      args: { ...args, _caller: caller },
     })
     if (!result.ok) throw new Error(result.error ?? 'Send failed')
     return

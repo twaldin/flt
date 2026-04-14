@@ -4,7 +4,7 @@ import { restoreInstructions } from '../instructions'
 import { cleanupSkills } from '../skills'
 import { resolveAdapter } from '../adapters/registry'
 import * as tmux from '../tmux'
-import { execSync } from 'child_process'
+import { execSync, execFileSync } from 'child_process'
 
 interface KillArgs {
   name: string
@@ -15,7 +15,7 @@ export async function kill(args: KillArgs): Promise<void> {
     const { ensureController } = await import('./controller')
     const { sendToController } = await import('../controller/client')
     await ensureController()
-    const result = await sendToController({ action: 'kill', args: args as unknown as Record<string, unknown> })
+    const result = await sendToController({ action: 'kill', args: { name: args.name } })
     if (!result.ok) throw new Error(result.error ?? 'Kill failed')
     if (!process.env.FLT_TUI_ACTIVE) console.log(result.data)
     return
@@ -103,7 +103,7 @@ function killProcessTree(pid: number): void {
 
 function getChildPids(pid: number): number[] {
   try {
-    const out = execSync(`pgrep -P ${pid}`, { encoding: 'utf-8', timeout: 3000 })
+    const out = execFileSync('pgrep', ['-P', String(pid)], { encoding: 'utf-8', timeout: 3000 })
     const pids = out.trim().split('\n').map(Number).filter(n => !isNaN(n))
     const grandchildren = pids.flatMap(p => getChildPids(p))
     return [...pids, ...grandchildren]

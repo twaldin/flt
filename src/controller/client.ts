@@ -2,10 +2,18 @@ import { existsSync } from 'fs'
 import { join } from 'path'
 import { getStateDir } from '../state'
 
-export interface ControllerRequest {
-  action: 'spawn' | 'kill' | 'send' | 'list' | 'status' | 'ping'
-  args: Record<string, unknown>
+export type SpawnRequestArgs = {
+  name: string; cli?: string; model?: string; preset?: string; dir?: string
+  worktree?: boolean; bootstrap?: string; _callerName?: string; _callerDepth?: number
 }
+export type KillRequestArgs = { name: string }
+export type SendRequestArgs = { target: string; message: string; _caller?: unknown }
+
+export type ControllerRequest =
+  | { action: 'spawn'; args: SpawnRequestArgs }
+  | { action: 'kill'; args: KillRequestArgs }
+  | { action: 'send'; args: SendRequestArgs }
+  | { action: 'list' | 'status' | 'ping'; args?: Record<string, never> }
 
 export interface ControllerResponse {
   ok: boolean
@@ -37,11 +45,18 @@ export function isControllerRunning(): boolean {
 
 export async function sendToController(req: ControllerRequest): Promise<ControllerResponse> {
   const sock = getSocketPath()
-  const res = await fetch('http://localhost/rpc', {
-    unix: sock,
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(req),
-  } as RequestInit)
-  return res.json() as Promise<ControllerResponse>
+  const controller = new AbortController()
+  const timer = setTimeout(() => controller.abort(), 120_000)
+  try {
+    const res = await fetch('http://localhost/rpc', {
+      unix: sock,
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(req),
+      signal: controller.signal,
+    } as RequestInit)
+    return res.json() as Promise<ControllerResponse>
+  } finally {
+    clearTimeout(timer)
+  }
 }

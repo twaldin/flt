@@ -1,4 +1,5 @@
 import { existsSync, readFileSync, unlinkSync } from 'fs'
+import { join } from 'path'
 import { isControllerRunning, getSocketPath, getPidPath, sendToController } from '../controller/client'
 import * as tmux from '../tmux'
 
@@ -26,8 +27,8 @@ export async function startController(): Promise<void> {
     tmux.killSession(CONTROLLER_SESSION)
   }
 
-  // Find the flt repo root for the server script
-  const serverScript = `${process.env.HOME}/flt/src/controller/server.ts`
+  // Find the server script relative to this file's location
+  const serverScript = join(import.meta.dir, '../controller/server.ts')
   const command = `bun ${serverScript}`
 
   tmux.createSession(CONTROLLER_SESSION, process.cwd(), command, {

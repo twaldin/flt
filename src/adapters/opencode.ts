@@ -1,8 +1,5 @@
 import type { CliAdapter, SpawnOpts, ReadyState, AgentStatus } from './types'
-
-function stripAnsi(s: string): string {
-  return s.replace(/\x1b\[[0-9;?]*[A-Za-z]/g, '').replace(/\x1b\][^\x07]*\x07/g, '')
-}
+import { stripAnsi } from '../utils/stripAnsi'
 
 export const opencodeAdapter: CliAdapter = {
   name: 'opencode',

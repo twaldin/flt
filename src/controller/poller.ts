@@ -50,17 +50,16 @@ function detectAgentStatusFromPane(name: string, agent: AgentState, pane: string
       if (/rate.?limit|hit your limit/i.test(last2)) return 'rate-limited'
 
       const icon = extractSpinnerIcon(stripped)
-      const key = agent.tmuxSession
 
       if (icon) {
-        const prev = lastIcons[key]
-        lastIcons[key] = icon
+        const prev = lastIcons[name]
+        lastIcons[name] = icon
         if (prev && prev !== icon) return 'running'
         if (prev) return 'idle'
         return 'running' // first time seeing icon — assume running, next poll confirms
       }
 
-      delete lastIcons[key]
+      delete lastIcons[name]
       return 'idle'
     }
 
@@ -69,10 +68,9 @@ function detectAgentStatusFromPane(name: string, agent: AgentState, pane: string
     if (adapterResult !== 'unknown') return adapterResult
 
     // Fallback: content-delta
-    const key = agent.tmuxSession
     const hash = simpleHash(pane)
-    const prevHash = lastHashes[key]
-    lastHashes[key] = hash
+    const prevHash = lastHashes[name]
+    lastHashes[name] = hash
 
     // If user is typing into this agent, ignore content changes
     const typingAgent = getTypingAgent()
@@ -136,6 +134,7 @@ export function pollOnce(): void {
 }
 
 export function startPolling(intervalMs = 1000): void {
+  if (pollInterval) return
   pollOnce()
   pollInterval = setInterval(pollOnce, intervalMs)
 }
@@ -148,8 +147,7 @@ export function stopPolling(): void {
 }
 
 export function cleanupAgent(name: string): void {
-  const key = `flt-${name}`
-  delete lastIcons[key]
-  delete lastHashes[key]
+  delete lastIcons[name]
+  delete lastHashes[name]
   delete stableTracker[name]
 }

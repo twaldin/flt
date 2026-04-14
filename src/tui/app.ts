@@ -288,15 +288,17 @@ export class App {
     if (!agentName) return
     this.state.mode = 'normal'
     this.state.killConfirmAgent = undefined
-    try {
-      kill({ name: agentName })
-      this.setBanner(`Killed ${agentName}`, 'green', 3000)
-    } catch (e: unknown) {
-      const msg = e instanceof Error ? e.message : String(e)
-      this.setBanner(`Kill failed: ${msg}`, 'red', 5000)
-    }
-    this.poll()
-    this.render()
+    kill({ name: agentName })
+      .then(() => {
+        this.setBanner(`Killed ${agentName}`, 'green', 3000)
+        this.poll()
+        this.render()
+      })
+      .catch((e: unknown) => {
+        const msg = e instanceof Error ? e.message : String(e)
+        this.setBanner(`Kill failed: ${msg}`, 'red', 5000)
+        this.render()
+      })
   }
 
   private cancelKill(): void {
@@ -576,7 +578,7 @@ export class App {
     if (parsed.cmd === 'kill' && parsed.args.length >= 1) {
       const name = parsed.args[0]
       try {
-        kill({ name })
+        await kill({ name })
         this.setBanner(`Killed ${name}`, 'green', 3000)
         this.poll()
       } catch (error) {
