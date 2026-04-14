@@ -15,13 +15,12 @@ function getRunPath(runId: string): string {
 }
 
 function generateRunId(workflowName: string): string {
-  const runs = listWorkflowRuns().filter(r => r.workflow === workflowName && r.status === 'running')
-  if (runs.length === 0) return workflowName
-  // Find next available number
-  let n = 2
-  const existingIds = new Set(runs.map(r => r.id))
-  while (existingIds.has(`${workflowName}-${n}`)) n++
-  return `${workflowName}-${n}`
+  const allRuns = listWorkflowRuns().filter(r => r.workflow === workflowName)
+  const existingIds = new Set(allRuns.map(r => r.id))
+  // Always increment — never reuse a run ID (protects worktree branches)
+  let n = 1
+  while (existingIds.has(n === 1 ? workflowName : `${workflowName}-${n}`)) n++
+  return n === 1 ? workflowName : `${workflowName}-${n}`
 }
 
 export function loadWorkflowRun(runId: string): WorkflowRun | null {
@@ -357,6 +356,8 @@ async function executeStep(def: WorkflowDef, run: WorkflowRun, step: WorkflowSte
     worktree: step.worktree !== false,
     parent: run.parentName,
     bootstrap: task,
+    workflow: run.workflow,
+    workflowStep: step.id,
   })
 
   // Capture agent vars immediately after spawn

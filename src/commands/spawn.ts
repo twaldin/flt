@@ -18,6 +18,8 @@ interface SpawnArgs {
   bootstrap?: string
   parent?: string
   persistent?: boolean
+  workflow?: string
+  workflowStep?: string
   _callerName?: string
   _callerDepth?: number
 }
@@ -57,6 +59,7 @@ export async function spawnDirect(args: SpawnArgs): Promise<void> {
   let cli = explicitCli
   let resolvedModel = model
 
+  let presetSoul: string | undefined
   if (preset) {
     const presetConfig = getPreset(preset)
     if (!presetConfig) {
@@ -64,6 +67,7 @@ export async function spawnDirect(args: SpawnArgs): Promise<void> {
     }
     cli = cli ?? presetConfig.cli
     resolvedModel = resolvedModel ?? presetConfig.model
+    presetSoul = presetConfig.soul
   }
 
   if (!cli) {
@@ -129,6 +133,9 @@ export async function spawnDirect(args: SpawnArgs): Promise<void> {
       parentName,
       cli: adapter.name,
       model: resolvedModel ?? 'default',
+      workflow: args.workflow,
+      step: args.workflowStep,
+      presetSoul,
     })
   }
 

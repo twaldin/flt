@@ -12,6 +12,7 @@ import { capturePane, capturePaneVisible, flushBatchedKeys, hasSession, resizeWi
 import { getInboxPath } from '../commands/init'
 import { parseCommand, enrichMessageWithFiles } from './command-parser'
 import { setupInput, type InputBindings, type TmuxInsertKey } from './input'
+import { getKeybindsBanner } from './keybinds'
 import { calculateLayout, renderLayout } from './panels'
 import { Screen } from './screen'
 import { getCurrentThemeName, getThemeBackground, getThemeNames, setTheme } from './theme'
@@ -850,7 +851,12 @@ export class App {
     }
 
     if (parsed.cmd === 'help') {
-      this.setBanner('Commands: send, logs, spawn, presets, kill, theme, ascii, help', 'cyan', 4000)
+      this.setBanner('Commands: send, logs, spawn, presets, kill, theme, ascii, keybinds, help', 'cyan', 4000)
+      return
+    }
+
+    if (parsed.cmd === 'keybinds') {
+      this.setBanner(getKeybindsBanner(this.state.mode), 'cyan', 5000)
       return
     }
 

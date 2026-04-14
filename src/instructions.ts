@@ -2,6 +2,7 @@ import { readFileSync, writeFileSync, existsSync, copyFileSync, unlinkSync, mkdi
 import { join, dirname } from 'path'
 
 const TEMPLATE_PATH = join(import.meta.dir, '..', 'templates', 'system-block.md')
+const WORKFLOW_TEMPLATE_PATH = join(import.meta.dir, '..', 'templates', 'workflow-block.md')
 const FLT_MARKER_START = '<!-- flt:start -->'
 const FLT_MARKER_END = '<!-- flt:end -->'
 
@@ -14,21 +15,37 @@ interface InstructionOpts {
   parentName: string
   cli: string
   model: string
+  workflow?: string
+  step?: string
+  presetSoul?: string
 }
 
 export function buildSystemBlock(opts: InstructionOpts): string {
-  let template = readFileSync(TEMPLATE_PATH, 'utf-8')
+  const templatePath = opts.workflow ? WORKFLOW_TEMPLATE_PATH : TEMPLATE_PATH
+  let template = readFileSync(templatePath, 'utf-8')
   template = template.replace(/\{\{name\}\}/g, opts.agentName)
   template = template.replace(/\{\{parentName\}\}/g, opts.parentName)
   template = template.replace(/\{\{cli\}\}/g, opts.cli)
   template = template.replace(/\{\{model\}\}/g, opts.model || 'default')
+  template = template.replace(/\{\{workflow\}\}/g, opts.workflow || '')
+  template = template.replace(/\{\{step\}\}/g, opts.step || '')
   return template
 }
 
-export function loadSoulMd(agentName: string): string | null {
+export function loadSoulMd(agentName: string, presetSoul?: string): string | null {
+  // 1. Check agent-specific SOUL.md
   const soulPath = join(home(), '.flt', 'agents', agentName, 'SOUL.md')
-  if (!existsSync(soulPath)) return null
-  return readFileSync(soulPath, 'utf-8')
+  if (existsSync(soulPath)) return readFileSync(soulPath, 'utf-8')
+
+  // 2. Fall back to preset soul path
+  if (presetSoul) {
+    const resolved = presetSoul.startsWith('/')
+      ? presetSoul
+      : join(home(), '.flt', presetSoul)
+    if (existsSync(resolved)) return readFileSync(resolved, 'utf-8')
+  }
+
+  return null
 }
 
 export function buildFullInstructions(opts: InstructionOpts): string {
@@ -37,7 +54,7 @@ export function buildFullInstructions(opts: InstructionOpts): string {
     buildSystemBlock(opts),
   ]
 
-  const soul = loadSoulMd(opts.agentName)
+  const soul = loadSoulMd(opts.agentName, opts.presetSoul)
   if (soul) {
     parts.push('')
     parts.push(soul)

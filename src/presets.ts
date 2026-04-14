@@ -6,6 +6,7 @@ export interface Preset {
   cli: string
   model: string
   description?: string
+  soul?: string  // path to SOUL.md (relative to ~/.flt/ or absolute)
 }
 
 export interface NamedPreset extends Preset {
@@ -57,11 +58,15 @@ function validatePresetValue(name: string, value: unknown): Preset {
   if (preset.description !== undefined && typeof preset.description !== 'string') {
     throw new Error(`Invalid preset "${name}": "description" must be a string.`)
   }
+  if (preset.soul !== undefined && typeof preset.soul !== 'string') {
+    throw new Error(`Invalid preset "${name}": "soul" must be a string path.`)
+  }
 
   return {
     cli: preset.cli,
     model: preset.model,
     description: normalizeDescription(preset.description as string | undefined),
+    soul: typeof preset.soul === 'string' ? preset.soul.trim() || undefined : undefined,
   }
 }
 

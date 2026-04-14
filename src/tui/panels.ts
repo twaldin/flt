@@ -1,19 +1,9 @@
 import { getCompletionHint } from './input'
+import { getKillConfirmPrompt, getModeHint } from './keybinds'
 import { ATTR_BOLD, ATTR_DIM, type Screen } from './screen'
 import { COLORS, fg, getTheme, modeColor, statusColor, statusSymbol } from './theme'
-import type { AgentView, AppState, Mode } from './types'
+import type { AgentView, AppState } from './types'
 import { getAsciiLogo, getAsciiLogoWidth } from './ascii'
-
-const MODE_HINTS: Record<Mode, string> = {
-  normal: 'j/k select | Enter focus | r reply | m inbox | t shell | K kill | : cmd | q quit',
-  'log-focus': 'j/k scroll | i insert | Ctrl-d/u page | G/g bottom/top | Esc back',
-  insert: 'typing to agent | Ctrl-c interrupt | Esc exit',
-  command: 'Enter execute | Tab complete | Esc cancel',
-  inbox: 'j/k select | r reply | d delete | D clear all | Esc close',
-  presets: ': cmd | Esc close',
-  'kill-confirm': 'y confirm | n cancel | Esc cancel',
-  shell: 'typing in shell | Esc close',
-}
 
 export interface LayoutMetrics {
   sidebarWidth: number
@@ -147,8 +137,6 @@ function renderSidebar(screen: Screen, state: AppState, top: number, left: numbe
 
   let row = top
   const t = getTheme()
-  putLine(screen, row, left, width, `Agents (${state.agents.length})`, t.sidebarTitle, ATTR_BOLD)
-  row += 2  // blank line after header
 
   if (state.agents.length === 0) {
     putLine(screen, row, left, width, 'No agents running.', t.sidebarMuted, ATTR_DIM)
@@ -163,7 +151,7 @@ function renderSidebar(screen: Screen, state: AppState, top: number, left: numbe
 
   // Compute how many entries fit while reserving space for the ASCII logo
   const logo = getAsciiLogo(width)
-  const entryRows = height - 2 - logo.length  // -2 for header+blank, reserve logo space
+  const entryRows = height - logo.length  // reserve logo space
   const visibleCount = Math.max(1, Math.floor(entryRows / 5))
   const scrollOffset = clamp(state.sidebarScrollOffset, 0, Math.max(0, ordered.length - visibleCount))
   const visibleEntries = ordered.slice(scrollOffset, scrollOffset + visibleCount)
@@ -465,7 +453,7 @@ function renderCommandBar(screen: Screen, state: AppState, row: number, col: num
 
   const t = getTheme()
   if (state.mode === 'kill-confirm') {
-    const prompt = `Kill ${state.killConfirmAgent}? [y/n]`
+    const prompt = getKillConfirmPrompt(state.killConfirmAgent)
     screen.put(row, col, prompt, t.statusMode['kill-confirm'], '', ATTR_BOLD)
     return
   }
@@ -522,9 +510,10 @@ function renderStatusBar(screen: Screen, state: AppState, row: number, col: numb
   screen.put(row, col, label, modeColor(state.mode), '', ATTR_BOLD)
 
   const selected = state.agents[state.selectedIndex]
+  const modeHint = getModeHint(state.mode)
   const summary = selected
-    ? `${MODE_HINTS[state.mode]} | ${selected.name} (${state.agents.length})`
-    : MODE_HINTS[state.mode]
+    ? `${modeHint} | ${selected.name} (${state.agents.length})`
+    : modeHint
 
   const baseCol = col + widthOf(label) + 1
   const summaryWidth = Math.max(0, width - (baseCol - col))
