@@ -36,7 +36,7 @@ export function parseCommand(line: string): ParsedCommand | null {
  * Validate a command is recognized
  */
 export function isValidCommand(cmd: string): boolean {
-  const valid = ['send', 'logs', 'spawn', 'presets', 'kill', 'theme', 'ascii', 'help', '!']
+  const valid = ['send', 'logs', 'spawn', 'presets', 'kill', 'theme', 'ascii', 'keybinds', 'help', '!']
   return valid.includes(cmd)
 }
 

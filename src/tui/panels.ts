@@ -1,19 +1,9 @@
 import { getCompletionHint } from './input'
+import { getModeHint } from './keybinds'
 import { ATTR_BOLD, ATTR_DIM, type Screen } from './screen'
 import { COLORS, fg, getTheme, modeColor, statusColor, statusSymbol } from './theme'
-import type { AgentView, AppState, Mode } from './types'
+import type { AgentView, AppState } from './types'
 import { getAsciiLogo, getAsciiLogoWidth } from './ascii'
-
-const MODE_HINTS: Record<Mode, string> = {
-  normal: 'j/k select | Enter focus | r reply | m inbox | t shell | K kill | : cmd | q quit',
-  'log-focus': 'j/k scroll | i insert | Ctrl-d/u page | G/g bottom/top | Esc back',
-  insert: 'typing to agent | Ctrl-c interrupt | Esc exit',
-  command: 'Enter execute | Tab complete | Esc cancel',
-  inbox: 'j/k select | r reply | d delete | D clear all | Esc close',
-  presets: ': cmd | Esc close',
-  'kill-confirm': 'y confirm | n cancel | Esc cancel',
-  shell: 'typing in shell | Esc close',
-}
 
 export interface LayoutMetrics {
   sidebarWidth: number
@@ -522,9 +512,10 @@ function renderStatusBar(screen: Screen, state: AppState, row: number, col: numb
   screen.put(row, col, label, modeColor(state.mode), '', ATTR_BOLD)
 
   const selected = state.agents[state.selectedIndex]
+  const modeHint = getModeHint(state.mode)
   const summary = selected
-    ? `${MODE_HINTS[state.mode]} | ${selected.name} (${state.agents.length})`
-    : MODE_HINTS[state.mode]
+    ? `${modeHint} | ${selected.name} (${state.agents.length})`
+    : modeHint
 
   const baseCol = col + widthOf(label) + 1
   const summaryWidth = Math.max(0, width - (baseCol - col))

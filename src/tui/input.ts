@@ -1,4 +1,5 @@
 import { StringDecoder } from 'string_decoder'
+import { getKeybindAction, type ConfigurableMode, type KeybindAction } from './keybinds'
 import type { AgentView, AppState, InboxMessage, Mode } from './types'
 
 export type TmuxInsertKey = 'Enter' | 'BSpace' | 'Tab' | 'Up' | 'Down' | 'Left' | 'Right' | 'C-c' | 'M-BSpace' | 'C-u' | 'M-d'
@@ -46,7 +47,7 @@ export interface InputBindings {
   onResize?: () => void
 }
 
-const COMMANDS = ['send', 'logs', 'spawn', 'presets', 'kill', 'theme', 'ascii', 'help']
+const COMMANDS = ['send', 'logs', 'spawn', 'presets', 'kill', 'theme', 'ascii', 'keybinds', 'help']
 const SPAWN_FLAGS = ['--cli', '--model', '--dir', '--preset', '--persistent']
 const PRESETS_ACTIONS = ['list', 'add', 'remove']
 const PRESETS_ADD_FLAGS = ['--cli', '--model', '--description']
@@ -535,53 +536,78 @@ function tabCompleteCommand(bindings: InputBindings): void {
   }
 }
 
-function handleNormalChar(char: string, bindings: InputBindings): void {
+function executeKeybindAction(mode: ConfigurableMode, action: KeybindAction, bindings: InputBindings): void {
   const state = bindings.getState()
 
-  if (char === 'j') bindings.selectNext()
-  else if (char === 'k') bindings.selectPrev()
-  else if (char === ':') bindings.openCommand('')
-  else if (char === 's') bindings.openCommand('spawn ')
-  else if (char === 'K' && state.selectedAgent) bindings.setKillConfirm(state.selectedAgent.name)
-  else if (char === 'm') bindings.setMode('inbox')
-  else if (char === 'r' && state.selectedAgent) bindings.openCommand(`send ${state.selectedAgent.name} `)
-  else if (char === 't') bindings.openShell()
-  else if (char === 'q') bindings.quit()
+  if (action === 'selectNext') bindings.selectNext()
+  else if (action === 'selectPrev') bindings.selectPrev()
+  else if (action === 'openCommand') bindings.openCommand('')
+  else if (action === 'openSpawn') bindings.openCommand('spawn ')
+  else if (action === 'killConfirm' && state.selectedAgent) bindings.setKillConfirm(state.selectedAgent.name)
+  else if (action === 'openInbox') bindings.setMode('inbox')
+  else if (action === 'reply') {
+    if (mode === 'inbox') {
+      bindings.inboxReply()
+    } else if (state.selectedAgent) {
+      bindings.openCommand(`send ${state.selectedAgent.name} `)
+    }
+  } else if (action === 'openShell') bindings.openShell()
+  else if (action === 'quit') bindings.quit()
+  else if (action === 'focusLog') bindings.setMode('log-focus')
+  else if (action === 'toggleCollapse') bindings.toggleCollapse()
+  else if (action === 'enterInsert' && state.selectedAgent) {
+    bindings.jumpLogBottom()
+    bindings.setMode('insert')
+  } else if (action === 'scrollDown') bindings.scrollLogDown()
+  else if (action === 'scrollUp') bindings.scrollLogUp()
+  else if (action === 'jumpBottom') bindings.jumpLogBottom()
+  else if (action === 'jumpTop') bindings.jumpLogTop()
+  else if (action === 'search') bindings.setSearchQuery('')
+  else if (action === 'back') bindings.setMode('normal')
+  else if (action === 'pageDown') bindings.scrollLogPageDown()
+  else if (action === 'pageUp') bindings.scrollLogPageUp()
+  else if (action === 'msgDown') bindings.inboxMsgDown()
+  else if (action === 'msgUp') bindings.inboxMsgUp()
+  else if (action === 'delete') bindings.inboxDeleteCard()
+  else if (action === 'clearAll') bindings.inboxClearAll()
+  else if (action === 'execute') {
+    const command = state.commandInput
+    bindings.setCommand('', 0)
+    bindings.submitCommand(command)
+  } else if (action === 'complete') tabCompleteCommand(bindings)
+  else if (action === 'cancel') {
+    if (mode === 'kill-confirm') {
+      bindings.cancelKill()
+    } else if (mode === 'command') {
+      bindings.setCommand('', 0)
+      bindings.setMode('normal')
+    } else {
+      bindings.setMode('normal')
+    }
+  } else if (action === 'confirm') bindings.confirmKill()
+  else if (action === 'backspace') backspaceCommand(bindings)
+}
+
+function handleConfigurableKey(mode: ConfigurableMode, key: string, bindings: InputBindings): void {
+  const action = getKeybindAction(mode, key)
+  if (!action) return
+  executeKeybindAction(mode, action, bindings)
+}
+
+function handleNormalChar(char: string, bindings: InputBindings): void {
+  handleConfigurableKey('normal', char, bindings)
 }
 
 function handleLogFocusChar(char: string, bindings: InputBindings): void {
-  const state = bindings.getState()
-
-  if (char === 'i' && state.selectedAgent) {
-    bindings.jumpLogBottom()
-    bindings.setMode('insert')
-  } else if (char === 'j') {
-    bindings.scrollLogDown()
-  } else if (char === 'k') {
-    bindings.scrollLogUp()
-  } else if (char === 'G') {
-    bindings.jumpLogBottom()
-  } else if (char === 'g') {
-    bindings.jumpLogTop()
-  } else if (char === '/') {
-    bindings.setSearchQuery('')
-  } else if (char === 'r' && state.selectedAgent) {
-    bindings.openCommand(`send ${state.selectedAgent.name} `)
-  }
+  handleConfigurableKey('log-focus', char, bindings)
 }
 
 function handleInboxChar(char: string, bindings: InputBindings): void {
-  if (char === 'j') bindings.inboxMsgDown()
-  else if (char === 'k') bindings.inboxMsgUp()
-  else if (char === 'r') bindings.inboxReply()
-  else if (char === 'd') bindings.inboxDeleteCard()
-  else if (char === 'D') bindings.inboxClearAll()
+  handleConfigurableKey('inbox', char, bindings)
 }
 
 function handlePresetsChar(char: string, bindings: InputBindings): void {
-  if (char === ':') {
-    bindings.openCommand('')
-  }
+  handleConfigurableKey('presets', char, bindings)
 }
 
 function handleSpecialKey(event: Extract<ParsedInputEvent, { type: 'key' }>, bindings: InputBindings): void {
@@ -663,55 +689,32 @@ function handleSpecialKey(event: Extract<ParsedInputEvent, { type: 'key' }>, bin
   }
 
   if (state.mode === 'command') {
-    if (event.key === 'escape') {
-      bindings.setCommand('', 0)
-      bindings.setMode('normal')
-    } else if (event.key === 'enter') {
-      const command = state.commandInput
-      bindings.setCommand('', 0)
-      bindings.submitCommand(command)
-    } else if (event.key === 'tab' || event.key === 'shift-tab') {
-      tabCompleteCommand(bindings)
-    } else if (event.key === 'backspace') {
-      backspaceCommand(bindings)
-    }
+    handleConfigurableKey('command', event.key, bindings)
     return
   }
 
   if (state.mode === 'kill-confirm') {
-    if (event.key === 'escape') {
-      bindings.cancelKill()
-    }
+    handleConfigurableKey('kill-confirm', event.key, bindings)
     return
   }
 
   if (state.mode === 'normal') {
-    if (event.key === 'shift-enter') {
-      bindings.toggleCollapse()
-    } else if (event.key === 'enter' || event.key === 'tab') {
-      bindings.setMode('log-focus')
-    }
+    handleConfigurableKey('normal', event.key, bindings)
     return
   }
 
   if (state.mode === 'log-focus') {
-    if (event.key === 'escape') bindings.setMode('normal')
-    else if (event.key === 'ctrl-d') bindings.scrollLogPageDown()
-    else if (event.key === 'ctrl-u') bindings.scrollLogPageUp()
+    handleConfigurableKey('log-focus', event.key, bindings)
     return
   }
 
   if (state.mode === 'inbox') {
-    if (event.key === 'escape') {
-      bindings.setMode('normal')
-    }
+    handleConfigurableKey('inbox', event.key, bindings)
     return
   }
 
   if (state.mode === 'presets') {
-    if (event.key === 'escape') {
-      bindings.setMode('normal')
-    }
+    handleConfigurableKey('presets', event.key, bindings)
   }
 }
 
@@ -729,9 +732,11 @@ function handleText(event: Extract<ParsedInputEvent, { type: 'text' }>, bindings
   }
 
   if (state.mode === 'kill-confirm') {
-    const char = event.text.toLowerCase()
-    if (char === 'y') bindings.confirmKill()
-    else if (char === 'n') bindings.cancelKill()
+    for (const key of event.text) {
+      const action = getKeybindAction('kill-confirm', key) ?? getKeybindAction('kill-confirm', key.toLowerCase())
+      if (!action) continue
+      executeKeybindAction('kill-confirm', action, bindings)
+    }
     return
   }
 
