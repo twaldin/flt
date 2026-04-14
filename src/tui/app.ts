@@ -119,12 +119,8 @@ export class App {
       scrollLogPageDown: () => this.scrollLogPageDown(),
       jumpLogTop: () => this.jumpLogTop(),
       jumpLogBottom: () => this.jumpLogBottom(),
-      inboxCardDown: () => this.inboxCardDown(),
-      inboxCardUp: () => this.inboxCardUp(),
-      inboxFocusCard: () => this.inboxFocusCard(),
-      inboxUnfocusCard: () => this.inboxUnfocusCard(),
-      inboxMsgScrollDown: () => this.inboxMsgScrollDown(),
-      inboxMsgScrollUp: () => this.inboxMsgScrollUp(),
+      inboxMsgDown: () => this.inboxMsgDown(),
+      inboxMsgUp: () => this.inboxMsgUp(),
       inboxReply: () => this.inboxReply(),
       inboxDeleteCard: () => this.inboxDeleteCard(),
       inboxClearAll: () => this.inboxClearAll(),
@@ -218,12 +214,9 @@ export class App {
       try { unlinkSync(typingFile) } catch {}
     }
 
-    // Reset inbox navigation state when entering inbox mode
+    // Default to most recent message when entering inbox mode
     if (mode === 'inbox') {
-      const cards = this.getInboxCards()
-      this.state.inboxSelectedCard = Math.max(0, cards.length - 1)
-      this.state.inboxFocusedCard = false
-      this.state.inboxCardMsgScroll = 0
+      this.state.inboxSelectedMsg = Math.max(0, this.state.inboxMessages.length - 1)
     }
 
     // Immediately capture content for the new mode
@@ -403,77 +396,30 @@ export class App {
     this.render()
   }
 
-  private getInboxCards(): Array<{ from: string; messages: InboxMessage[]; lastIdx: number }> {
-    const grouped = new Map<string, { from: string; messages: InboxMessage[]; lastIdx: number }>()
-    this.state.inboxMessages.forEach((msg, idx) => {
-      const existing = grouped.get(msg.from)
-      if (existing) {
-        existing.messages.push(msg)
-        existing.lastIdx = idx
-      } else {
-        grouped.set(msg.from, { from: msg.from, messages: [msg], lastIdx: idx })
-      }
-    })
-    return Array.from(grouped.values()).sort((a, b) => a.lastIdx - b.lastIdx)
-  }
-
-  private inboxCardDown(): void {
-    const cards = this.getInboxCards()
-    this.state.inboxSelectedCard = Math.min(Math.max(0, cards.length - 1), this.state.inboxSelectedCard + 1)
+  private inboxMsgDown(): void {
+    const max = Math.max(0, this.state.inboxMessages.length - 1)
+    this.state.inboxSelectedMsg = Math.min(max, this.state.inboxSelectedMsg + 1)
     this.render()
   }
 
-  private inboxCardUp(): void {
-    this.state.inboxSelectedCard = Math.max(0, this.state.inboxSelectedCard - 1)
-    this.render()
-  }
-
-  private inboxFocusCard(): void {
-    const cards = this.getInboxCards()
-    if (cards.length === 0) return
-    this.state.inboxFocusedCard = true
-    this.state.inboxCardMsgScroll = 0
-    this.render()
-  }
-
-  private inboxUnfocusCard(): void {
-    this.state.inboxFocusedCard = false
-    this.state.inboxCardMsgScroll = 0
-    this.render()
-  }
-
-  private inboxMsgScrollDown(): void {
-    this.state.inboxCardMsgScroll = Math.max(0, this.state.inboxCardMsgScroll - 1)
-    this.render()
-  }
-
-  private inboxMsgScrollUp(): void {
-    const cards = this.getInboxCards()
-    const card = cards[this.state.inboxSelectedCard]
-    if (!card) return
-    const maxScroll = Math.max(0, card.messages.length - 1)
-    this.state.inboxCardMsgScroll = Math.min(maxScroll, this.state.inboxCardMsgScroll + 1)
+  private inboxMsgUp(): void {
+    this.state.inboxSelectedMsg = Math.max(0, this.state.inboxSelectedMsg - 1)
     this.render()
   }
 
   private inboxDeleteCard(): void {
-    const cards = this.getInboxCards()
-    const card = cards[this.state.inboxSelectedCard]
-    if (!card) return
-    // Remove all messages from this sender
-    this.state.inboxMessages = this.state.inboxMessages.filter(m => m.from !== card.from)
-    // Rewrite the inbox file
+    const idx = this.state.inboxSelectedMsg
+    if (idx < 0 || idx >= this.state.inboxMessages.length) return
+    this.state.inboxMessages = this.state.inboxMessages.filter((_, i) => i !== idx)
     this.rewriteInbox()
-    this.state.inboxSelectedCard = Math.min(this.state.inboxSelectedCard, Math.max(0, cards.length - 2))
-    this.state.inboxFocusedCard = false
+    this.state.inboxSelectedMsg = Math.min(idx, Math.max(0, this.state.inboxMessages.length - 1))
     this.render()
   }
 
   private inboxClearAll(): void {
     this.state.inboxMessages = []
     this.rewriteInbox()
-    this.state.inboxSelectedCard = 0
-    this.state.inboxFocusedCard = false
+    this.state.inboxSelectedMsg = 0
     this.render()
   }
 
@@ -487,9 +433,8 @@ export class App {
   }
 
   private inboxReply(): void {
-    const cards = this.getInboxCards()
-    const card = cards[this.state.inboxSelectedCard]
-    if (card) this.openCommand(`send ${card.from} `)
+    const msg = this.state.inboxMessages[this.state.inboxSelectedMsg]
+    if (msg) this.openCommand(`send ${msg.from} `)
   }
 
   private setSearchQuery(query: string): void {

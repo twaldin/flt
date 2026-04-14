@@ -30,9 +30,7 @@ export interface AppState {
   commandInput: string
   commandCursor: number
   inboxMessages: InboxMessage[]
-  inboxSelectedCard: number
-  inboxFocusedCard: boolean
-  inboxCardMsgScroll: number
+  inboxSelectedMsg: number
   termHeight: number
   termWidth: number
   banner: Banner | null
@@ -52,9 +50,7 @@ export function createInitialState(width = 80, height = 24): AppState {
     commandInput: '',
     commandCursor: 0,
     inboxMessages: [],
-    inboxSelectedCard: 0,
-    inboxFocusedCard: false,
-    inboxCardMsgScroll: 0,
+    inboxSelectedMsg: 0,
     termHeight: height,
     termWidth: width,
     banner: null,
