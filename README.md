@@ -24,7 +24,7 @@ flt spawn reviewer -p evaluator -d ~/project "review PR #5"
 ## Install
 
 ```bash
-bun install -g flt-fleet
+bun install -g @twaldin/flt-cli
 ```
 
 Requires [Bun](https://bun.sh) (runtime) and [tmux](https://github.com/tmux/tmux) (session management). Node.js is not supported — flt is Bun-native.

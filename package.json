@@ -1,5 +1,5 @@
 {
-  "name": "flt-fleet",
+  "name": "@twaldin/flt-cli",
   "version": "0.1.0",
   "type": "module",
   "description": "Orchestrate AI coding agents across any CLI harness, in tmux",
