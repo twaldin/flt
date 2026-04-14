@@ -6,6 +6,7 @@ export interface AgentView extends AgentState {
   name: string
   status: 'spawning' | 'ready' | 'running' | 'idle' | 'exited' | 'error' | 'rate-limited' | 'unknown'
   lastSeen: number
+  collapsedChildCount?: number  // set when agent is collapsed; value = number of hidden descendants
 }
 
 export interface InboxMessage {
@@ -36,6 +37,8 @@ export interface AppState {
   banner: Banner | null
   notifications: Record<string, 'message' | 'status'>
   killConfirmAgent?: string
+  sidebarScrollOffset: number
+  collapsedAgents: string[]
 }
 
 export function createInitialState(width = 80, height = 24): AppState {
@@ -56,5 +59,7 @@ export function createInitialState(width = 80, height = 24): AppState {
     banner: null,
     notifications: {},
     killConfirmAgent: undefined,
+    sidebarScrollOffset: 0,
+    collapsedAgents: [],
   }
 }

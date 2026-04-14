@@ -115,9 +115,15 @@ export async function advanceWorkflow(runId: string): Promise<void> {
     }
   }
 
+  // Check if agent signaled pass/fail
+  const signalResult = run.stepResult ?? 'pass'
+  const failReason = run.stepFailReason
+  run.stepResult = undefined
+  run.stepFailReason = undefined
+
   run.history.push({
     step: currentStepDef.id,
-    result: 'completed',
+    result: signalResult === 'fail' ? 'failed' : 'completed',
     at: new Date().toISOString(),
     agent: agentName,
   })
@@ -128,7 +134,28 @@ export async function advanceWorkflow(runId: string): Promise<void> {
     killDirect({ name: agentName, preserveWorktree: true })
   } catch {}
 
-  // Determine next step
+  // If agent signaled fail, follow on_fail path
+  if (signalResult === 'fail' && currentStepDef.on_fail) {
+    const failStepId = currentStepDef.on_fail
+    if (failStepId === 'abort') {
+      run.status = 'failed'
+      run.completedAt = new Date().toISOString()
+      saveWorkflowRun(run)
+      appendEvent({ type: 'workflow', detail: `failed ${run.id}: ${failReason ?? 'agent signaled fail'}`, at: run.completedAt })
+      cleanupWorkflowWorktrees(run)
+      await notifyWorkflowParent(run, `Workflow "${run.workflow}" failed: ${failReason ?? 'agent signaled fail'}`)
+      return
+    }
+    const failStep = def.steps.find(s => s.id === failStepId)
+    if (failStep) {
+      run.currentStep = failStepId
+      saveWorkflowRun(run)
+      await executeStep(def, run, failStep)
+      return
+    }
+  }
+
+  // Determine next step (pass path)
   const nextStepId = currentStepDef.on_complete
   if (!nextStepId || nextStepId === 'done') {
     run.status = 'completed'
@@ -355,6 +382,46 @@ async function notifyWorkflowParent(run: WorkflowRun, message: string): Promise<
       }
     }
   } catch {}
+}
+
+/** Signal pass/fail from inside a workflow agent */
+export function signalWorkflowResult(result: 'pass' | 'fail', reason?: string): void {
+  const runs = listWorkflowRuns().filter(r => r.status === 'running')
+  // Find which run this agent belongs to by checking the caller's agent name
+  const agentName = process.env.FLT_AGENT_NAME
+  if (!agentName) {
+    // Try tmux session env
+    try {
+      const { execFileSync } = require('child_process')
+      const sessionName = execFileSync('tmux', ['display-message', '-p', '#{session_name}'], {
+        encoding: 'utf-8', timeout: 2000,
+      }).trim()
+      if (sessionName.startsWith('flt-')) {
+        const name = sessionName.slice(4)
+        for (const run of runs) {
+          const expected = workflowAgentName(run.id, run.currentStep)
+          if (name === expected) {
+            run.stepResult = result
+            run.stepFailReason = reason
+            saveWorkflowRun(run)
+            return
+          }
+        }
+      }
+    } catch {}
+    throw new Error('Not running inside a workflow agent')
+  }
+
+  for (const run of runs) {
+    const expected = workflowAgentName(run.id, run.currentStep)
+    if (agentName === expected) {
+      run.stepResult = result
+      run.stepFailReason = reason
+      saveWorkflowRun(run)
+      return
+    }
+  }
+  throw new Error(`No running workflow found for agent "${agentName}"`)
 }
 
 // Map agent names to workflow run IDs for the controller poller

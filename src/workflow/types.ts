@@ -21,6 +21,8 @@ export interface WorkflowRun {
   currentStep: string
   status: 'running' | 'completed' | 'failed' | 'cancelled'
   parentName: string  // who started this workflow — notifications go here
+  stepResult?: 'pass' | 'fail'  // set by agent via flt workflow pass/fail
+  stepFailReason?: string
   history: WorkflowStepResult[]
   retries: Record<string, number>
   vars: Record<string, Record<string, string>>  // per-step resolved vars: vars[stepId] = { worktree, dir, branch }

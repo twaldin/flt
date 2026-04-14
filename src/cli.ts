@@ -63,6 +63,7 @@ program
   .option('-d, --dir <path>', 'Working directory (default: cwd)')
   .option('-W, --no-worktree', 'Skip git worktree creation')
   .option('--parent <name>', 'Override parent agent for messaging')
+  .option('--persistent', 'Mark agent as persistent (shows as respawning when dead)')
   .argument('[bootstrap]', 'Initial message to send after agent is ready')
   .action(async (name, bootstrap, opts) => {
     try {
@@ -74,6 +75,7 @@ program
         dir: opts.dir,
         worktree: opts.worktree,
         parent: opts.parent,
+        persistent: opts.persistent,
         bootstrap,
       })
     } catch (e) {
@@ -265,6 +267,32 @@ workflowCmd
     try {
       const { workflowCancel } = await import('./commands/workflow')
       await workflowCancel(name)
+    } catch (e) {
+      console.error(`Error: ${(e as Error).message}`)
+      process.exit(1)
+    }
+  })
+
+workflowCmd
+  .command('pass')
+  .description('Signal PASS from inside a workflow step agent')
+  .action(() => {
+    try {
+      const { workflowPass } = require('./commands/workflow')
+      workflowPass()
+    } catch (e) {
+      console.error(`Error: ${(e as Error).message}`)
+      process.exit(1)
+    }
+  })
+
+workflowCmd
+  .command('fail [reason]')
+  .description('Signal FAIL from inside a workflow step agent')
+  .action((reason) => {
+    try {
+      const { workflowFail } = require('./commands/workflow')
+      workflowFail(reason)
     } catch (e) {
       console.error(`Error: ${(e as Error).message}`)
       process.exit(1)

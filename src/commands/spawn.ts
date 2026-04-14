@@ -17,6 +17,7 @@ interface SpawnArgs {
   worktree?: boolean
   bootstrap?: string
   parent?: string
+  persistent?: boolean
   _callerName?: string
   _callerDepth?: number
 }
@@ -164,6 +165,7 @@ export async function spawnDirect(args: SpawnArgs): Promise<void> {
     worktreePath,
     worktreeBranch,
     spawnedAt: new Date().toISOString(),
+    persistent: args.persistent,
   })
 
   appendEvent({

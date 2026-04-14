@@ -14,6 +14,7 @@ import { parseCommand, enrichMessageWithFiles } from './command-parser'
 import { setupInput, type InputBindings, type TmuxInsertKey } from './input'
 import { calculateLayout, renderLayout } from './panels'
 import { Screen } from './screen'
+import { getAsciiLogo } from './ascii'
 import { createInitialState, type AgentView, type AppState, type InboxMessage, type Mode } from './types'
 
 /** Strip OSC 8 hyperlink sequences, keeping the display text */
@@ -22,25 +23,56 @@ function stripOsc8(s: string): string {
   return s.replace(/\x1b\]8;[^\x07\x1b]*(?:\x07|\x1b\\)/g, '')
 }
 
-/** Sort agents into tree order (parent before children) so array index matches display */
-function sortTreeOrder(agents: AgentView[]): AgentView[] {
+/** Count all descendants of an agent in the full (unfiltered) agents list */
+function countDescendants(name: string, agents: AgentView[]): number {
+  let count = 0
+  for (const a of agents) {
+    if (a.parentName === name) {
+      count++
+      count += countDescendants(a.name, agents)
+    }
+  }
+  return count
+}
+
+/**
+ * Sort agents into tree order (parent before children) so array index matches display.
+ * Agents whose parent is in collapsedSet are excluded from the result.
+ * Collapsed agents gain a collapsedChildCount field showing how many descendants are hidden.
+ */
+function sortTreeOrder(agents: AgentView[], collapsedSet: Set<string> = new Set()): AgentView[] {
   const byName = new Map(agents.map(a => [a.name, a]))
   const result: AgentView[] = []
   const visited = new Set<string>()
+
+  function markDescendants(name: string): void {
+    for (const a of agents) {
+      if (!visited.has(a.name) && a.parentName === name) {
+        visited.add(a.name)
+        markDescendants(a.name)
+      }
+    }
+  }
 
   function walk(parentName: string): void {
     for (const agent of agents) {
       if (visited.has(agent.name)) continue
       if (agent.parentName === parentName || (parentName === 'human' && !byName.has(agent.parentName))) {
         visited.add(agent.name)
-        result.push(agent)
-        walk(agent.name)
+        if (collapsedSet.has(agent.name)) {
+          const childCount = countDescendants(agent.name, agents)
+          result.push({ ...agent, collapsedChildCount: childCount })
+          markDescendants(agent.name)
+        } else {
+          result.push({ ...agent, collapsedChildCount: undefined })
+          walk(agent.name)
+        }
       }
     }
   }
 
   walk('human')
-  // Append any orphans
+  // Append any orphans not yet visited
   for (const agent of agents) {
     if (!visited.has(agent.name)) result.push(agent)
   }
@@ -150,6 +182,7 @@ export class App {
         this.scheduleShellCapture()
       },
       flushShell: () => flushBatchedKeys(this.shellSession),
+      toggleCollapse: () => this.toggleCollapse(),
       quit: () => {
         this.stop()
         process.exit(0)
@@ -329,6 +362,7 @@ export class App {
     this.lastLogContent = ''
     const selected = this.selectedAgent
     if (selected) delete this.state.notifications[selected.name]
+    this.sidebarScrollSync()
     this.render()
   }
 
@@ -338,7 +372,59 @@ export class App {
     this.lastLogContent = ''
     const selected = this.selectedAgent
     if (selected) delete this.state.notifications[selected.name]
+    this.sidebarScrollSync()
     this.render()
+  }
+
+  private sidebarVisibleCount(): number {
+    const layout = calculateLayout(this.state.termWidth, this.state.termHeight, this.state.agents)
+    const logoHeight = getAsciiLogo(layout.sidebarInnerWidth).length
+    const entryRows = layout.sidebarInnerHeight - 2 - logoHeight
+    return Math.max(1, Math.floor(entryRows / 5))
+  }
+
+  private sidebarScrollSync(): void {
+    const count = this.state.agents.length
+    if (count === 0) { this.state.sidebarScrollOffset = 0; return }
+    const idx = this.state.selectedIndex
+    const visible = this.sidebarVisibleCount()
+    const offset = this.state.sidebarScrollOffset
+    if (idx < offset) {
+      this.state.sidebarScrollOffset = idx
+    } else if (idx >= offset + visible) {
+      this.state.sidebarScrollOffset = Math.max(0, idx - visible + 1)
+    }
+    this.state.sidebarScrollOffset = Math.max(0, Math.min(this.state.sidebarScrollOffset, Math.max(0, count - visible)))
+  }
+
+  private toggleCollapse(): void {
+    const agent = this.selectedAgent
+    if (!agent) return
+    const name = agent.name
+    const idx = this.state.collapsedAgents.indexOf(name)
+    if (idx === -1) {
+      this.state.collapsedAgents = [...this.state.collapsedAgents, name]
+    } else {
+      this.state.collapsedAgents = this.state.collapsedAgents.filter(n => n !== name)
+    }
+    // Re-sort with new collapsed set
+    this.applyCurrentCollapse()
+    this.render()
+  }
+
+  private applyCurrentCollapse(): void {
+    const collapsedSet = new Set(this.state.collapsedAgents)
+    const currentAgents = this.state.agents.map(a => ({ ...a, collapsedChildCount: undefined }))
+    const sorted = sortTreeOrder(currentAgents, collapsedSet)
+    // Keep selectedIndex pointing at the same agent
+    const prevName = this.selectedAgent?.name
+    this.state.agents = sorted
+    if (prevName) {
+      const idx = sorted.findIndex(a => a.name === prevName)
+      if (idx >= 0) this.state.selectedIndex = idx
+      else this.state.selectedIndex = Math.min(this.state.selectedIndex, Math.max(0, sorted.length - 1))
+    }
+    this.sidebarScrollSync()
   }
 
   private logViewHeight(): number {
@@ -537,6 +623,7 @@ export class App {
       let dir: string | undefined
       const messageTokens: string[] = []
 
+      let persistent: boolean | undefined
       let i = 1
       while (i < spawnArgs.length) {
         if (spawnArgs[i] === '--cli' && i + 1 < spawnArgs.length) {
@@ -552,6 +639,9 @@ export class App {
           const raw = spawnArgs[i + 1]
           dir = raw.startsWith('~/') ? raw.replace('~', process.env.HOME || homedir()) : raw
           i += 2
+        } else if (spawnArgs[i] === '--persistent') {
+          persistent = true
+          i += 1
         } else {
           messageTokens.push(spawnArgs[i])
           i += 1
@@ -570,7 +660,7 @@ export class App {
         this.setBanner(`Spawn ${name}: still waiting (check flt logs ${name})`, 'yellow')
       }, 65000)
 
-      spawn({ name, cli, preset, model, dir, bootstrap })
+      spawn({ name, cli, preset, model, dir, bootstrap, persistent })
         .then(() => {
           clearTimeout(staleTimer)
           this.setBanner(`Spawned ${name}`, 'green', 3000)
@@ -912,7 +1002,8 @@ export class App {
     }
 
     // Sort agents in tree order so array index matches display order
-    const sorted = sortTreeOrder(nextViews)
+    const collapsedSet = new Set(this.state.collapsedAgents)
+    const sorted = sortTreeOrder(nextViews, collapsedSet)
     if (this.applyAgents(sorted)) changed = true
 
     const selected = this.selectedAgent

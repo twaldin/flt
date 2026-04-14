@@ -20,6 +20,7 @@ export interface AgentState {
   spawnedAt: string
   status?: AgentStatus
   statusAt?: string
+  persistent?: boolean
 }
 
 export interface FleetState {

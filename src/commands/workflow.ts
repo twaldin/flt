@@ -65,6 +65,18 @@ export async function workflowCancel(name: string): Promise<void> {
   console.log(`Cancelled workflow "${name}".`)
 }
 
+export function workflowPass(): void {
+  const { signalWorkflowResult } = require('../workflow/engine') as typeof import('../workflow/engine')
+  signalWorkflowResult('pass')
+  console.log('Signaled PASS — workflow will advance to on_complete step.')
+}
+
+export function workflowFail(reason?: string): void {
+  const { signalWorkflowResult } = require('../workflow/engine') as typeof import('../workflow/engine')
+  signalWorkflowResult('fail', reason)
+  console.log(`Signaled FAIL${reason ? ': ' + reason : ''} — workflow will follow on_fail path.`)
+}
+
 function printRun(run: ReturnType<typeof loadWorkflowRun>): void {
   if (!run) return
   console.log(`Workflow: ${run.workflow} (id: ${run.id})`)

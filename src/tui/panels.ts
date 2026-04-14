@@ -161,7 +161,14 @@ function renderSidebar(screen: Screen, state: AppState, top: number, left: numbe
     return
   }
 
-  for (const { agent, index, continuation, connector, hasChildren } of ordered) {
+  // Compute how many entries fit while reserving space for the ASCII logo
+  const logo = getAsciiLogo(width)
+  const entryRows = height - 2 - logo.length  // -2 for header+blank, reserve logo space
+  const visibleCount = Math.max(1, Math.floor(entryRows / 5))
+  const scrollOffset = clamp(state.sidebarScrollOffset, 0, Math.max(0, ordered.length - visibleCount))
+  const visibleEntries = ordered.slice(scrollOffset, scrollOffset + visibleCount)
+
+  for (const { agent, index, continuation, connector, hasChildren } of visibleEntries) {
     if (row + 4 >= top + height) break
     const selected = index === state.selectedIndex
     const notification = state.notifications[agent.name]
@@ -170,33 +177,24 @@ function renderSidebar(screen: Screen, state: AppState, top: number, left: numbe
     const bg = selected ? t.sidebarSelectedBg : ''
     const pad = ' '
     // Name row: continuation with last │ replaced by ├ or └
-    // e.g. continuation "│ │ " → namePrefix "│ ├ " (connector replaces last │)
     let namePrefix: string
     if (!connector) {
       namePrefix = continuation  // root: no connector
     } else {
-      // Replace the trailing "│" of continuation with the connector char
       namePrefix = continuation.slice(0, -2) + connector + ' '
     }
 
-    // Above-name prefix: continuation only (no connector, no extra │ for root)
+    // Above-name prefix: continuation only
     const abovePrefix = continuation
 
-    // Below-name prefix: what shows on detail/padding rows AFTER the name
-    // The last 2 chars of continuation represent THIS agent's parent level.
-    // After └ (last child), parent's │ must STOP on rows below the name.
-    // After ├ (not last), parent's │ continues.
+    // Below-name prefix
     let belowPrefix: string
     if (!connector) {
-      // Root: add │ if has children (starts the tree line for children)
       belowPrefix = hasChildren ? continuation + '│ ' : continuation
     } else if (connector === '└') {
-      // Last child: parent's │ stops. Replace last │ with space.
       const stripped = continuation.slice(0, -2) + '  '
-      // But if THIS agent has children, start a NEW │ for them
       belowPrefix = hasChildren ? stripped + '│ ' : stripped
     } else {
-      // ├: parent's │ continues (already in continuation)
       belowPrefix = continuation
     }
 
@@ -208,9 +206,15 @@ function renderSidebar(screen: Screen, state: AppState, top: number, left: numbe
 
     // Name row
     const badge = notification && !selected ? (notification === 'message' ? '● ' : '◐ ') : ''
-    const dot = statusSymbol(agent.status)
+    // Persistent dead agents show ⟳ (respawning indicator) instead of ○ (exited)
+    const dot = (agent.persistent && agent.status === 'exited') ? '⟳' : statusSymbol(agent.status)
+    const persistentBadge = agent.persistent ? 'P ' : ''
     const age = formatAge(agent.spawnedAt)
-    const nameText = `${badge}${dot} ${agent.name}`
+    // Collapsed indicator: show [+N] when agent has hidden children
+    const collapsedSuffix = (agent.collapsedChildCount !== undefined && agent.collapsedChildCount > 0)
+      ? ` [+${agent.collapsedChildCount}]`
+      : ''
+    const nameText = `${badge}${persistentBadge}${dot} ${agent.name}${collapsedSuffix}`
     const agePad = Math.max(0, innerWidth - widthOf(nameText) - widthOf(age))
     const line1 = `${pad}${namePrefix}${nameText}${' '.repeat(agePad)}${age}${pad}`
     screen.put(row, left, padRight(line1, width), agentColor, bg, ATTR_BOLD)
@@ -232,7 +236,6 @@ function renderSidebar(screen: Screen, state: AppState, top: number, left: numbe
   }
 
   // ASCII banner at the bottom of the sidebar
-  const logo = getAsciiLogo(width)
   const bannerSpace = (top + height) - row
   if (bannerSpace >= logo.length) {
     const bannerStart = top + height - logo.length

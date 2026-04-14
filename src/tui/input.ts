@@ -33,6 +33,7 @@ export interface InputBindings {
   setKillConfirm: (agentName: string) => void
   confirmKill: () => void
   cancelKill: () => void
+  toggleCollapse: () => void
   sendInsertText: (text: string) => void
   sendInsertKey: (key: TmuxInsertKey) => void
   flushInsert: () => void
@@ -46,7 +47,7 @@ export interface InputBindings {
 }
 
 const COMMANDS = ['send', 'logs', 'spawn', 'presets', 'kill', 'theme', 'ascii', 'help']
-const SPAWN_FLAGS = ['--cli', '--model', '--dir', '--preset']
+const SPAWN_FLAGS = ['--cli', '--model', '--dir', '--preset', '--persistent']
 const PRESETS_ACTIONS = ['list', 'add', 'remove']
 const PRESETS_ADD_FLAGS = ['--cli', '--model', '--description']
 
@@ -429,7 +430,13 @@ export class RawKeyParser {
             const params = seqText.slice(2, -1) // strip \x1b[ and u
             const codepoint = parseInt(params.split(/[;:]/)[0], 10)
             if (codepoint && !isNaN(codepoint)) {
-              if (codepoint === 13) this.onEvent({ type: 'key', key: 'enter', raw: seq })
+              if (codepoint === 13) {
+                // Check for shift modifier (modifier value 2 = 1+shift in kitty protocol)
+                const modStr = params.split(/[;:]/)[1]
+                const mod = modStr ? parseInt(modStr, 10) : 1
+                const isShift = (mod & 2) !== 0
+                this.onEvent({ type: 'key', key: isShift ? 'shift-enter' : 'enter', raw: seq })
+              }
               else if (codepoint === 9) this.onEvent({ type: 'key', key: 'tab', raw: seq })
               else if (codepoint === 27) this.onEvent({ type: 'key', key: 'escape', raw: seq })
               else if (codepoint === 127) this.onEvent({ type: 'key', key: 'backspace', raw: seq })
@@ -679,7 +686,9 @@ function handleSpecialKey(event: Extract<ParsedInputEvent, { type: 'key' }>, bin
   }
 
   if (state.mode === 'normal') {
-    if (event.key === 'enter' || event.key === 'tab') {
+    if (event.key === 'shift-enter') {
+      bindings.toggleCollapse()
+    } else if (event.key === 'enter' || event.key === 'tab') {
       bindings.setMode('log-focus')
     }
     return
