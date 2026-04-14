@@ -94,6 +94,7 @@ interface AgentState {
   spawnedAt: string        // ISO timestamp
   status?: AgentStatus     // current status as set by the poller
   statusAt?: string        // ISO timestamp of last status change
+  persistent?: boolean     // if true, TUI shows ⟳ when dead instead of ○
 }
 ```
 
@@ -154,11 +155,19 @@ A typing-agent guard prevents content-delta from flipping status when the user i
 
 Applied after adapter detection and delta fallback. Tracks per-agent `stableTracker[name] = { hash, since }`. If content hasn't changed for `CONTENT_STABLE_TIMEOUT_MS = 60_000ms` and status is `'running'` or `'unknown'`, forces `'idle'`. This catches stuck agents.
 
+### Watchdog
+
+The poller tracks two additional failure conditions beyond normal status detection:
+
+**Dead session detection:** After all live agents are polled, a second pass checks agents whose tmux session is no longer in the live session list. These agents get status `'exited'`, and the watchdog appends an inbox message: `[WATCHDOG]: Agent <name> died (session gone)`. The `onStatusChange` callback fires with the `'exited'` status, which the workflow engine can act on.
+
+**Stuck detection:** Per-agent `runningSince[name]` tracks the timestamp when status entered `'running'`. If the agent has been continuously `running` for 30+ minutes (`STUCK_THRESHOLD_MS = 30 * 60 * 1000`), the watchdog appends: `[WATCHDOG]: Agent <name> has been running for 30+ minutes — may be stuck`. The warning is sent once per continuous run (`stuckWarned[name]` guards against repeats).
+
 ### Workflow hook
 
 The controller registers a `StatusChangeCallback`. When any agent transitions `running → idle`, the callback checks if the agent belongs to a running workflow via `getWorkflowForAgent(name)`. If yes, `advanceWorkflow(workflowName)` is called asynchronously.
 
-When an agent transitions to `'unknown'` and its tmux session is gone, `handleStepFailure(workflowName)` is called.
+`advanceWorkflow` reads `run.stepResult` (set by `flt workflow pass/fail`) to determine routing: `'pass'` → `on_complete`, `'fail'` → `on_fail`. If `stepResult` is unset, the default path is `on_complete`.
 
 ---
 
@@ -239,7 +248,45 @@ caller.parentName == '<agent>'
 
 Caller context is detected from `FLT_AGENT_NAME` / `FLT_PARENT_NAME` env vars. For CLIs that don't propagate tmux session environment to subprocesses (codex), `detect.ts` reads the vars from `tmux show-environment` as fallback.
 
+**Parent resolution at spawn time** (`src/commands/spawn.ts`):
+
+```
+--parent <name> flag          → use that name
+FLT_AGENT_NAME env is set
+  and not 'cron'              → use that agent name
+otherwise                     → 'human'
+```
+
+`cron` callers (where `FLT_AGENT_NAME=cron`) are treated as `human` — their spawned agents report to inbox, not back to the cron script.
+
 Messages longer than 200 characters or containing newlines use `tmux.pasteBuffer()` (writes to a temp file, loads as a named buffer, pastes) to avoid tmux argument length limits and semicolon interpretation issues.
+
+---
+
+## Activity log
+
+`~/.flt/activity.log` — append-only JSONL event stream. Written by the poller on status changes, and by spawn/kill/workflow operations.
+
+```typescript
+interface FleetEvent {
+  type: 'spawn' | 'kill' | 'status' | 'workflow' | 'message' | 'error'
+  agent?: string   // agent name, if applicable
+  detail: string   // human-readable description
+  at: string       // ISO timestamp
+}
+```
+
+Example lines:
+
+```jsonl
+{"type":"spawn","agent":"coder","detail":"cli=claude-code model=sonnet preset=coder dir=/tmp/flt-wt-coder","at":"2026-04-14T10:00:00Z"}
+{"type":"status","agent":"coder","detail":"unknown -> running","at":"2026-04-14T10:00:05Z"}
+{"type":"workflow","detail":"started pr-review","at":"2026-04-14T10:00:01Z"}
+{"type":"workflow","detail":"advanced pr-review-implement step review","at":"2026-04-14T10:05:00Z"}
+{"type":"workflow","detail":"completed pr-review","at":"2026-04-14T10:08:00Z"}
+```
+
+View with `flt activity` (`-n` for count, `--type` to filter, `--since <iso>` for time window).
 
 ---
 
@@ -361,6 +408,16 @@ Agents are sorted depth-first, parent before children. Each entry carries:
 - `hasChildren` — whether this agent has children in the current list
 
 Each agent occupies 5 rows in the sidebar: padding above, name+status+age, cli/model, dir, padding below.
+
+### Sidebar scrolling
+
+When the agent tree exceeds the available sidebar height, the sidebar scrolls. `sidebarScrollOffset` in `AppState` tracks the first visible entry. `selectNext` / `selectPrev` call `sidebarScrollSync()` which clamps the offset so the selected agent is always visible.
+
+### Collapsible trees
+
+`collapsedAgents: string[]` in `AppState` lists agents whose subtrees are hidden. Toggle with **Shift-Enter** in normal mode. A collapsed agent shows `[+N]` suffix in the name row (N = number of hidden descendants). `sortTreeOrder(agents, collapsedSet)` excludes descendants of collapsed agents from the display list and attaches `collapsedChildCount` to collapsed entries for the suffix label.
+
+**Persistent agents:** If `agent.persistent === true` and `agent.status === 'exited'`, the TUI renders `⟳` instead of the normal `○` exit symbol, and prefixes the name with `P `. This signals to operators that the agent is expected to be respawned by its cron job.
 
 ### Inbox (`renderInbox`)
 

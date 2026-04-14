@@ -148,18 +148,24 @@ Launch with `flt tui`. The sidebar shows all agents in a tree hierarchy with liv
 ## CLI Reference
 
 ```
-flt init [-o name]           # Initialize fleet, start controller, open TUI
-flt tui                      # Attach to fleet TUI (lightweight reconnect)
-flt spawn <name> [options]   # Spawn an agent
-flt send <target> <message>  # Send message to agent or parent
-flt kill <name>              # Kill an agent
-flt list                     # List all agents with status
-flt logs <name> [-n lines]   # View agent terminal output
-flt tail                     # Tail inbox (lightweight, no TUI)
-flt controller start|stop|status  # Manage the fleet controller daemon
-flt workflow run|status|list|cancel  # Multi-step agent workflows
-flt presets list|add|remove  # Manage spawn presets
-flt skills list              # List available skills
+flt init [-o name]                      # Initialize fleet, start controller, open TUI
+flt tui                                 # Attach to fleet TUI (lightweight reconnect)
+flt spawn <name> [options] [bootstrap]  # Spawn an agent
+flt send <target> <message>             # Send message to agent or parent
+flt kill <name>                         # Kill an agent
+flt list                                # List all agents with status
+flt logs <name> [-n lines]              # View agent terminal output
+flt tail                                # Tail inbox (lightweight, no TUI)
+flt activity [-n lines] [--type type]   # Show fleet activity log
+flt controller start|stop|status        # Manage the fleet controller daemon
+flt workflow run|status|list|cancel     # Multi-step agent workflows
+flt workflow pass                       # Signal PASS from inside a workflow step
+flt workflow fail [reason]              # Signal FAIL from inside a workflow step
+flt cron list                           # List flt crontab entries with status
+flt cron add <name> --every <interval>  # Create a cron job for an agent
+flt cron remove <name>                  # Remove a cron job
+flt presets list|add|remove             # Manage spawn presets
+flt skills list                         # List available skills
 ```
 
 ### Spawn flags
@@ -172,6 +178,7 @@ flt skills list              # List available skills
 | `--dir <path>` | `-d` | Working directory |
 | `--no-worktree` | `-W` | Skip git worktree creation |
 | `--parent <name>` | | Override parent for messaging |
+| `--persistent` | | Mark agent as persistent — shows ⟳ instead of ○ when dead |
 
 ## Adapters
 
@@ -301,7 +308,7 @@ The TUI is a pure read-only observer — it reads `state.json` and displays what
 
 ## Workflows
 
-Workflows are YAML state machines that chain agents together. Define steps with presets, and the controller automatically advances when each agent goes idle.
+Workflows are YAML state machines that chain agents together. Define steps with presets, and the controller automatically advances when each agent goes idle — or when the agent explicitly signals completion.
 
 ```yaml
 # ~/.flt/workflows/code-review.yaml
@@ -309,25 +316,41 @@ name: code-review
 steps:
   - id: implement
     preset: coder
-    task: "Implement feature X"
+    task: "Implement {task}"
     on_complete: review
 
   - id: review
     preset: reviewer
-    task: "Review changes in {steps.implement.worktree}"
+    task: "Review PR {pr}. Branch: {steps.implement.branch}"
     on_complete: done
+    on_fail: implement    # loop back on failure
     max_retries: 2
+    worktree: false       # reviewer reads implement's worktree, doesn't need its own
 ```
 
 ```bash
-flt workflow run code-review               # Start the workflow
-flt workflow run code-review --parent cairn # Notify "cairn" on completion instead of inbox
-flt workflow status code-review            # Show current step + history
-flt workflow list                          # List definitions and active runs
-flt workflow cancel code-review            # Cancel and kill agents
+flt workflow run code-review -t "add OAuth login"  # Pass task description into {task}
+flt workflow run code-review --parent cairn         # Notify "cairn" on completion
+flt workflow status code-review                     # Show current step + history
+flt workflow list                                   # List definitions and active runs
+flt workflow cancel code-review                     # Cancel and kill agents
 ```
 
-Template variables (`{steps.<id>.worktree}`, `{steps.<id>.dir}`, `{steps.<id>.branch}`) let later steps reference earlier agents' workspaces. Steps can also use `run:` for shell commands instead of agents.
+Template variables let later steps reference earlier agents' workspaces:
+
+| Variable | Value |
+|----------|-------|
+| `{task}` | Task passed via `--task` flag |
+| `{dir}` | Dir passed via `--dir` flag |
+| `{pr}` | PR URL (auto-created after first worktree step) |
+| `{fail_reason}` | Reason string from `flt workflow fail` |
+| `{steps.<id>.worktree}` | Absolute path to that step's git worktree |
+| `{steps.<id>.dir}` | That step's working directory |
+| `{steps.<id>.branch}` | That step's git branch |
+
+Steps can also use `run:` for shell commands instead of agents. After each worktree step the engine auto-commits any uncommitted changes and creates (or pushes to) a PR.
+
+Agents signal workflow transitions explicitly with `flt workflow pass` or `flt workflow fail 'reason'`, which sets `on_complete` / `on_fail` routing immediately on idle. Multiple runs of the same workflow get sequential IDs: `code-review`, `code-review-2`, etc.
 
 ## Architecture
 
@@ -340,7 +363,9 @@ Template variables (`{steps.<id>.worktree}`, `{steps.<id>.dir}`, `{steps.<id>.br
   presets.json         # Spawn presets
   models.json          # Model autocomplete
   inbox.log            # Agent messages
-  workflows/           # Workflow YAML definitions + run state
+  activity.log         # JSONL event stream (spawn/kill/status/workflow events)
+  workflows/           # Workflow YAML definitions
+    runs/              # Per-run state files (<id>.json)
   skills/              # Global skills (injected into all agents)
   agents/<name>/
     SOUL.md            # Agent identity
@@ -372,9 +397,12 @@ The TUI is a raw ANSI screen buffer with damage tracking (not Ink/React). It mai
 | `▶` | Running — actively generating |
 | `⏸` | Idle — waiting at prompt |
 | `○` | Exited — session died |
+| `⟳` | Persistent agent — dead but expected to respawn |
 | `?` | Unknown / spawning / rate-limited / error |
 
 Detection is per-CLI: spinner icon cycling for Claude Code, `esc to interrupt` text for Codex, braille spinners for Gemini/OpenCode, pane-content-delta as universal fallback. A 60-second content-stable timeout forces any stuck `running` or `unknown` state to `idle`.
+
+The **watchdog** monitors for two failure modes: dead sessions (tmux session gone → status `exited`, inbox notification) and stuck agents (continuously `running` for 30+ minutes → inbox warning).
 
 ## License
 
