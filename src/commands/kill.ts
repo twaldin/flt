@@ -5,6 +5,7 @@ import { cleanupSkills } from '../skills'
 import { resolveAdapter } from '../adapters/registry'
 import * as tmux from '../tmux'
 import { execSync, execFileSync } from 'child_process'
+import { appendEvent } from '../activity'
 
 interface KillArgs {
   name: string
@@ -73,6 +74,8 @@ export function killDirect(args: KillArgs): void {
     const { cleanupAgent } = require('../controller/poller') as typeof import('../controller/poller')
     cleanupAgent(name)
   } catch {}
+
+  appendEvent({ type: 'kill', agent: name, detail: 'killed', at: new Date().toISOString() })
 
   if (!process.env.FLT_TUI_ACTIVE) {
     console.log(`Killed ${name}`)

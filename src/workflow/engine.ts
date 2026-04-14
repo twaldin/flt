@@ -4,6 +4,7 @@ import { execSync } from 'child_process'
 import { loadWorkflowDef } from './parser'
 import { getAgent, allAgents } from '../state'
 import type { WorkflowDef, WorkflowRun, WorkflowStepDef } from './types'
+import { appendEvent } from '../activity'
 
 function getRunsDir(): string {
   return join(process.env.HOME ?? require('os').homedir(), '.flt', 'workflows', 'runs')
@@ -81,6 +82,7 @@ export async function startWorkflow(name: string, opts?: { parent?: string; task
   }
 
   saveWorkflowRun(run)
+  appendEvent({ type: 'workflow', detail: `started ${name}`, at: run.startedAt })
 
   // Spawn the first step
   await executeStep(def, run, def.steps[0])
@@ -132,6 +134,7 @@ export async function advanceWorkflow(runId: string): Promise<void> {
     run.status = 'completed'
     run.completedAt = new Date().toISOString()
     saveWorkflowRun(run)
+    appendEvent({ type: 'workflow', detail: `completed ${run.id}`, at: run.completedAt })
     cleanupWorkflowWorktrees(run)
     await notifyWorkflowParent(run, `Workflow "${run.workflow}" completed.`)
     return
@@ -147,6 +150,7 @@ export async function advanceWorkflow(runId: string): Promise<void> {
 
   run.currentStep = nextStepId
   saveWorkflowRun(run)
+  appendEvent({ type: 'workflow', detail: `advanced ${run.id} step ${nextStepId}`, at: new Date().toISOString() })
 
   await executeStep(def, run, nextStepDef)
 }

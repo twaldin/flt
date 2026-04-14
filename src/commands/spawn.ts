@@ -6,6 +6,7 @@ import { loadState, setAgent, hasAgent } from '../state'
 import { getPreset } from '../presets'
 import * as tmux from '../tmux'
 import { resolve } from 'path'
+import { appendEvent } from '../activity'
 
 interface SpawnArgs {
   name: string
@@ -163,6 +164,13 @@ export async function spawnDirect(args: SpawnArgs): Promise<void> {
     worktreePath,
     worktreeBranch,
     spawnedAt: new Date().toISOString(),
+  })
+
+  appendEvent({
+    type: 'spawn',
+    agent: name,
+    detail: `cli=${adapter.name} model=${resolvedModel ?? 'default'}${preset ? ` preset=${preset}` : ''} dir=${workDir}`,
+    at: new Date().toISOString(),
   })
 
   // Send bootstrap message if provided

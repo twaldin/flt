@@ -5,6 +5,7 @@ import type { AgentStatus } from '../adapters/types'
 import { allAgents, setAgent, loadState, saveState, type AgentState } from '../state'
 import { capturePane, hasSession, listSessions } from '../tmux'
 import { appendInbox } from '../commands/init'
+import { appendEvent } from '../activity'
 
 const CONTENT_STABLE_TIMEOUT_MS = 60_000
 const STUCK_THRESHOLD_MS = 30 * 60 * 1000  // 30 minutes
@@ -174,6 +175,12 @@ export function pollOnce(): void {
       agent.status = status
       agent.statusAt = now
       dirty = true
+      appendEvent({
+        type: 'status',
+        agent: name,
+        detail: `${prevStatus ?? 'unknown'} -> ${status}`,
+        at: now,
+      })
       if (onStatusChange) {
         onStatusChange(name, prevStatus, status)
       }
@@ -190,6 +197,12 @@ export function pollOnce(): void {
     agent.statusAt = now
     dirty = true
     appendInbox('WATCHDOG', `Agent ${name} died (session gone)`)
+    appendEvent({
+      type: 'status',
+      agent: name,
+      detail: `${prevStatus ?? 'unknown'} -> exited`,
+      at: now,
+    })
     if (onStatusChange) {
       onStatusChange(name, prevStatus, 'exited')
     }

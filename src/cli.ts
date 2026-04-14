@@ -10,6 +10,8 @@ import { init } from './commands/init'
 import { skillsList } from './commands/skills'
 import { presetsAdd, presetsList, presetsRemove } from './commands/presets'
 import { listAdapters } from './adapters/registry'
+import { cronList, cronAdd, cronRemove } from './commands/cron'
+import { activity } from './commands/activity'
 
 const program = new Command()
   .name('flt')
@@ -306,6 +308,82 @@ controllerCmd
     try {
       const { controllerStatus } = await import('./commands/controller')
       await controllerStatus()
+    } catch (e) {
+      console.error(`Error: ${(e as Error).message}`)
+      process.exit(1)
+    }
+  })
+
+const cronCmd = program
+  .command('cron')
+  .description('Manage flt cron jobs')
+
+cronCmd
+  .command('list')
+  .description('List flt crontab entries with status')
+  .action(() => {
+    try {
+      cronList()
+    } catch (e) {
+      console.error(`Error: ${(e as Error).message}`)
+      process.exit(1)
+    }
+  })
+
+cronCmd
+  .command('add <name>')
+  .description('Generate and install a crontab entry for an flt agent')
+  .requiredOption('--every <interval>', 'Repeat interval (e.g. 30m, 1h, 6h)')
+  .option('--send <message>', 'Send message to persistent agent (spawns if not alive)')
+  .option('--spawn', 'Spawn ephemeral agent (spawn, wait, kill pattern)')
+  .option('--preset <name>', 'Preset for spawned agent (required with --spawn)')
+  .option('--dir <path>', 'Working directory for spawned agent')
+  .option('--timeout <duration>', 'Max runtime for spawn pattern (default: 5m)')
+  .option('--parent <name>', 'Override parent agent (default: human)')
+  .option('--bootstrap <message>', 'Initial message for spawned agent')
+  .action((name, opts) => {
+    try {
+      cronAdd(name, {
+        every: opts.every,
+        send: opts.send,
+        spawn: opts.spawn,
+        preset: opts.preset,
+        dir: opts.dir,
+        timeout: opts.timeout,
+        parent: opts.parent,
+        bootstrap: opts.bootstrap,
+      })
+    } catch (e) {
+      console.error(`Error: ${(e as Error).message}`)
+      process.exit(1)
+    }
+  })
+
+cronCmd
+  .command('remove <name>')
+  .description('Remove a crontab entry and its script file')
+  .action((name) => {
+    try {
+      cronRemove(name)
+    } catch (e) {
+      console.error(`Error: ${(e as Error).message}`)
+      process.exit(1)
+    }
+  })
+
+program
+  .command('activity')
+  .description('Show fleet activity log')
+  .option('-n, --lines <n>', 'Number of events to show', '20')
+  .option('--type <type>', 'Filter by event type (spawn, kill, status, workflow, message, error)')
+  .option('--since <iso>', 'Show events at or after this ISO timestamp')
+  .action((opts) => {
+    try {
+      activity({
+        limit: parseInt(opts.lines, 10),
+        type: opts.type,
+        since: opts.since,
+      })
     } catch (e) {
       console.error(`Error: ${(e as Error).message}`)
       process.exit(1)
