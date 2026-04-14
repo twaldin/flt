@@ -18,8 +18,13 @@ function getTypingAgent(): string | null {
 
 // Per-agent tracking state
 const lastIcons: Record<string, string> = {}
+const iconStableCount: Record<string, number> = {}  // consecutive polls with same icon
 const lastHashes: Record<string, string> = {}
+const hashStableSince: Record<string, number> = {}  // when content stopped changing
 const stableTracker: Record<string, { hash: string; since: number }> = {}
+
+const ICON_IDLE_THRESHOLD = 3     // 3 consecutive same-icon polls (3s) before idle
+const CONTENT_IDLE_GRACE_MS = 5000 // 5s of stable content before flipping running→idle
 
 function extractSpinnerIcon(pane: string): string | null {
   const match = pane.match(/^[\u00B7\u2722\u2733\u2217\u273B\u273D]/m)
@@ -39,12 +44,12 @@ function detectAgentStatusFromPane(name: string, agent: AgentState, pane: string
 
     const stripped = pane.replace(/\x1b\[[0-9;?]*[A-Za-z]/g, '').replace(/\x1b\][^\x07]*\x07/g, '')
 
-    // Claude-code: pure spinner icon delta detection
+    // Claude-code: spinner icon delta detection
     // The spinner cycles through · ✢ ✳ ∗ ✻ ✽ when active (~1s per icon).
     // When done, it freezes on ✻. Compare between polls:
-    //   icon changed → running
-    //   icon same    → idle
-    //   no icon      → idle
+    //   icon changed → running (reset stable count)
+    //   icon same N times → idle (only after ICON_IDLE_THRESHOLD consecutive same reads)
+    //   no icon → idle
     if (adapter.name === 'claude-code') {
       const last2 = stripped.split('\n').slice(-2).join('\n')
       if (/rate.?limit|hit your limit/i.test(last2)) return 'rate-limited'
@@ -54,12 +59,23 @@ function detectAgentStatusFromPane(name: string, agent: AgentState, pane: string
       if (icon) {
         const prev = lastIcons[name]
         lastIcons[name] = icon
-        if (prev && prev !== icon) return 'running'
-        if (prev) return 'idle'
-        return 'running' // first time seeing icon — assume running, next poll confirms
+        if (prev && prev !== icon) {
+          // Icon changed — definitely running
+          iconStableCount[name] = 0
+          return 'running'
+        }
+        if (prev) {
+          // Same icon — increment stable count, only declare idle after threshold
+          iconStableCount[name] = (iconStableCount[name] ?? 0) + 1
+          return iconStableCount[name] >= ICON_IDLE_THRESHOLD ? 'idle' : 'running'
+        }
+        // First time seeing icon — assume running
+        iconStableCount[name] = 0
+        return 'running'
       }
 
       delete lastIcons[name]
+      delete iconStableCount[name]
       return 'idle'
     }
 
@@ -67,7 +83,7 @@ function detectAgentStatusFromPane(name: string, agent: AgentState, pane: string
     const adapterResult = adapter.detectStatus(pane)
     if (adapterResult !== 'unknown') return adapterResult
 
-    // Fallback: content-delta
+    // Fallback: content-delta with grace period
     const hash = simpleHash(pane)
     const prevHash = lastHashes[name]
     lastHashes[name] = hash
@@ -76,8 +92,16 @@ function detectAgentStatusFromPane(name: string, agent: AgentState, pane: string
     const typingAgent = getTypingAgent()
     if (typingAgent === name) return agent.status ?? 'idle'
 
-    if (prevHash && prevHash !== hash) return 'running'
-    if (prevHash && prevHash === hash) return 'idle'
+    if (prevHash && prevHash !== hash) {
+      // Content changed — running, reset stable timer
+      delete hashStableSince[name]
+      return 'running'
+    }
+    if (prevHash && prevHash === hash) {
+      // Content stable — only flip to idle after grace period
+      if (!hashStableSince[name]) hashStableSince[name] = Date.now()
+      return (Date.now() - hashStableSince[name]) >= CONTENT_IDLE_GRACE_MS ? 'idle' : (agent.status ?? 'idle')
+    }
     return 'idle'
   } catch {
     return 'unknown'
@@ -120,7 +144,7 @@ export function pollOnce(): void {
     if (!hasSession(agent.tmuxSession)) continue
 
     const prevStatus = agent.status
-    const pane = capturePane(agent.tmuxSession, 20)
+    const pane = capturePane(agent.tmuxSession, 50)
     let status = detectAgentStatusFromPane(name, agent, pane)
     status = applyContentStableTimeout(name, pane, status)
 
@@ -148,6 +172,8 @@ export function stopPolling(): void {
 
 export function cleanupAgent(name: string): void {
   delete lastIcons[name]
+  delete iconStableCount[name]
   delete lastHashes[name]
+  delete hashStableSince[name]
   delete stableTracker[name]
 }
