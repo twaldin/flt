@@ -131,16 +131,18 @@ Launch with `flt tui`. The sidebar shows all agents in a tree hierarchy with liv
 ## CLI Reference
 
 ```
-flt init [-o name]           # Initialize fleet (optionally spawn orchestrator)
-flt tui                      # Open TUI dashboard
+flt init [-o name]           # Initialize fleet, start controller, open TUI
+flt tui                      # Attach to fleet TUI (lightweight reconnect)
 flt spawn <name> [options]   # Spawn an agent
 flt send <target> <message>  # Send message to agent or parent
 flt kill <name>              # Kill an agent
 flt list                     # List all agents with status
 flt logs <name> [-n lines]   # View agent terminal output
-flt presets list|add|remove   # Manage spawn presets
-flt skills list              # List available skills
 flt tail                     # Tail inbox (lightweight, no TUI)
+flt controller start|stop|status  # Manage the fleet controller daemon
+flt workflow run|status|list|cancel  # Multi-step agent workflows
+flt presets list|add|remove  # Manage spawn presets
+flt skills list              # List available skills
 ```
 
 ### Spawn flags
@@ -259,25 +261,88 @@ Autocomplete is configurable in `~/.flt/models.json`:
 }
 ```
 
+## Fleet Controller
+
+The fleet controller is a headless daemon that manages all agent lifecycle, status polling, and state persistence. It runs in its own tmux session (`flt-controller`) and is the single writer to `state.json` — eliminating race conditions when multiple agents spawn or kill concurrently.
+
+```bash
+flt controller start    # Start the daemon (auto-started by any flt command)
+flt controller status   # Show uptime, PID, agent count
+flt controller stop     # Stop the daemon
+```
+
+The controller:
+- Polls agent status every second (adapter-specific detection + 60s content-stable timeout)
+- Reconciles orphaned tmux sessions on boot (discovers agents that outlived a previous controller)
+- Routes all `spawn`, `kill`, and `send` commands through a Unix socket (`~/.flt/controller.sock`)
+- Advances workflow steps when agents go idle
+
+The TUI is a pure read-only observer — it reads `state.json` and displays what the controller writes. You can close and reopen the TUI without affecting running agents.
+
+## Workflows
+
+Workflows are YAML state machines that chain agents together. Define steps with presets, and the controller automatically advances when each agent goes idle.
+
+```yaml
+# ~/.flt/workflows/code-review.yaml
+name: code-review
+steps:
+  - id: implement
+    preset: coder
+    task: "Implement feature X"
+    on_complete: review
+
+  - id: review
+    preset: reviewer
+    task: "Review changes in {steps.implement.worktree}"
+    on_complete: done
+    max_retries: 2
+```
+
+```bash
+flt workflow run code-review      # Start the workflow
+flt workflow status code-review   # Show current step + history
+flt workflow list                 # List definitions and active runs
+flt workflow cancel code-review   # Cancel and kill agents
+```
+
+Template variables (`{steps.<id>.worktree}`, `{steps.<id>.dir}`, `{steps.<id>.branch}`) let later steps reference earlier agents' workspaces. Steps can also use `run:` for shell commands instead of agents.
+
 ## Architecture
 
 ```
 ~/.flt/
-  state.json         # Fleet state (readable by agents via cat)
-  config.json        # Settings, theme
-  presets.json       # Spawn presets
-  models.json        # Model autocomplete
-  inbox.log          # Agent messages
-  skills/            # Global skills (injected into all agents)
+  state.json           # Fleet state — single writer: controller
+  controller.sock      # Unix socket for CLI → controller RPC
+  controller.pid       # Controller process ID
+  config.json          # Settings, theme
+  presets.json         # Spawn presets
+  models.json          # Model autocomplete
+  inbox.log            # Agent messages
+  workflows/           # Workflow YAML definitions + run state
+  skills/              # Global skills (injected into all agents)
   agents/<name>/
-    SOUL.md          # Agent identity
-    state.md         # Agent state (for compaction/resume)
-    skills/          # Per-agent skills
+    SOUL.md            # Agent identity
+    state.md           # Agent state (for compaction/resume)
+    skills/            # Per-agent skills
 ```
+
+```
+┌──────────┐     ┌────────────┐     ┌─────────────┐
+│ flt CLI  │────▶│ Controller │────▶│ tmux agents │
+│ flt TUI  │     │ (daemon)   │     │ flt-coder   │
+│ cron     │     │            │     │ flt-reviewer│
+└──────────┘     │ state.json │     │ flt-monitor │
+   Unix socket   │ polling    │     └─────────────┘
+                 │ workflows  │
+                 └────────────┘
+```
+
+All commands route through the controller via Unix socket. The controller is the single writer to `state.json`. The TUI reads state and captures panes for display — never writes. Agents, cron scripts, and humans all use the same CLI commands.
 
 Each agent runs in its own tmux session (`flt-<name>`). Git worktrees provide branch isolation by default. State is flat JSON files — agents can read `~/.flt/state.json` to understand fleet state, which database-backed systems can't offer.
 
-The TUI is a raw ANSI screen buffer with damage tracking (not Ink/React). It maintains a double-buffered cell grid, diffs front vs back, and writes only changed cells in a single `stdout.write()`. This eliminates the render jitter that plagues Ink-based terminal tools when displaying live tmux output. Supports DEC 2026 synchronized output for zero-flicker on modern terminals like Ghostty.
+The TUI is a raw ANSI screen buffer with damage tracking (not Ink/React). It maintains a double-buffered cell grid, diffs front vs back, and writes only changed cells in a single `stdout.write()`. Supports DEC 2026 synchronized output for zero-flicker on modern terminals like Ghostty.
 
 ## Status Detection
 
