@@ -670,8 +670,38 @@ export class App {
       return
     }
 
+    if (parsed.cmd === 'ascii') {
+      const { setAsciiWord, resetAscii } = require('./ascii') as typeof import('./ascii')
+      const word = parsed.args[0]
+
+      if (!word || word === 'reset') {
+        resetAscii()
+        this.screen.forceDirty()
+        this.setBanner('ASCII logo reset to flt', 'green', 2000)
+        return
+      }
+
+      let fontPath: string | null = null
+      const fontFlagIdx = parsed.args.indexOf('--font')
+      if (fontFlagIdx !== -1 && fontFlagIdx + 1 < parsed.args.length) {
+        const raw = parsed.args[fontFlagIdx + 1]
+        fontPath = raw.startsWith('~/') ? raw.replace('~', process.env.HOME || homedir()) : raw
+        const { existsSync } = require('fs') as typeof import('fs')
+        if (!existsSync(fontPath)) {
+          this.setBanner(`Font file not found: ${fontPath}`, 'red', 4000)
+          return
+        }
+      }
+
+      setAsciiWord(word, fontPath)
+      this.screen.forceDirty()
+      const fontMsg = fontPath ? ` (font: ${fontPath})` : ''
+      this.setBanner(`ASCII logo: ${word}${fontMsg}`, 'green', 2000)
+      return
+    }
+
     if (parsed.cmd === 'help') {
-      this.setBanner('Commands: send, logs, spawn, presets, kill, theme, help', 'cyan', 4000)
+      this.setBanner('Commands: send, logs, spawn, presets, kill, theme, ascii, help', 'cyan', 4000)
       return
     }
 

@@ -2,17 +2,7 @@ import { getCompletionHint } from './input'
 import { ATTR_BOLD, ATTR_DIM, type Screen } from './screen'
 import { COLORS, fg, getTheme, modeColor, statusColor, statusSymbol } from './theme'
 import type { AgentView, AppState, Mode } from './types'
-
-const FLT_BANNER = [
-  '    ██████  ████   █████   ',
-  '   ███░░███░░███  ░░███    ',
-  '  ░███ ░░░  ░███  ███████  ',
-  ' ███████    ░███ ░░░███░   ',
-  '░░░███░     ░███   ░███    ',
-  '  ░███      ░███   ░███ ███',
-  '  █████     █████  ░░█████ ',
-  ' ░░░░░     ░░░░░    ░░░░░  ',
-]
+import { getAsciiLogo, getAsciiLogoWidth } from './ascii'
 
 const MODE_HINTS: Record<Mode, string> = {
   normal: 'j/k select | Enter focus | r reply | m inbox | t shell | K kill | : cmd | q quit',
@@ -244,11 +234,12 @@ function renderSidebar(screen: Screen, state: AppState, top: number, left: numbe
   }
 
   // ASCII banner at the bottom of the sidebar
+  const logo = getAsciiLogo(width)
   const bannerSpace = (top + height) - row
-  if (bannerSpace >= FLT_BANNER.length) {
-    const bannerStart = top + height - FLT_BANNER.length
-    for (let i = 0; i < FLT_BANNER.length; i++) {
-      const line = FLT_BANNER[i]
+  if (bannerSpace >= logo.length) {
+    const bannerStart = top + height - logo.length
+    for (let i = 0; i < logo.length; i++) {
+      const line = logo[i]
       const lineWidth = widthOf(line)
       const col = left + Math.max(0, Math.floor((width - lineWidth) / 2))
       const bannerRow = bannerStart + i
@@ -262,16 +253,16 @@ function renderSidebar(screen: Screen, state: AppState, top: number, left: numbe
 function renderBanner(screen: Screen, state: AppState, top: number, left: number, width: number, height: number): void {
   if (width <= 0 || height <= 0) return
 
-  const startRow = top + Math.max(0, Math.floor((height - FLT_BANNER.length) / 2))
-  for (let i = 0; i < FLT_BANNER.length; i += 1) {
+  const logo = getAsciiLogo(width)
+  const startRow = top + Math.max(0, Math.floor((height - logo.length) / 2))
+  for (let i = 0; i < logo.length; i += 1) {
     const row = startRow + i
     if (row >= top + height) break
-    const line = FLT_BANNER[i]
+    const line = logo[i]
     const lineWidth = widthOf(line)
     const col = left + Math.max(0, Math.floor((width - lineWidth) / 2))
     screen.put(row, col, truncate(line, width), getTheme().bannerText, '', ATTR_BOLD)
   }
-
 }
 
 // ─── Inbox rendering helpers ─────────────────────────────────────
@@ -549,7 +540,7 @@ export function calculateLayout(cols: number, rows: number, agents?: AgentView[]
   const contentHeight = Math.max(0, safeRows - statusHeight)
 
   // Dynamic sidebar width based on content
-  const bannerMaxWidth = 27  // widest FLT_BANNER line
+  const bannerMaxWidth = getAsciiLogoWidth()
   const minLogWidth = 24
   let contentWidth = bannerMaxWidth
 

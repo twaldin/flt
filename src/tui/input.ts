@@ -45,7 +45,7 @@ export interface InputBindings {
   onResize?: () => void
 }
 
-const COMMANDS = ['send', 'logs', 'spawn', 'presets', 'kill', 'theme', 'help']
+const COMMANDS = ['send', 'logs', 'spawn', 'presets', 'kill', 'theme', 'ascii', 'help']
 const SPAWN_FLAGS = ['--cli', '--model', '--dir', '--preset']
 const PRESETS_ACTIONS = ['list', 'add', 'remove']
 const PRESETS_ADD_FLAGS = ['--cli', '--model', '--description']
