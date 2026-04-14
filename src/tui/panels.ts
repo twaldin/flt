@@ -19,7 +19,7 @@ const MODE_HINTS: Record<Mode, string> = {
   'log-focus': 'j/k scroll | i insert | Ctrl-d/u page | G/g bottom/top | Esc back',
   insert: 'typing to selected agent | Esc exit insert mode',
   command: 'Enter execute | Tab complete | Esc cancel',
-  inbox: 'j/k card | Enter expand | r reply | Esc close',
+  inbox: 'j/k card | Enter expand | r reply | d delete | D clear all | Esc close',
   presets: ': cmd | Esc close',
   'kill-confirm': 'y confirm | n cancel | Esc cancel',
   shell: 'typing in shell | Esc close',

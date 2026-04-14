@@ -126,6 +126,8 @@ export class App {
       inboxMsgScrollDown: () => this.inboxMsgScrollDown(),
       inboxMsgScrollUp: () => this.inboxMsgScrollUp(),
       inboxReply: () => this.inboxReply(),
+      inboxDeleteCard: () => this.inboxDeleteCard(),
+      inboxClearAll: () => this.inboxClearAll(),
       setSearchQuery: (query) => this.setSearchQuery(query),
       submitCommand: (input) => this.submitCommand(input),
       setKillConfirm: (agentName) => this.setKillConfirm(agentName),
@@ -452,6 +454,36 @@ export class App {
     const maxScroll = Math.max(0, card.messages.length - 1)
     this.state.inboxCardMsgScroll = Math.min(maxScroll, this.state.inboxCardMsgScroll + 1)
     this.render()
+  }
+
+  private inboxDeleteCard(): void {
+    const cards = this.getInboxCards()
+    const card = cards[this.state.inboxSelectedCard]
+    if (!card) return
+    // Remove all messages from this sender
+    this.state.inboxMessages = this.state.inboxMessages.filter(m => m.from !== card.from)
+    // Rewrite the inbox file
+    this.rewriteInbox()
+    this.state.inboxSelectedCard = Math.min(this.state.inboxSelectedCard, Math.max(0, cards.length - 2))
+    this.state.inboxFocusedCard = false
+    this.render()
+  }
+
+  private inboxClearAll(): void {
+    this.state.inboxMessages = []
+    this.rewriteInbox()
+    this.state.inboxSelectedCard = 0
+    this.state.inboxFocusedCard = false
+    this.render()
+  }
+
+  private rewriteInbox(): void {
+    const { getInboxPath } = require('../commands/init') as typeof import('../commands/init')
+    const { writeFileSync } = require('fs')
+    const content = this.state.inboxMessages
+      .map(m => `[${m.timestamp}] [${m.from}]: ${m.text}`)
+      .join('\n') + (this.state.inboxMessages.length > 0 ? '\n' : '')
+    writeFileSync(getInboxPath(), content)
   }
 
   private inboxReply(): void {

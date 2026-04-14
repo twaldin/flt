@@ -30,6 +30,8 @@ export interface InputBindings {
   inboxMsgScrollDown: () => void
   inboxMsgScrollUp: () => void
   inboxReply: () => void
+  inboxDeleteCard: () => void
+  inboxClearAll: () => void
   setSearchQuery: (query: string) => void
   submitCommand: (input: string) => void
   setKillConfirm: (agentName: string) => void
@@ -575,6 +577,8 @@ function handleInboxChar(char: string, bindings: InputBindings): void {
   if (char === 'j') bindings.inboxCardDown()
   else if (char === 'k') bindings.inboxCardUp()
   else if (char === 'r') bindings.inboxReply()
+  else if (char === 'd') bindings.inboxDeleteCard()
+  else if (char === 'D') bindings.inboxClearAll()
 }
 
 function handlePresetsChar(char: string, bindings: InputBindings): void {
