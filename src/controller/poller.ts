@@ -57,14 +57,21 @@ function detectAgentStatusFromPane(agent: AgentState, pane: string): AgentStatus
     const adapterResult = adapter.detectStatus(pane)
     if (adapterResult !== 'unknown') return adapterResult
 
-    // Fallback: pane content delta
+    // Fallback: content-delta — one-way filter
+    // Content changing can KEEP running, content stable can MOVE to idle
+    // But content changing alone cannot move idle → running
+    // Only adapter-specific signals (above) can transition to running
     const key = agent.tmuxSession
     const hash = simpleHash(pane)
     const prevHash = lastHashes[key]
     lastHashes[key] = hash
-    if (prevHash && prevHash !== hash) return 'running'
-    if (prevHash && prevHash === hash) return 'idle'
-    return 'idle'
+    const contentChanged = prevHash && prevHash !== hash
+    const prevStatus = agent.status ?? 'idle'
+
+    if (prevStatus === 'running' && contentChanged) return 'running'
+    if (prevStatus === 'running' && !contentChanged) return 'idle'
+    // If was idle/unknown, stay idle — only adapter can flip to running
+    return prevStatus === 'rate-limited' ? prevStatus : 'idle'
   } catch {
     return 'unknown'
   }
