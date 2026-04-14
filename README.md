@@ -1,7 +1,5 @@
 # flt
 
-One fleet. Any agent. Your terminal.
-
 flt is a CLI that spawns, messages, and manages AI coding agents across any harness — Claude Code, Codex, Gemini CLI, Aider, OpenCode, SWE-agent — from one place.
 
 The same commands work whether you type them, an agent runs them from its tmux session, or a cron job fires them. `flt spawn`, `flt send`, `flt kill`. That's the whole API. Humans, agents, and automation all speak the same language.
