@@ -205,18 +205,18 @@ function renderSidebar(screen: Screen, state: AppState, top: number, left: numbe
     row += 1
 
     // Name row
-    const badge = notification && !selected ? (notification === 'message' ? '● ' : '◐ ') : ''
-    // Persistent dead agents show ⟳ (respawning indicator) instead of ○ (exited)
     const dot = (agent.persistent && agent.status === 'exited') ? '⟳' : statusSymbol(agent.status)
     const persistentBadge = agent.persistent ? 'P ' : ''
     const age = formatAge(agent.spawnedAt)
+    const notifDot = notification && !selected ? ' ●' : ''
     // Collapsed indicator: show [+N] when agent has hidden children
     const collapsedSuffix = (agent.collapsedChildCount !== undefined && agent.collapsedChildCount > 0)
       ? ` [+${agent.collapsedChildCount}]`
       : ''
-    const nameText = `${badge}${persistentBadge}${dot} ${agent.name}${collapsedSuffix}`
-    const agePad = Math.max(0, innerWidth - widthOf(nameText) - widthOf(age))
-    const line1 = `${pad}${namePrefix}${nameText}${' '.repeat(agePad)}${age}${pad}`
+    const nameText = `${persistentBadge}${dot} ${agent.name}${collapsedSuffix}`
+    const ageWithNotif = `${notifDot} ${age}`
+    const agePad = Math.max(0, innerWidth - widthOf(nameText) - widthOf(ageWithNotif))
+    const line1 = `${pad}${namePrefix}${nameText}${' '.repeat(agePad)}${ageWithNotif}${pad}`
     screen.put(row, left, padRight(line1, width), agentColor, bg, ATTR_BOLD)
     row += 1
 
