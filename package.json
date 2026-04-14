@@ -1,16 +1,47 @@
 {
-  "name": "flt",
+  "name": "flt-fleet",
   "version": "0.1.0",
   "type": "module",
-  "description": "Spawn and talk to AI coding agents in any CLI, using tmux",
+  "description": "Orchestrate AI coding agents across any CLI harness, in tmux",
   "license": "MIT",
+  "author": "Tim Waldin",
+  "homepage": "https://github.com/twaldin/flt",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/twaldin/flt.git"
   },
+  "bugs": {
+    "url": "https://github.com/twaldin/flt/issues"
+  },
+  "keywords": [
+    "ai",
+    "agents",
+    "coding",
+    "tmux",
+    "orchestration",
+    "claude",
+    "codex",
+    "gemini",
+    "aider",
+    "cli"
+  ],
   "bin": {
     "flt": "./src/cli.ts"
   },
+  "files": [
+    "src/",
+    "templates/",
+    "docs/",
+    "README.md",
+    "LICENSE"
+  ],
+  "engines": {
+    "bun": ">=1.0.0"
+  },
+  "os": [
+    "darwin",
+    "linux"
+  ],
   "scripts": {
     "test": "bun test",
     "test:unit": "bun test tests/unit/",

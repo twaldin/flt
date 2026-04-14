@@ -24,7 +24,7 @@ flt spawn reviewer -p evaluator -d ~/project "review PR #5"
 ## Install
 
 ```bash
-bun install -g flt
+bun install -g flt-fleet
 ```
 
 Requires [Bun](https://bun.sh) (runtime) and [tmux](https://github.com/tmux/tmux) (session management). Node.js is not supported — flt is Bun-native.
@@ -100,6 +100,8 @@ Launch with `flt tui`. The sidebar shows all agents in a tree hierarchy with liv
 
 ### Keybindings
 
+All keybindings are configurable via `~/.flt/keybinds.json`. The defaults are vim-style. Use `:keybinds` in the TUI to show bindings for the current mode.
+
 | Mode | Key | Action |
 |------|-----|--------|
 | Normal | `j/k` | Select agent |
@@ -140,6 +142,7 @@ Launch with `flt tui`. The sidebar shows all agents in a tree hierarchy with liv
 :kill name
 :presets list
 :theme dracula
+:keybinds                 # show keybinds for current mode
 :ascii hello              # change sidebar logo (DOS Rebel font)
 :ascii hello ~/font.flf   # custom figlet font
 :ascii reset              # restore default
@@ -157,6 +160,7 @@ flt list                                # List all agents with status
 flt logs <name> [-n lines]              # View agent terminal output
 flt tail                                # Tail inbox (lightweight, no TUI)
 flt activity [-n lines] [--type type]   # Show fleet activity log
+flt exit                                # Shut down fleet: cancel workflows, kill agents, stop controller
 flt controller start|stop|status        # Manage the fleet controller daemon
 flt workflow run|status|list|cancel     # Multi-step agent workflows
 flt workflow pass                       # Signal PASS from inside a workflow step
@@ -212,6 +216,20 @@ Stored in `~/.flt/presets.json`.
 ## Agent Identity (SOUL.md)
 
 Each agent can have a `~/.flt/agents/<name>/SOUL.md` defining its role, responsibilities, and hard rules. This gets injected into the agent's instruction file on spawn. Keep it short — identity and values, not reference material.
+
+Presets can also reference a shared soul file via the `soul` field in `presets.json`:
+
+```json
+{
+  "coder": {
+    "cli": "codex",
+    "model": "gpt-5.3-codex",
+    "soul": "souls/coder.md"
+  }
+}
+```
+
+Soul resolution: agent-specific `~/.flt/agents/<name>/SOUL.md` first, then preset `soul` path (relative to `~/.flt/`), then nothing.
 
 ## Skills
 
@@ -271,7 +289,17 @@ The inbox (`m` in TUI) shows messages in an email-client layout — message list
 
 ## Themes
 
-9 built-in themes: `dark`, `light`, `minimal`, `catppuccin`, `gruvbox`, `tokyo-night`, `nord`, `dracula`, `one-dark`.
+15 built-in themes: `dark`, `light`, `minimal`, `catppuccin`, `gruvbox`, `tokyo-night`, `nord`, `dracula`, `one-dark`, `solarized-dark`, `solarized-light`, `monokai`, `rose-pine`, `everforest`, `kanagawa`.
+
+Each theme controls its own background color for consistent appearance across terminals. `minimal` uses transparent background (your terminal's native bg). Custom themes go in `~/.flt/themes/` as JSON files:
+
+```json
+{
+  "extends": "dracula",
+  "background": "48;2;30;30;40",
+  "sidebarBorder": "38;2;255;100;100"
+}
+```
 
 ```
 :theme dracula

@@ -302,13 +302,21 @@ function shellEscapeArg(value: string): string {
 }
 
 function resolveTemplateShell(template: string, run: WorkflowRun): string {
-  return template.replace(/\{steps\.([^.]+)\.(\w+)\}/g, (match, stepId, field) => {
+  // Escape shorthand vars for shell safety
+  let result = template
+    .replace(/\{task\}/g, shellEscapeArg(run.vars._input?.task ?? ''))
+    .replace(/\{dir\}/g, shellEscapeArg(run.vars._input?.dir ?? ''))
+    .replace(/\{pr\}/g, shellEscapeArg(run.vars._pr?.url ?? ''))
+    .replace(/\{fail_reason\}/g, shellEscapeArg(run.stepFailReason ?? ''))
+  // Escape step vars
+  result = result.replace(/\{steps\.([^.]+)\.(\w+)\}/g, (match, stepId, field) => {
     const stepVars = run.vars[stepId]
     if (!stepVars) return match
     const value = stepVars[field]
     if (value === undefined) return match
     return shellEscapeArg(value)
   })
+  return result
 }
 
 async function executeStep(def: WorkflowDef, run: WorkflowRun, step: WorkflowStepDef): Promise<void> {
