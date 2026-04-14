@@ -7,7 +7,7 @@ import { getAsciiLogo, getAsciiLogoWidth } from './ascii'
 const MODE_HINTS: Record<Mode, string> = {
   normal: 'j/k select | Enter focus | r reply | m inbox | t shell | K kill | : cmd | q quit',
   'log-focus': 'j/k scroll | i insert | Ctrl-d/u page | G/g bottom/top | Esc back',
-  insert: 'typing to selected agent | Esc exit insert mode',
+  insert: 'typing to agent | Ctrl-c interrupt | Esc exit',
   command: 'Enter execute | Tab complete | Esc cancel',
   inbox: 'j/k select | r reply | d delete | D clear all | Esc close',
   presets: ': cmd | Esc close',

@@ -611,8 +611,9 @@ function handleSpecialKey(event: Extract<ParsedInputEvent, { type: 'key' }>, bin
       bindings.flushInsert()
       bindings.sendInsertKey('C-u')
     } else if (event.key === 'ctrl-c') {
+      // Send Escape to agent (interrupt generation) instead of SIGINT (kills process)
       bindings.flushInsert()
-      bindings.sendInsertKey('C-c')
+      bindings.sendInsertKey('Escape')
     }
     return
   }
