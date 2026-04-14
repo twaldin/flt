@@ -3,7 +3,7 @@ import { listWorkflowDefs } from '../workflow/parser'
 
 export async function workflowRun(name: string, opts?: { parent?: string; task?: string; dir?: string }): Promise<void> {
   const run = await startWorkflow(name, opts)
-  console.log(`Started workflow "${name}" (step: ${run.currentStep}, parent: ${run.parentName})`)
+  console.log(`Started workflow "${run.id}" (step: ${run.currentStep}, parent: ${run.parentName})`)
 }
 
 export function workflowStatus(name?: string): void {
@@ -40,9 +40,14 @@ export function workflowList(): void {
   if (defs.length > 0) {
     console.log('Workflow definitions:')
     for (const name of defs) {
-      const run = runs.find(r => r.workflow === name)
-      const statusTag = run ? ` [${run.status}: ${run.currentStep}]` : ''
-      console.log(`  ${name}${statusTag}`)
+      const active = runs.filter(r => r.workflow === name && r.status === 'running')
+      if (active.length === 0) {
+        console.log(`  ${name}`)
+      } else {
+        for (const run of active) {
+          console.log(`  ${name} [${run.id}: ${run.currentStep}]`)
+        }
+      }
     }
   }
 
@@ -62,7 +67,7 @@ export async function workflowCancel(name: string): Promise<void> {
 
 function printRun(run: ReturnType<typeof loadWorkflowRun>): void {
   if (!run) return
-  console.log(`Workflow: ${run.workflow}`)
+  console.log(`Workflow: ${run.workflow} (id: ${run.id})`)
   console.log(`Status: ${run.status}`)
   console.log(`Current step: ${run.currentStep}`)
   console.log(`Started: ${run.startedAt}`)

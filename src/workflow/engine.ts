@@ -5,16 +5,26 @@ import { loadWorkflowDef } from './parser'
 import { getAgent, allAgents } from '../state'
 import type { WorkflowDef, WorkflowRun, WorkflowStepDef } from './types'
 
-function getWorkflowRunDir(workflowName: string): string {
-  return join(process.env.HOME ?? require('os').homedir(), '.flt', 'workflows', workflowName)
+function getRunsDir(): string {
+  return join(process.env.HOME ?? require('os').homedir(), '.flt', 'workflows', 'runs')
 }
 
-function getRunPath(workflowName: string): string {
-  return join(getWorkflowRunDir(workflowName), 'run.json')
+function getRunPath(runId: string): string {
+  return join(getRunsDir(), `${runId}.json`)
 }
 
-export function loadWorkflowRun(workflowName: string): WorkflowRun | null {
-  const path = getRunPath(workflowName)
+function generateRunId(workflowName: string): string {
+  const runs = listWorkflowRuns().filter(r => r.workflow === workflowName && r.status === 'running')
+  if (runs.length === 0) return workflowName
+  // Find next available number
+  let n = 2
+  const existingIds = new Set(runs.map(r => r.id))
+  while (existingIds.has(`${workflowName}-${n}`)) n++
+  return `${workflowName}-${n}`
+}
+
+export function loadWorkflowRun(runId: string): WorkflowRun | null {
+  const path = getRunPath(runId)
   if (!existsSync(path)) return null
   try {
     return JSON.parse(readFileSync(path, 'utf-8'))
@@ -24,27 +34,24 @@ export function loadWorkflowRun(workflowName: string): WorkflowRun | null {
 }
 
 export function saveWorkflowRun(run: WorkflowRun): void {
-  const dir = getWorkflowRunDir(run.workflow)
+  const dir = getRunsDir()
   mkdirSync(dir, { recursive: true })
-  const path = getRunPath(run.workflow)
+  const path = getRunPath(run.id)
   const tmp = path + '.tmp'
   writeFileSync(tmp, JSON.stringify(run, null, 2) + '\n')
   renameSync(tmp, path)
 }
 
 export function listWorkflowRuns(): WorkflowRun[] {
-  const baseDir = join(process.env.HOME ?? require('os').homedir(), '.flt', 'workflows')
-  if (!existsSync(baseDir)) return []
+  const dir = getRunsDir()
+  if (!existsSync(dir)) return []
 
   const runs: WorkflowRun[] = []
-  for (const entry of readdirSync(baseDir, { withFileTypes: true })) {
-    if (!entry.isDirectory()) continue
-    const runFile = join(baseDir, entry.name, 'run.json')
-    if (existsSync(runFile)) {
-      try {
-        runs.push(JSON.parse(readFileSync(runFile, 'utf-8')))
-      } catch {}
-    }
+  for (const file of readdirSync(dir)) {
+    if (!file.endsWith('.json')) continue
+    try {
+      runs.push(JSON.parse(readFileSync(join(dir, file), 'utf-8')))
+    } catch {}
   }
   return runs
 }
@@ -52,18 +59,12 @@ export function listWorkflowRuns(): WorkflowRun[] {
 export async function startWorkflow(name: string, opts?: { parent?: string; task?: string; dir?: string }): Promise<WorkflowRun> {
   const def = loadWorkflowDef(name)
 
-  // Check for existing active run
-  const existing = loadWorkflowRun(name)
-  if (existing && existing.status === 'running') {
-    throw new Error(`Workflow "${name}" is already running (step: ${existing.currentStep}).`)
-  }
-
   // Derive parent from caller if not provided
   const callerName = opts?.parent ?? process.env.FLT_AGENT_NAME
   const resolvedParent = (callerName && callerName !== 'cron') ? callerName : 'human'
 
   const run: WorkflowRun = {
-    id: `${name}-${Date.now()}`,
+    id: generateRunId(name),
     workflow: name,
     currentStep: def.steps[0].id,
     status: 'running',
@@ -87,11 +88,11 @@ export async function startWorkflow(name: string, opts?: { parent?: string; task
   return run
 }
 
-export async function advanceWorkflow(workflowName: string): Promise<void> {
-  const run = loadWorkflowRun(workflowName)
+export async function advanceWorkflow(runId: string): Promise<void> {
+  const run = loadWorkflowRun(runId)
   if (!run || run.status !== 'running') return
 
-  const def = loadWorkflowDef(workflowName)
+  const def = loadWorkflowDef(run.workflow)
   const currentStepDef = def.steps.find(s => s.id === run.currentStep)
   if (!currentStepDef) {
     run.status = 'failed'
@@ -101,7 +102,7 @@ export async function advanceWorkflow(workflowName: string): Promise<void> {
   }
 
   // Record current step completion
-  const agentName = workflowAgentName(workflowName, currentStepDef.id)
+  const agentName = workflowAgentName(run.id, currentStepDef.id)
   const agent = getAgent(agentName)
   if (agent) {
     // Capture agent vars for template resolution
@@ -150,11 +151,11 @@ export async function advanceWorkflow(workflowName: string): Promise<void> {
   await executeStep(def, run, nextStepDef)
 }
 
-export async function handleStepFailure(workflowName: string): Promise<void> {
-  const run = loadWorkflowRun(workflowName)
+export async function handleStepFailure(runId: string): Promise<void> {
+  const run = loadWorkflowRun(runId)
   if (!run || run.status !== 'running') return
 
-  const def = loadWorkflowDef(workflowName)
+  const def = loadWorkflowDef(run.workflow)
   const currentStepDef = def.steps.find(s => s.id === run.currentStep)
   if (!currentStepDef) return
 
@@ -172,7 +173,7 @@ export async function handleStepFailure(workflowName: string): Promise<void> {
     saveWorkflowRun(run)
 
     // Kill failed agent, respawn
-    const agentName = workflowAgentName(workflowName, currentStepDef.id)
+    const agentName = workflowAgentName(run.id, currentStepDef.id)
     try {
       const { killDirect } = await import('../commands/kill')
       killDirect({ name: agentName })
@@ -205,13 +206,13 @@ export async function handleStepFailure(workflowName: string): Promise<void> {
   }
 }
 
-export async function cancelWorkflow(workflowName: string): Promise<void> {
-  const run = loadWorkflowRun(workflowName)
-  if (!run) throw new Error(`No workflow run found for "${workflowName}"`)
-  if (run.status !== 'running') throw new Error(`Workflow "${workflowName}" is not running (status: ${run.status})`)
+export async function cancelWorkflow(runId: string): Promise<void> {
+  const run = loadWorkflowRun(runId)
+  if (!run) throw new Error(`No workflow run found for "${runId}"`)
+  if (run.status !== 'running') throw new Error(`Workflow "${runId}" is not running (status: ${run.status})`)
 
   // Kill the current step's agent
-  const agentName = workflowAgentName(workflowName, run.currentStep)
+  const agentName = workflowAgentName(run.id, run.currentStep)
   try {
     const { killDirect } = await import('../commands/kill')
     killDirect({ name: agentName })
@@ -268,7 +269,7 @@ async function executeStep(def: WorkflowDef, run: WorkflowRun, step: WorkflowSte
   }
 
   // Agent step — spawn via preset
-  const agentName = workflowAgentName(run.workflow, step.id)
+  const agentName = workflowAgentName(run.id, step.id)
   const task = resolveTemplate(step.task, run)
   const dir = step.dir
     ? resolveTemplate(step.dir, run)
@@ -309,8 +310,8 @@ function resolveTemplate(template: string, run: WorkflowRun): string {
   return result
 }
 
-export function workflowAgentName(workflowName: string, stepId: string): string {
-  return `${workflowName}-${stepId}`
+export function workflowAgentName(runId: string, stepId: string): string {
+  return `${runId}-${stepId}`
 }
 
 function cleanupWorkflowWorktrees(run: WorkflowRun): void {
@@ -351,12 +352,12 @@ async function notifyWorkflowParent(run: WorkflowRun, message: string): Promise<
   } catch {}
 }
 
-// Map agent names to workflow names for the controller poller
+// Map agent names to workflow run IDs for the controller poller
 export function getWorkflowForAgent(agentName: string): string | null {
   const runs = listWorkflowRuns().filter(r => r.status === 'running')
   for (const run of runs) {
-    const expectedAgent = workflowAgentName(run.workflow, run.currentStep)
-    if (agentName === expectedAgent) return run.workflow
+    const expectedAgent = workflowAgentName(run.id, run.currentStep)
+    if (agentName === expectedAgent) return run.id
   }
   return null
 }
