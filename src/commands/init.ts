@@ -27,7 +27,36 @@ export function appendInbox(from: string, message: string): void {
 }
 
 export async function init(args: InitArgs): Promise<void> {
-  // Spawn orchestrator agent first, then fall through to TUI
+  // Ensure state dir and inbox exist
+  mkdirSync(getStateDir(), { recursive: true })
+  const inboxPath = getInboxPath()
+  if (!existsSync(inboxPath)) {
+    writeFileSync(inboxPath, '')
+  }
+
+  // Set orchestrator reference (human session)
+  const currentSession = detectTmuxSession()
+  const existing = getOrchestrator()
+  if (!existing) {
+    setOrchestrator({
+      tmuxSession: currentSession,
+      tmuxWindow: process.env.TMUX_PANE || '0',
+      type: 'human',
+      initAt: new Date().toISOString(),
+    })
+  } else if (existing.tmuxSession !== currentSession) {
+    setOrchestrator({
+      ...existing,
+      tmuxSession: currentSession,
+      tmuxWindow: process.env.TMUX_PANE || '0',
+    })
+  }
+
+  // Ensure controller is running
+  const { ensureController } = await import('./controller')
+  await ensureController()
+
+  // Spawn orchestrator agent if requested
   if (args.orchestrator) {
     const { spawn } = await import('./spawn')
     const agentName = typeof args.orchestrator === 'string' ? args.orchestrator : 'orchestrator'
@@ -35,20 +64,13 @@ export async function init(args: InitArgs): Promise<void> {
     const { getPreset } = await import('../presets')
     const hasPreset = !!getPreset(preset)
 
-    // Dir resolution: --dir flag > agent home > cwd
     let dir = args.dir
     if (dir) {
-      // Expand ~ and create if doesn't exist
       if (dir.startsWith('~/')) dir = dir.replace('~', process.env.HOME || homedir())
-      if (!existsSync(dir)) {
-        mkdirSync(dir, { recursive: true })
-      }
+      if (!existsSync(dir)) mkdirSync(dir, { recursive: true })
     } else {
       const agentHome = join(getStateDir(), 'agents', agentName)
-      if (existsSync(agentHome)) {
-        dir = agentHome
-      }
-      // else: undefined → spawn.ts defaults to cwd
+      if (existsSync(agentHome)) dir = agentHome
     }
 
     try {
@@ -63,52 +85,25 @@ export async function init(args: InitArgs): Promise<void> {
     } catch (e) {
       console.error(`Warning: ${(e as Error).message}`)
     }
-    // Fall through to TUI — don't return
   }
 
-  // Human orchestrator — determine current tmux session
-  const currentSession = detectTmuxSession()
+  // Launch TUI
+  const { renderTui } = await import('../tui/render')
+  await renderTui()
+}
 
-  const existing = getOrchestrator()
-  if (existing && existing.tmuxSession === currentSession) {
-    // Same session — just start watching inbox
-  } else if (existing) {
-    // Session changed — update reference
-    setOrchestrator({
-      ...existing,
-      tmuxSession: currentSession,
-      tmuxWindow: process.env.TMUX_PANE || '0',
-    })
-  } else {
-    setOrchestrator({
-      tmuxSession: currentSession,
-      tmuxWindow: process.env.TMUX_PANE || '0',
-      type: 'human',
-      initAt: new Date().toISOString(),
-    })
-  }
-
-  // Ensure inbox file exists
-  const inboxPath = getInboxPath()
-  mkdirSync(getStateDir(), { recursive: true })
-  if (!existsSync(inboxPath)) {
-    writeFileSync(inboxPath, '')
-  }
-
-  // Ensure controller is running (handles reconciliation + status polling)
+/** Launch TUI only — expects controller to be running */
+export async function tui(): Promise<void> {
   const { ensureController } = await import('./controller')
   await ensureController()
 
-  // Render TUI
   const { renderTui } = await import('../tui/render')
   await renderTui()
 }
 
 function detectTmuxSession(): string {
-  // TMUX env var format: /tmp/tmux-501/default,12345,0
   const tmuxEnv = process.env.TMUX
   if (tmuxEnv) {
-    // Extract session name from tmux
     try {
       const out = require('child_process').execFileSync('tmux', [
         'display-message', '-p', '#{session_name}'

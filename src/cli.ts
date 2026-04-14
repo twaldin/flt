@@ -40,6 +40,19 @@ program
   })
 
 program
+  .command('tui')
+  .description('Launch the fleet TUI (read-only observer)')
+  .action(async () => {
+    try {
+      const { tui } = await import('./commands/init')
+      await tui()
+    } catch (e) {
+      console.error(`Error: ${(e as Error).message}`)
+      process.exit(1)
+    }
+  })
+
+program
   .command('spawn <name>')
   .description('Spawn an agent in a tmux session')
   .option('-c, --cli <cli>', `CLI adapter (${listAdapters().join(', ')})`)

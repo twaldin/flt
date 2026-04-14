@@ -15,6 +15,31 @@ import { calculateLayout, renderLayout } from './panels'
 import { Screen } from './screen'
 import { createInitialState, type AgentView, type AppState, type InboxMessage, type Mode } from './types'
 
+/** Sort agents into tree order (parent before children) so array index matches display */
+function sortTreeOrder(agents: AgentView[]): AgentView[] {
+  const byName = new Map(agents.map(a => [a.name, a]))
+  const result: AgentView[] = []
+  const visited = new Set<string>()
+
+  function walk(parentName: string): void {
+    for (const agent of agents) {
+      if (visited.has(agent.name)) continue
+      if (agent.parentName === parentName || (parentName === 'orchestrator' && !byName.has(agent.parentName))) {
+        visited.add(agent.name)
+        result.push(agent)
+        walk(agent.name)
+      }
+    }
+  }
+
+  walk('orchestrator')
+  // Append any orphans
+  for (const agent of agents) {
+    if (!visited.has(agent.name)) result.push(agent)
+  }
+  return result
+}
+
 function parseInbox(content: string): InboxMessage[] {
   const messages: InboxMessage[] = []
   for (const line of content.split('\n')) {
@@ -737,7 +762,9 @@ export class App {
       })
     }
 
-    if (this.applyAgents(nextViews)) changed = true
+    // Sort agents in tree order so array index matches display order
+    const sorted = sortTreeOrder(nextViews)
+    if (this.applyAgents(sorted)) changed = true
 
     const selected = this.selectedAgent
     if (selected?.name !== this.lastSelectedName) {
