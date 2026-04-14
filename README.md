@@ -114,6 +114,11 @@ Launch with `flt tui`. The sidebar shows all agents in a tree hierarchy with liv
 | Log focus | `Ctrl-d/u` | Page scroll |
 | Insert | any key | Forwarded to agent |
 | Insert | `Esc` | Exit insert mode |
+| Inbox | `j/k` | Select message |
+| Inbox | `d` | Delete message |
+| Inbox | `D` | Clear all |
+| Inbox | `r` | Reply to sender |
+| Inbox | `Esc` | Close inbox |
 
 ### TUI Commands
 
@@ -124,6 +129,9 @@ Launch with `flt tui`. The sidebar shows all agents in a tree hierarchy with liv
 :kill name
 :presets list
 :theme dracula
+:ascii hello              # change sidebar logo
+:ascii hello --font ~/f.flf   # custom figlet font
+:ascii reset              # restore default
 ```
 
 ## CLI Reference
@@ -152,6 +160,7 @@ flt skills list              # List available skills
 | `--preset <name>` | `-p` | Use a saved preset |
 | `--dir <path>` | `-d` | Working directory |
 | `--no-worktree` | `-W` | Skip git worktree creation |
+| `--parent <name>` | | Override parent for messaging |
 
 ## Adapters
 
@@ -233,12 +242,14 @@ flt is designed to run from cron without human babysitting. Every CLI adapter in
 ```bash
 flt send mycoder "also add tests"      # human → agent
 flt send parent "task complete"         # agent → parent (from inside agent)
-flt send sibling "check my PR"         # agent → agent
+flt send reviewer "check my PR"        # agent → agent
 ```
 
-Messages are tagged with `[SENDER]:` for attribution. `flt send parent` does dual routing — the message goes to both the parent agent's tmux session AND the human inbox, so the orchestrator and human both see completion signals.
+Messages are tagged with `[SENDER]:` for attribution. `flt send parent` routes to whoever spawned the agent — single delivery, no duplication. If parent is `human` (spawned by you or cron), the message goes to your inbox. If parent is another agent (e.g., cairn spawned a coder), the message goes to that agent's tmux session only.
 
-The inbox (`m` in TUI) groups messages by sender in card-style boxes.
+Use `--parent` on spawn to override: `flt spawn coder -p coder --parent cairn` makes the coder report to cairn instead of you.
+
+The inbox (`m` in TUI) shows messages in an email-client layout — message list on top, selected message detail with word wrap below. `d` deletes a message, `D` clears all.
 
 ## Themes
 
