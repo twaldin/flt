@@ -16,6 +16,12 @@ import { calculateLayout, renderLayout } from './panels'
 import { Screen } from './screen'
 import { createInitialState, type AgentView, type AppState, type InboxMessage, type Mode } from './types'
 
+/** Strip OSC 8 hyperlink sequences, keeping the display text */
+function stripOsc8(s: string): string {
+  // OSC 8: \x1b]8;params;uri\x07  or  \x1b]8;params;uri\x1b\\
+  return s.replace(/\x1b\]8;[^\x07\x1b]*(?:\x07|\x1b\\)/g, '')
+}
+
 /** Sort agents into tree order (parent before children) so array index matches display */
 function sortTreeOrder(agents: AgentView[]): AgentView[] {
   const byName = new Map(agents.map(a => [a.name, a]))
@@ -801,9 +807,10 @@ export class App {
     if (!agent) return
     try {
       // In insert mode we're always auto-following — capture visible pane only
-      const content = this.state.autoFollow
+      const raw = this.state.autoFollow
         ? capturePaneVisible(agent.tmuxSession)
         : capturePane(agent.tmuxSession, Math.max(200, (this.state.termHeight - 5) * 3))
+      const content = stripOsc8(raw)
       if (content !== this.lastLogContent) {
         this.lastLogContent = content
         this.state.logContent = content
@@ -947,9 +954,9 @@ export class App {
           // In auto-follow: capture only the visible pane (no scrollback).
           // This gives exactly paneHeight rows — a 1:1 match with the tmux pane.
           // When scrolled up: capture with scrollback for history.
-          const content = this.state.autoFollow
+          const content = stripOsc8(this.state.autoFollow
             ? capturePaneVisible(agent.tmuxSession)
-            : capturePane(agent.tmuxSession, Math.max(200, paneHeight * 3))
+            : capturePane(agent.tmuxSession, Math.max(200, paneHeight * 3)))
           if (content !== this.lastLogContent) {
             this.lastLogContent = content
             if (this.applyLogContent(content)) changed = true

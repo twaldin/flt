@@ -103,22 +103,33 @@ Launch with `flt tui`. The sidebar shows all agents in a tree hierarchy with liv
 | Mode | Key | Action |
 |------|-----|--------|
 | Normal | `j/k` | Select agent |
-| Normal | `Enter` | Focus log pane |
+| Normal | `Enter` / `Tab` | Focus log pane |
+| Normal | `s` | Open spawn command (`:spawn `) |
+| Normal | `r` | Reply to selected agent (`:send <name> `) |
 | Normal | `m` | Inbox |
 | Normal | `t` | Shell |
-| Normal | `K` | Kill agent |
+| Normal | `K` | Kill agent (prompts confirmation) |
 | Normal | `:` | Command bar |
 | Normal | `q` | Quit |
-| Log focus | `j/k` | Scroll |
+| Log focus | `j/k` | Scroll one line |
+| Log focus | `G` / `g` | Jump to bottom / top |
 | Log focus | `i` | Insert mode (type to agent) |
 | Log focus | `Ctrl-d/u` | Page scroll |
+| Log focus | `/` | Search (highlight matches) |
+| Log focus | `r` | Reply to selected agent |
+| Log focus | `Esc` | Back to normal |
 | Insert | any key | Forwarded to agent |
+| Insert | `Ctrl-c` | Interrupt agent (sends Escape, not SIGINT) |
+| Insert | `Alt-Backspace` | Delete word backward |
+| Insert | `Ctrl-u` | Delete to line start |
 | Insert | `Esc` | Exit insert mode |
 | Inbox | `j/k` | Select message |
 | Inbox | `d` | Delete message |
 | Inbox | `D` | Clear all |
 | Inbox | `r` | Reply to sender |
 | Inbox | `Esc` | Close inbox |
+| Kill confirm | `y` / `n` | Confirm / cancel kill |
+| Kill confirm | `Esc` | Cancel kill |
 
 ### TUI Commands
 
@@ -309,10 +320,11 @@ steps:
 ```
 
 ```bash
-flt workflow run code-review      # Start the workflow
-flt workflow status code-review   # Show current step + history
-flt workflow list                 # List definitions and active runs
-flt workflow cancel code-review   # Cancel and kill agents
+flt workflow run code-review               # Start the workflow
+flt workflow run code-review --parent cairn # Notify "cairn" on completion instead of inbox
+flt workflow status code-review            # Show current step + history
+flt workflow list                          # List definitions and active runs
+flt workflow cancel code-review            # Cancel and kill agents
 ```
 
 Template variables (`{steps.<id>.worktree}`, `{steps.<id>.dir}`, `{steps.<id>.branch}`) let later steps reference earlier agents' workspaces. Steps can also use `run:` for shell commands instead of agents.
@@ -357,12 +369,12 @@ The TUI is a raw ANSI screen buffer with damage tracking (not Ink/React). It mai
 
 | Icon | Meaning |
 |------|---------|
-| `▶` | Working — actively generating |
+| `▶` | Running — actively generating |
 | `⏸` | Idle — waiting at prompt |
 | `○` | Exited — session died |
-| `?` | Unknown |
+| `?` | Unknown / spawning / rate-limited / error |
 
-Detection is per-CLI: spinner icon cycling for Claude Code, "esc to interrupt" for Codex, braille spinners for Gemini/OpenCode, pane-content-delta as universal fallback.
+Detection is per-CLI: spinner icon cycling for Claude Code, `esc to interrupt` text for Codex, braille spinners for Gemini/OpenCode, pane-content-delta as universal fallback. A 60-second content-stable timeout forces any stuck `running` or `unknown` state to `idle`.
 
 ## License
 
