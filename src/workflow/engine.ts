@@ -128,6 +128,15 @@ export async function advanceWorkflow(runId: string): Promise<void> {
     agent: agentName,
   })
 
+  // Auto-commit any uncommitted work in the agent's worktree before killing
+  if (agent?.worktreePath) {
+    try {
+      execSync('git add -A && git diff --cached --quiet || git commit -m "workflow: auto-commit step ' + currentStepDef.id + '"', {
+        cwd: agent.worktreePath, encoding: 'utf-8', timeout: 10_000,
+      })
+    } catch {}
+  }
+
   // Kill the completed agent but preserve its worktree (next step may need it)
   try {
     const { killDirect } = await import('../commands/kill')
