@@ -99,6 +99,24 @@ const STATIC_MODE_HINTS: Record<Extract<Mode, 'insert' | 'shell'>, string> = {
   shell: 'typing in shell | Esc close',
 }
 
+const COMMAND_SPECIAL_KEYS = new Set<string>([
+  'Enter',
+  'Tab',
+  'Shift-Tab',
+  'Escape',
+  'Backspace',
+  'Shift-Enter',
+  'Ctrl-d',
+  'Ctrl-u',
+  'Alt-Backspace',
+  'Alt-d',
+  'Ctrl-c',
+  'up',
+  'down',
+  'left',
+  'right',
+])
+
 const KEYBIND_ACTION_SET: ReadonlySet<string> = new Set<string>([
   'selectNext',
   'selectPrev',
@@ -258,6 +276,7 @@ function normalizeModeKeybinds(mode: ConfigurableMode, input: unknown): ModeKeyb
     if (!MODE_ACTION_SET[mode].has(action)) continue
     const key = normalizeKeyName(rawKey)
     if (!key) continue
+    if (mode === 'command' && !COMMAND_SPECIAL_KEYS.has(key) && !COMMAND_SPECIAL_KEYS.has(key.toLowerCase())) continue
     out[key] = action
   }
   return out
@@ -363,6 +382,25 @@ export function getModeHint(mode: Mode): string {
 export function getModeKeybinds(mode: Mode): ModeKeybinds {
   if (!isConfigurableMode(mode)) return {}
   return getMergedKeybinds()[mode]
+}
+
+function keysForAction(modeKeybinds: ModeKeybinds, action: KeybindAction): string[] {
+  const out: string[] = []
+  for (const [key, bindAction] of Object.entries(modeKeybinds)) {
+    if (bindAction === action) out.push(key)
+  }
+  return out
+}
+
+export function getKillConfirmPrompt(agentName: string): string {
+  const modeKeybinds = getModeKeybinds('kill-confirm')
+  const confirm = keysForAction(modeKeybinds, 'confirm').join('/')
+  const cancel = keysForAction(modeKeybinds, 'cancel').join('/')
+  const parts: string[] = []
+  if (confirm) parts.push(`${confirm} confirm`)
+  if (cancel) parts.push(`${cancel} cancel`)
+  const promptKeys = parts.length > 0 ? parts.join(' | ') : 'confirm/cancel'
+  return `Kill ${agentName}? [${promptKeys}]`
 }
 
 export function getKeybindsBanner(mode: Mode): string {

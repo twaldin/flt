@@ -2,7 +2,7 @@ import { describe, expect, it } from 'bun:test'
 import { mkdtempSync, mkdirSync, writeFileSync } from 'fs'
 import { join } from 'path'
 import { tmpdir } from 'os'
-import { getKeybindAction, getModeHint, reloadKeybinds } from '../../../src/tui/keybinds'
+import { getKeybindAction, getKillConfirmPrompt, getModeHint, reloadKeybinds } from '../../../src/tui/keybinds'
 
 describe('keybinds', () => {
   it('uses defaults when no user config exists', () => {
@@ -95,6 +95,37 @@ describe('keybinds', () => {
     }
   })
 
+  it('ignores printable command-mode bindings', () => {
+    const home = mkdtempSync(join(tmpdir(), 'flt-keybinds-command-printable-'))
+    const prevHome = process.env.HOME
+    process.env.HOME = home
+
+    mkdirSync(join(home, '.flt'), { recursive: true })
+    writeFileSync(
+      join(home, '.flt', 'keybinds.json'),
+      JSON.stringify({
+        command: {
+          q: 'cancel',
+          Enter: 'cancel',
+        },
+      }),
+      'utf-8',
+    )
+
+    try {
+      reloadKeybinds()
+      expect(getKeybindAction('command', 'q')).toBeUndefined()
+      expect(getKeybindAction('command', 'Enter')).toBe('cancel')
+
+      const hint = getModeHint('command')
+      expect(hint).toContain('Enter cancel')
+      expect(hint).not.toContain('q cancel')
+    } finally {
+      process.env.HOME = prevHome
+      reloadKeybinds()
+    }
+  })
+
   it('formats mode hints from configured bindings', () => {
     const home = mkdtempSync(join(tmpdir(), 'flt-keybinds-hints-'))
     const prevHome = process.env.HOME
@@ -119,6 +150,32 @@ describe('keybinds', () => {
       expect(hint).toContain('j/k select')
       expect(hint).toContain('q quit')
       expect(getModeHint('insert')).toBe('typing to agent | Ctrl-c interrupt | Esc exit')
+    } finally {
+      process.env.HOME = prevHome
+      reloadKeybinds()
+    }
+  })
+
+  it('renders kill-confirm prompt from configured keys', () => {
+    const home = mkdtempSync(join(tmpdir(), 'flt-keybinds-kill-prompt-'))
+    const prevHome = process.env.HOME
+    process.env.HOME = home
+
+    mkdirSync(join(home, '.flt'), { recursive: true })
+    writeFileSync(
+      join(home, '.flt', 'keybinds.json'),
+      JSON.stringify({
+        'kill-confirm': {
+          x: 'confirm',
+          Escape: 'cancel',
+        },
+      }),
+      'utf-8',
+    )
+
+    try {
+      reloadKeybinds()
+      expect(getKillConfirmPrompt('alpha')).toBe('Kill alpha? [y/x confirm | n/Escape cancel]')
     } finally {
       process.env.HOME = prevHome
       reloadKeybinds()

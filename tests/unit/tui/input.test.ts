@@ -153,7 +153,7 @@ describe('input dispatch', () => {
     expect(state.commandInput).toBe('spawn worker --preset coder ')
   })
 
-  it('honors printable command-mode bindings', () => {
+  it('treats printable command-mode bindings as text', () => {
     const home = mkdtempSync(join(tmpdir(), 'flt-input-command-keybinds-'))
     const prevHome = process.env.HOME
     process.env.HOME = home
@@ -177,10 +177,10 @@ describe('input dispatch', () => {
       reloadKeybinds()
       handleInputEvent({ type: 'text', text: 'q', raw: Buffer.from('q') }, bindings)
 
-      expect(state.mode).toBe('normal')
-      expect(state.commandInput).toBe('')
-      expect(calls).toContain('mode:normal')
-      expect(calls).not.toContain('cmd:abcq')
+      expect(state.mode).toBe('command')
+      expect(state.commandInput).toBe('abcq')
+      expect(calls).toContain('cmd:abcq')
+      expect(calls).not.toContain('mode:normal')
     } finally {
       process.env.HOME = prevHome
       reloadKeybinds()

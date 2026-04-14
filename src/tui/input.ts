@@ -741,12 +741,7 @@ function handleText(event: Extract<ParsedInputEvent, { type: 'text' }>, bindings
   }
 
   if (state.mode === 'command') {
-    for (const char of event.text) {
-      if (bindings.getState().mode !== 'command') break
-      const action = getKeybindAction('command', char)
-      if (action) executeKeybindAction('command', action, bindings)
-      else appendCommandText(bindings, char)
-    }
+    appendCommandText(bindings, event.text)
     return
   }
 

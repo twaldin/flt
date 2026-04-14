@@ -1,5 +1,5 @@
 import { getCompletionHint } from './input'
-import { getModeHint } from './keybinds'
+import { getKillConfirmPrompt, getModeHint } from './keybinds'
 import { ATTR_BOLD, ATTR_DIM, type Screen } from './screen'
 import { COLORS, fg, getTheme, modeColor, statusColor, statusSymbol } from './theme'
 import type { AgentView, AppState } from './types'
@@ -455,7 +455,7 @@ function renderCommandBar(screen: Screen, state: AppState, row: number, col: num
 
   const t = getTheme()
   if (state.mode === 'kill-confirm') {
-    const prompt = `Kill ${state.killConfirmAgent}? [y/n]`
+    const prompt = getKillConfirmPrompt(state.killConfirmAgent)
     screen.put(row, col, prompt, t.statusMode['kill-confirm'], '', ATTR_BOLD)
     return
   }
