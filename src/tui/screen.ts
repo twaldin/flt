@@ -38,11 +38,15 @@ function cellEquals(a: Cell, b: Cell): boolean {
   return a.char === b.char && a.fg === b.fg && a.bg === b.bg && a.attrs === b.attrs
 }
 
-function styleKey(cell: Cell): string {
-  return `${cell.attrs}|${cell.fg}|${cell.bg}`
+function resolvedBg(cell: Cell, defaultBg: string): string {
+  return cell.bg || defaultBg
 }
 
-function sgrForCell(cell: Cell): string {
+function styleKey(cell: Cell, defaultBg: string): string {
+  return `${cell.attrs}|${cell.fg}|${resolvedBg(cell, defaultBg)}`
+}
+
+function sgrForCell(cell: Cell, defaultBg: string): string {
   const codes: string[] = ['0']
 
   if (cell.attrs & ATTR_BOLD) codes.push('1')
@@ -52,7 +56,8 @@ function sgrForCell(cell: Cell): string {
   if (cell.attrs & ATTR_INVERSE) codes.push('7')
 
   if (cell.fg) codes.push(cell.fg)
-  if (cell.bg) codes.push(cell.bg)
+  const bg = resolvedBg(cell, defaultBg)
+  if (bg) codes.push(bg)
 
   return `\x1b[${codes.join(';')}m`
 }
@@ -100,14 +105,16 @@ export class Screen {
   private forceFullRedraw = true
   private writer: WritableLike
   private syncOutput: boolean
+  private defaultBg: string
 
-  constructor(cols: number, rows: number, writer: WritableLike = process.stdout, syncOutput = true) {
+  constructor(cols: number, rows: number, writer: WritableLike = process.stdout, syncOutput = true, defaultBg = '') {
     this.cols = Math.max(1, cols)
     this.rows = Math.max(1, rows)
     this.front = makeGrid(this.cols, this.rows)
     this.back = makeGrid(this.cols, this.rows)
     this.writer = writer
     this.syncOutput = syncOutput
+    this.defaultBg = defaultBg
   }
 
   put(row: number, col: number, text: string, fg = '', bg = '', attrs = 0): void {
@@ -217,9 +224,9 @@ export class Screen {
           const runDirty = this.forceFullRedraw || !cellEquals(prevCell, runCell)
           if (!runDirty) break
 
-          const runStyle = styleKey(runCell)
+          const runStyle = styleKey(runCell, this.defaultBg)
           if (runStyle !== lastStyle) {
-            output += sgrForCell(runCell)
+            output += sgrForCell(runCell, this.defaultBg)
             lastStyle = runStyle
           }
 
@@ -248,6 +255,13 @@ export class Screen {
   }
 
   forceDirty(): void {
+    this.forceFullRedraw = true
+  }
+
+  setDefaultBg(bg: string): void {
+    const nextBg = bg.trim()
+    if (this.defaultBg === nextBg) return
+    this.defaultBg = nextBg
     this.forceFullRedraw = true
   }
 

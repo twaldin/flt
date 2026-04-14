@@ -54,6 +54,7 @@ describe('theme system', () => {
   describe('getTheme', () => {
     it('returns a theme object with required color properties', () => {
       const theme = getTheme()
+      expect(theme).toHaveProperty('background')
       expect(theme).toHaveProperty('sidebarBorder')
       expect(theme).toHaveProperty('sidebarTitle')
       expect(theme).toHaveProperty('sidebarText')

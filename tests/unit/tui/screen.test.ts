@@ -59,4 +59,32 @@ describe('screen', () => {
     expect(screen.back[0][1].char).toBe('X')
     expect(screen.back[0][1].fg).toBe('')
   })
+
+  it('applies default background to cells without explicit bg', () => {
+    const writer = new MockWriter()
+    const screen = new Screen(3, 1, writer, false)
+
+    screen.setDefaultBg('48;2;10;20;30')
+    screen.put(0, 0, 'A', '31')
+    screen.flush()
+
+    expect(writer.chunks.length).toBe(1)
+    expect(writer.chunks[0]).toContain('\x1b[0;31;48;2;10;20;30m')
+  })
+
+  it('forces redraw when default background changes', () => {
+    const writer = new MockWriter()
+    const screen = new Screen(2, 1, writer, false)
+
+    screen.setDefaultBg('48;2;10;20;30')
+    screen.put(0, 0, 'AB', '31')
+    screen.flush()
+
+    writer.chunks = []
+    screen.setDefaultBg('48;2;1;2;3')
+    screen.flush()
+
+    expect(writer.chunks.length).toBe(1)
+    expect(writer.chunks[0]).toContain('48;2;1;2;3')
+  })
 })

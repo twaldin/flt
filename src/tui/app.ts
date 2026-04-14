@@ -14,6 +14,7 @@ import { parseCommand, enrichMessageWithFiles } from './command-parser'
 import { setupInput, type InputBindings, type TmuxInsertKey } from './input'
 import { calculateLayout, renderLayout } from './panels'
 import { Screen } from './screen'
+import { getCurrentThemeName, getThemeBackground, getThemeNames, setTheme } from './theme'
 import { getAsciiLogo } from './ascii'
 import { createInitialState, type AgentView, type AppState, type InboxMessage, type Mode } from './types'
 
@@ -126,6 +127,7 @@ export class App {
     const cols = process.stdout.columns ?? 80
     const rows = process.stdout.rows ?? 24
     this.screen = new Screen(cols, rows)
+    this.screen.setDefaultBg(getThemeBackground())
     this.state = createInitialState(cols, rows)
   }
 
@@ -134,7 +136,12 @@ export class App {
     this.running = true
 
     process.env.FLT_TUI_ACTIVE = '1'
-    process.stdout.write('\x1b[?1049h\x1b[?25l\x1b[2J\x1b[H')
+    const themeBg = getThemeBackground()
+    if (themeBg) {
+      process.stdout.write(`\x1b[?1049h\x1b[?25l\x1b[${themeBg}m\x1b[2J\x1b[H`)
+    } else {
+      process.stdout.write('\x1b[?1049h\x1b[?25l\x1b[2J\x1b[H')
+    }
 
     const bindings: InputBindings = {
       getState: () => ({ ...this.state, selectedAgent: this.selectedAgent }),
@@ -848,12 +855,16 @@ export class App {
     }
 
     if (parsed.cmd === 'theme') {
-      const { setTheme, getThemeNames, getCurrentThemeName } = require('./theme')
       const themeName = parsed.args[0]
       if (!themeName) {
         this.setBanner(`Current: ${getCurrentThemeName()}. Available: ${getThemeNames().join(', ')}`, 'cyan', 4000)
       } else if (setTheme(themeName)) {
-        this.screen.forceDirty()
+        const themeBg = getThemeBackground()
+        this.screen.setDefaultBg(themeBg)
+        // Keep alt-screen clear operations aligned with the selected theme background.
+        if (themeBg) {
+          process.stdout.write(`\x1b[${themeBg}m`)
+        }
         this.setBanner(`Theme: ${themeName}`, 'green', 2000)
       } else {
         this.setBanner(`Unknown theme: ${themeName}. Available: ${getThemeNames().join(', ')}`, 'red', 4000)
