@@ -119,6 +119,13 @@ export class App {
       scrollLogPageDown: () => this.scrollLogPageDown(),
       jumpLogTop: () => this.jumpLogTop(),
       jumpLogBottom: () => this.jumpLogBottom(),
+      inboxCardDown: () => this.inboxCardDown(),
+      inboxCardUp: () => this.inboxCardUp(),
+      inboxFocusCard: () => this.inboxFocusCard(),
+      inboxUnfocusCard: () => this.inboxUnfocusCard(),
+      inboxMsgScrollDown: () => this.inboxMsgScrollDown(),
+      inboxMsgScrollUp: () => this.inboxMsgScrollUp(),
+      inboxReply: () => this.inboxReply(),
       setSearchQuery: (query) => this.setSearchQuery(query),
       submitCommand: (input) => this.submitCommand(input),
       setKillConfirm: (agentName) => this.setKillConfirm(agentName),
@@ -207,6 +214,14 @@ export class App {
       try { writeFileSync(typingFile, this.selectedAgent.name) } catch {}
     } else if (previousMode === 'insert') {
       try { unlinkSync(typingFile) } catch {}
+    }
+
+    // Reset inbox navigation state when entering inbox mode
+    if (mode === 'inbox') {
+      const cards = this.getInboxCards()
+      this.state.inboxSelectedCard = Math.max(0, cards.length - 1)
+      this.state.inboxFocusedCard = false
+      this.state.inboxCardMsgScroll = 0
     }
 
     // Immediately capture content for the new mode
@@ -382,6 +397,65 @@ export class App {
     this.state.logScrollOffset = this.maxScroll(this.state.logContent)
     this.state.autoFollow = true
     this.render()
+  }
+
+  private getInboxCards(): Array<{ from: string; messages: InboxMessage[]; lastIdx: number }> {
+    const grouped = new Map<string, { from: string; messages: InboxMessage[]; lastIdx: number }>()
+    this.state.inboxMessages.forEach((msg, idx) => {
+      const existing = grouped.get(msg.from)
+      if (existing) {
+        existing.messages.push(msg)
+        existing.lastIdx = idx
+      } else {
+        grouped.set(msg.from, { from: msg.from, messages: [msg], lastIdx: idx })
+      }
+    })
+    return Array.from(grouped.values()).sort((a, b) => a.lastIdx - b.lastIdx)
+  }
+
+  private inboxCardDown(): void {
+    const cards = this.getInboxCards()
+    this.state.inboxSelectedCard = Math.min(Math.max(0, cards.length - 1), this.state.inboxSelectedCard + 1)
+    this.render()
+  }
+
+  private inboxCardUp(): void {
+    this.state.inboxSelectedCard = Math.max(0, this.state.inboxSelectedCard - 1)
+    this.render()
+  }
+
+  private inboxFocusCard(): void {
+    const cards = this.getInboxCards()
+    if (cards.length === 0) return
+    this.state.inboxFocusedCard = true
+    this.state.inboxCardMsgScroll = 0
+    this.render()
+  }
+
+  private inboxUnfocusCard(): void {
+    this.state.inboxFocusedCard = false
+    this.state.inboxCardMsgScroll = 0
+    this.render()
+  }
+
+  private inboxMsgScrollDown(): void {
+    this.state.inboxCardMsgScroll = Math.max(0, this.state.inboxCardMsgScroll - 1)
+    this.render()
+  }
+
+  private inboxMsgScrollUp(): void {
+    const cards = this.getInboxCards()
+    const card = cards[this.state.inboxSelectedCard]
+    if (!card) return
+    const maxScroll = Math.max(0, card.messages.length - 1)
+    this.state.inboxCardMsgScroll = Math.min(maxScroll, this.state.inboxCardMsgScroll + 1)
+    this.render()
+  }
+
+  private inboxReply(): void {
+    const cards = this.getInboxCards()
+    const card = cards[this.state.inboxSelectedCard]
+    if (card) this.openCommand(`send ${card.from} `)
   }
 
   private setSearchQuery(query: string): void {

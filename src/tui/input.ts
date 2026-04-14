@@ -23,6 +23,13 @@ export interface InputBindings {
   scrollLogPageDown: () => void
   jumpLogTop: () => void
   jumpLogBottom: () => void
+  inboxCardDown: () => void
+  inboxCardUp: () => void
+  inboxFocusCard: () => void
+  inboxUnfocusCard: () => void
+  inboxMsgScrollDown: () => void
+  inboxMsgScrollUp: () => void
+  inboxReply: () => void
   setSearchQuery: (query: string) => void
   submitCommand: (input: string) => void
   setKillConfirm: (agentName: string) => void
@@ -559,11 +566,15 @@ function handleLogFocusChar(char: string, bindings: InputBindings): void {
 }
 
 function handleInboxChar(char: string, bindings: InputBindings): void {
-  if (char !== 'r') return
-  const sender = parseInboxSender(bindings.getState().inboxMessages)
-  if (sender) {
-    bindings.openCommand(`send ${sender} `)
+  const state = bindings.getState()
+  if (state.inboxFocusedCard) {
+    if (char === 'j') bindings.inboxMsgScrollDown()
+    else if (char === 'k') bindings.inboxMsgScrollUp()
+    return
   }
+  if (char === 'j') bindings.inboxCardDown()
+  else if (char === 'k') bindings.inboxCardUp()
+  else if (char === 'r') bindings.inboxReply()
 }
 
 function handlePresetsChar(char: string, bindings: InputBindings): void {
@@ -688,7 +699,13 @@ function handleSpecialKey(event: Extract<ParsedInputEvent, { type: 'key' }>, bin
 
   if (state.mode === 'inbox') {
     if (event.key === 'escape') {
-      bindings.setMode('normal')
+      if (state.inboxFocusedCard) {
+        bindings.inboxUnfocusCard()
+      } else {
+        bindings.setMode('normal')
+      }
+    } else if (event.key === 'enter' && !state.inboxFocusedCard) {
+      bindings.inboxFocusCard()
     }
     return
   }
