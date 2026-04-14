@@ -4,7 +4,7 @@ export interface SpawnOpts {
 }
 
 export type ReadyState = 'loading' | 'dialog' | 'ready'
-export type AgentStatus = 'running' | 'idle' | 'error' | 'rate-limited' | 'unknown'
+export type AgentStatus = 'running' | 'idle' | 'error' | 'rate-limited' | 'unknown' | 'exited'
 
 export interface CliAdapter {
   /** Adapter identifier, e.g. "claude-code" */

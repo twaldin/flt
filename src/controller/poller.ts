@@ -4,8 +4,10 @@ import { resolveAdapter, getAdapter } from '../adapters/registry'
 import type { AgentStatus } from '../adapters/types'
 import { allAgents, setAgent, loadState, saveState, type AgentState } from '../state'
 import { capturePane, hasSession, listSessions } from '../tmux'
+import { appendInbox } from '../commands/init'
 
 const CONTENT_STABLE_TIMEOUT_MS = 60_000
+const STUCK_THRESHOLD_MS = 30 * 60 * 1000  // 30 minutes
 
 function getTypingAgent(): string | null {
   try {
@@ -22,6 +24,8 @@ const iconStableCount: Record<string, number> = {}  // consecutive polls with sa
 const lastHashes: Record<string, string> = {}
 const hashStableSince: Record<string, number> = {}  // when content stopped changing
 const stableTracker: Record<string, { hash: string; since: number }> = {}
+const runningSince: Record<string, number> = {}     // when agent entered 'running' state
+const stuckWarned: Record<string, boolean> = {}     // whether 30m warning was already emitted
 
 const ICON_IDLE_THRESHOLD = 3     // 3 consecutive same-icon polls (3s) before idle
 const CONTENT_IDLE_GRACE_MS = 5000 // 5s of stable content before flipping running→idle
@@ -154,6 +158,18 @@ export function pollOnce(): void {
     let status = detectAgentStatusFromPane(name, agent, pane, paneHash)
     status = applyContentStableTimeout(name, paneHash, status)
 
+    // Stuck detector: track how long an agent has been continuously 'running'
+    if (status === 'running') {
+      if (!runningSince[name]) runningSince[name] = Date.now()
+      if (!stuckWarned[name] && Date.now() - runningSince[name] >= STUCK_THRESHOLD_MS) {
+        appendInbox('WATCHDOG', `Agent ${name} has been running for 30+ minutes — may be stuck`)
+        stuckWarned[name] = true
+      }
+    } else {
+      delete runningSince[name]
+      delete stuckWarned[name]
+    }
+
     if (status !== prevStatus) {
       agent.status = status
       agent.statusAt = now
@@ -162,6 +178,25 @@ export function pollOnce(): void {
         onStatusChange(name, prevStatus, status)
       }
     }
+  }
+
+  // Watchdog: detect agents whose tmux session is gone
+  for (const [name, agent] of Object.entries(agents)) {
+    if (liveSessions.has(agent.tmuxSession)) continue
+    if (agent.status === 'exited') continue
+
+    const prevStatus = agent.status
+    agent.status = 'exited'
+    agent.statusAt = now
+    dirty = true
+    appendInbox('WATCHDOG', `Agent ${name} died (session gone)`)
+    if (onStatusChange) {
+      onStatusChange(name, prevStatus, 'exited')
+    }
+
+    // Clean up tracking state for dead agent (but leave worktree intact)
+    delete runningSince[name]
+    delete stuckWarned[name]
   }
 
   // Single write for all status changes
@@ -187,4 +222,6 @@ export function cleanupAgent(name: string): void {
   delete lastHashes[name]
   delete hashStableSince[name]
   delete stableTracker[name]
+  delete runningSince[name]
+  delete stuckWarned[name]
 }
