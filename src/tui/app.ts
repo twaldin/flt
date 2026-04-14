@@ -747,6 +747,11 @@ export class App {
       return
     }
 
+    if (parsed.cmd === 'q' || parsed.cmd === 'quit') {
+      this.stop()
+      process.exit(0)
+    }
+
     if (parsed.cmd === 'help') {
       this.setBanner('Commands: send, logs, spawn, presets, kill, theme, ascii, help', 'cyan', 4000)
       return
