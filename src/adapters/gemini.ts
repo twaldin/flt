@@ -57,9 +57,9 @@ export const geminiAdapter: CliAdapter = {
       return ['Enter']
     }
     // "Action Required" / "Allow execution" permission prompt
-    // Select "Allow for this session" (option 2) so it doesn't prompt again
+    // Accept whatever option is selected (usually "Allow once")
     if (/Action Required/i.test(pane) && /Allow/i.test(pane)) {
-      return ['Down', 'Enter']
+      return ['Enter']
     }
     return null
   },

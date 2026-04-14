@@ -61,11 +61,14 @@ export const codexAdapter: CliAdapter = {
 
   detectStatus(pane: string): AgentStatus {
     pane = stripAnsi(pane)
-    const last5 = pane.split('\n').slice(-5).join('\n')
+    const lines = pane.split('\n')
+    const last15 = lines.slice(-15).join('\n')
+    const last5 = lines.slice(-5).join('\n')
 
-    // Codex ground truth: "• Working (Xs • esc to interrupt)" present = active
-    if (/esc to interrupt/i.test(last5)) return 'running'
-    if (/background terminal running/i.test(last5)) return 'running'
+    // Codex ground truth: "esc to interrupt" or "Working" anywhere near bottom = running
+    if (/esc to interrupt/i.test(last15)) return 'running'
+    if (/Working\s*\(/i.test(last15)) return 'running'
+    if (/background terminal running/i.test(last15)) return 'running'
 
     // Idle: prompt visible (❯ or ›) without working indicator
     const hasPrompt = last5.split('\n').some(l => /^\s*[❯›]\s*$/.test(l))

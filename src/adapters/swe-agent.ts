@@ -27,7 +27,15 @@ export const sweAgentAdapter: CliAdapter = {
   submitKeys: ['Escape', 'Enter'], // mini requires Esc then Enter to submit
 
   spawnArgs(opts: SpawnOpts): string[] {
-    const args = ['mini', '-y']
+    const args: string[] = []
+    // GPT models: prefix with env vars for OAuth proxy (litellm needs them)
+    const isGpt = opts.model && /^(gpt-|o[0-9]|openai\/)/i.test(opts.model)
+    if (isGpt) {
+      args.push('env', `OPENAI_API_KEY=unused`, `OPENAI_BASE_URL=${OAUTH_PROXY}`, `MSWEA_COST_TRACKING=ignore_errors`)
+    } else {
+      args.push('env', `MSWEA_COST_TRACKING=ignore_errors`)
+    }
+    args.push('mini', '-y')
     if (opts.model) args.push('--model', opts.model)
     return args
   },
@@ -47,10 +55,10 @@ export const sweAgentAdapter: CliAdapter = {
     const lines = pane.split('\n').map(l => l.trim()).filter(Boolean)
     const last20 = lines.slice(-20).join('\n')
 
-    // mini-swe-agent shows "What do you want to do?" when ready
-    if (/What do you want to do/i.test(last20)) {
-      return 'ready'
-    }
+    // mini v2: "Submit message: Esc, then Enter"
+    if (/Submit message/i.test(last20)) return 'ready'
+    // mini v1: "What do you want to do?"
+    if (/What do you want to do/i.test(last20)) return 'ready'
 
     return 'loading'
   },
@@ -72,8 +80,9 @@ export const sweAgentAdapter: CliAdapter = {
       return 'error'
     }
 
-    // Idle: "What do you want to do?" prompt visible
+    // Idle: prompt visible
     if (/What do you want to do/i.test(last10)) return 'idle'
+    if (/Submit message/i.test(last10)) return 'idle'
 
     return 'unknown'
   },
