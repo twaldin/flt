@@ -78,7 +78,7 @@ export interface ScriptOpts {
 }
 
 export function generateScript(name: string, opts: ScriptOpts): string {
-  const pathVal = opts.binPath ?? '/Users/twaldin/.bun/bin:/opt/homebrew/bin:/usr/bin:/bin:/usr/sbin:/sbin'
+  const pathVal = opts.binPath ?? process.env.PATH ?? '/usr/local/bin:/usr/bin:/bin'
   const dirPart = opts.dir ? ` --dir ${opts.dir}` : ''
   const parentPart = opts.parent && opts.parent !== 'human' ? ` --parent ${opts.parent}` : ''
   const presetPart = opts.preset ? ` --preset ${opts.preset}` : ''

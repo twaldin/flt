@@ -105,7 +105,7 @@ All keybindings are configurable via `~/.flt/keybinds.json`. The defaults are vi
 | Mode | Key | Action |
 |------|-----|--------|
 | Normal | `j/k` | Select agent |
-| Normal | `Enter` / `Tab` | Focus log pane |
+| Normal | `Enter` | Focus log pane |
 | Normal | `i` | Insert mode (type to agent) |
 | Normal | `s` | Open spawn command (`:spawn `) |
 | Normal | `r` | Reply to selected agent (`:send <name> `) |
@@ -114,6 +114,7 @@ All keybindings are configurable via `~/.flt/keybinds.json`. The defaults are vi
 | Normal | `K` | Kill agent (prompts confirmation) |
 | Normal | `:` | Command bar |
 | Normal | `q` | Quit |
+| Normal | `Tab` | Collapse/expand agent subtree |
 | Log focus | `j/k` | Scroll one line |
 | Log focus | `G` / `g` | Jump to bottom / top |
 | Log focus | `i` | Insert mode (type to agent) |
@@ -160,7 +161,7 @@ flt kill <name>                         # Kill an agent
 flt list                                # List all agents with status
 flt logs <name> [-n lines]              # View agent terminal output
 flt tail                                # Tail inbox (lightweight, no TUI)
-flt activity [-n lines] [--type type]   # Show fleet activity log
+flt activity [-n lines] [--type type] [--since iso]  # Show fleet activity log
 flt exit                                # Shut down fleet: cancel workflows, kill agents, stop controller
 flt controller start|stop|status        # Manage the fleet controller daemon
 flt workflow run|status|list|cancel     # Multi-step agent workflows

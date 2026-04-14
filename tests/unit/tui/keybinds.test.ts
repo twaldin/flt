@@ -14,7 +14,7 @@ describe('keybinds', () => {
       reloadKeybinds()
       expect(getKeybindAction('normal', 'j')).toBe('selectNext')
       expect(getKeybindAction('normal', 'enter')).toBe('focusLog')
-      expect(getKeybindAction('normal', 'tab')).toBe('focusLog')
+      expect(getKeybindAction('normal', 'tab')).toBe('toggleCollapse')
       expect(getKeybindAction('log-focus', 'ctrl-d')).toBe('pageDown')
       expect(getModeHint('normal')).toContain('j/k select')
     } finally {

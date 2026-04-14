@@ -213,8 +213,7 @@ export const DEFAULT_KEYBINDS: KeybindConfig = {
     q: 'quit',
     i: 'enterInsert',
     Enter: 'focusLog',
-    Tab: 'focusLog',
-    'Shift-Enter': 'toggleCollapse',
+    Tab: 'toggleCollapse',
   },
   'log-focus': {
     i: 'enterInsert',

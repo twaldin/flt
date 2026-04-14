@@ -16,7 +16,7 @@ import { activity } from './commands/activity'
 const program = new Command()
   .name('flt')
   .description('Spawn and talk to AI coding agents in any CLI, using tmux')
-  .version('0.1.0')
+  .version(require('../package.json').version)
 
 program
   .command('init')
