@@ -21,20 +21,21 @@ function simpleHash(s: string): string {
   return String(h)
 }
 
-function detectAgentStatus(agent: AgentState): AgentStatus {
-  if (!hasSession(agent.tmuxSession)) return 'unknown'
-
+function detectAgentStatusFromPane(agent: AgentState, pane: string): AgentStatus {
   try {
     const adapter = getAdapter(agent.cli)
     if (!adapter) return 'unknown'
 
-    const pane = capturePane(agent.tmuxSession, 20)
     const stripped = pane.replace(/\x1b\[[0-9;?]*[A-Za-z]/g, '').replace(/\x1b\][^\x07]*\x07/g, '')
 
     // Claude-code: spinner icon delta detection
     if (adapter.name === 'claude-code') {
-      const last2 = stripped.split('\n').slice(-2).join('\n')
+      const lines = stripped.split('\n')
+      const last2 = lines.slice(-2).join('\n')
       if (/rate.?limit|hit your limit/i.test(last2)) return 'rate-limited'
+
+      // Active thinking indicators — definitive running signals
+      if (/thinking|streaming|Slithering|Brewing|Cooking|Baking/i.test(stripped)) return 'running'
 
       const icon = extractSpinnerIcon(stripped)
       const key = agent.tmuxSession
@@ -44,7 +45,10 @@ function detectAgentStatus(agent: AgentState): AgentStatus {
         lastIcons[key] = icon
         if (prev && prev !== icon) return 'running'
         if (prev && prev === icon) return 'idle'
-        if (/for\s+\d+[ms]/i.test(stripped)) return 'idle'
+        // Only check for "Brewed/Cooked for Xm Ys" on the SAME line as the icon
+        // to avoid false idle from old done lines still in the pane
+        const iconLine = lines.find(l => l.startsWith(icon))
+        if (iconLine && /for\s+\d+[ms]/i.test(iconLine)) return 'idle'
         return 'running'
       }
 
@@ -102,14 +106,12 @@ export function pollOnce(): void {
   const now = new Date().toISOString()
 
   for (const [name, agent] of Object.entries(agents)) {
-    const prevStatus = agent.status
-    let status = detectAgentStatus(agent)
+    if (!hasSession(agent.tmuxSession)) continue
 
-    // Apply content-stable timeout for agents that might be stuck
-    if (hasSession(agent.tmuxSession)) {
-      const pane = capturePane(agent.tmuxSession, 20)
-      status = applyContentStableTimeout(name, pane, status)
-    }
+    const prevStatus = agent.status
+    const pane = capturePane(agent.tmuxSession, 20)
+    let status = detectAgentStatusFromPane(agent, pane)
+    status = applyContentStableTimeout(name, pane, status)
 
     if (status !== prevStatus) {
       setAgent(name, { ...agent, status, statusAt: now })
