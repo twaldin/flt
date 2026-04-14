@@ -62,6 +62,7 @@ function createBindings(mode: 'normal' | 'log-focus' | 'insert' | 'command' | 'i
     sendInsertText: (text) => calls.push(`insert-text:${text}`),
     sendInsertKey: (key) => calls.push(`insert-key:${key}`),
     flushInsert: () => calls.push('flush'),
+    toggleCollapse: () => calls.push('toggle-collapse'),
     quit: () => calls.push('quit'),
   }
 

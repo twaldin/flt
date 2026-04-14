@@ -115,11 +115,10 @@ export async function advanceWorkflow(runId: string): Promise<void> {
     }
   }
 
-  // Check if agent signaled pass/fail
+  // Check if agent signaled pass/fail (don't clear failReason yet — templates need it)
   const signalResult = run.stepResult ?? 'pass'
   const failReason = run.stepFailReason
   run.stepResult = undefined
-  run.stepFailReason = undefined
 
   run.history.push({
     step: currentStepDef.id,
@@ -135,6 +134,39 @@ export async function advanceWorkflow(runId: string): Promise<void> {
         cwd: agent.worktreePath, encoding: 'utf-8', timeout: 10_000,
       })
     } catch {}
+
+    // Auto-create PR if this is a worktree step and no PR exists yet for this branch
+    if (agent.worktreeBranch && !run.vars._pr) {
+      try {
+        // Push the branch
+        execSync(`git push -u origin ${agent.worktreeBranch}`, {
+          cwd: agent.worktreePath, encoding: 'utf-8', timeout: 30_000,
+        })
+        // Check if PR already exists for this branch
+        const existing = execSync(`gh pr view ${agent.worktreeBranch} --json url 2>/dev/null || echo ""`, {
+          cwd: agent.worktreePath, encoding: 'utf-8', timeout: 15_000,
+        }).trim()
+        if (existing) {
+          try {
+            const pr = JSON.parse(existing)
+            run.vars._pr = { url: pr.url, branch: agent.worktreeBranch }
+          } catch {}
+        } else {
+          // Create PR
+          const taskDesc = run.vars._input?.task ?? run.workflow
+          const prUrl = execSync(
+            `gh pr create --title "${taskDesc.slice(0, 70).replace(/"/g, '\\"')}" --body "Automated PR from flt workflow ${run.id}" --head ${agent.worktreeBranch}`,
+            { cwd: agent.worktreePath, encoding: 'utf-8', timeout: 30_000 },
+          ).trim()
+          run.vars._pr = { url: prUrl, branch: agent.worktreeBranch }
+        }
+      } catch {}
+    } else if (agent.worktreeBranch && run.vars._pr) {
+      // PR exists, just push new commits
+      try {
+        execSync(`git push`, { cwd: agent.worktreePath, encoding: 'utf-8', timeout: 30_000 })
+      } catch {}
+    }
   }
 
   // Kill the completed agent but preserve its worktree (next step may need it)
@@ -172,7 +204,9 @@ export async function advanceWorkflow(runId: string): Promise<void> {
     saveWorkflowRun(run)
     appendEvent({ type: 'workflow', detail: `completed ${run.id}`, at: run.completedAt })
     cleanupWorkflowWorktrees(run)
-    await notifyWorkflowParent(run, `Workflow "${run.workflow}" completed.`)
+    const prUrl = run.vars._pr?.url
+    const prMsg = prUrl ? ` PR: ${prUrl}` : ''
+    await notifyWorkflowParent(run, `Workflow "${run.workflow}" completed.${prMsg}`)
     return
   }
 
@@ -338,10 +372,12 @@ async function executeStep(def: WorkflowDef, run: WorkflowRun, step: WorkflowSte
 }
 
 function resolveTemplate(template: string, run: WorkflowRun): string {
-  // Shorthand: {task} → {steps._input.task}, {dir} → {steps._input.dir}
+  // Shorthand template vars
   let result = template
     .replace(/\{task\}/g, run.vars._input?.task ?? '')
     .replace(/\{dir\}/g, run.vars._input?.dir ?? '')
+    .replace(/\{pr\}/g, run.vars._pr?.url ?? '')
+    .replace(/\{fail_reason\}/g, run.stepFailReason ?? '')
   // Full form: {steps.<id>.<field>}
   result = result.replace(/\{steps\.([^.]+)\.(\w+)\}/g, (match, stepId, field) => {
     const stepVars = run.vars[stepId]
