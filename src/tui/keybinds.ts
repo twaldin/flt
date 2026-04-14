@@ -36,7 +36,7 @@ export type KeybindAction =
   | 'confirm'
   | 'backspace'
 
-export type ModeKeybinds = Record<string, string>
+export type ModeKeybinds = Record<string, KeybindAction>
 export type KeybindConfig = Record<ConfigurableMode, ModeKeybinds>
 
 const MODE_ORDER: ConfigurableMode[] = ['normal', 'log-focus', 'inbox', 'command', 'kill-confirm', 'presets']
@@ -131,6 +131,56 @@ const KEYBIND_ACTION_SET: ReadonlySet<string> = new Set<string>([
   'backspace',
 ])
 
+const MODE_ACTION_SET: Record<ConfigurableMode, ReadonlySet<KeybindAction>> = {
+  normal: new Set<KeybindAction>([
+    'selectNext',
+    'selectPrev',
+    'openCommand',
+    'openSpawn',
+    'killConfirm',
+    'openInbox',
+    'reply',
+    'openShell',
+    'quit',
+    'focusLog',
+    'toggleCollapse',
+  ]),
+  'log-focus': new Set<KeybindAction>([
+    'enterInsert',
+    'scrollDown',
+    'scrollUp',
+    'jumpBottom',
+    'jumpTop',
+    'search',
+    'reply',
+    'back',
+    'pageDown',
+    'pageUp',
+  ]),
+  inbox: new Set<KeybindAction>([
+    'msgDown',
+    'msgUp',
+    'reply',
+    'delete',
+    'clearAll',
+    'back',
+  ]),
+  command: new Set<KeybindAction>([
+    'execute',
+    'complete',
+    'cancel',
+    'backspace',
+  ]),
+  'kill-confirm': new Set<KeybindAction>([
+    'confirm',
+    'cancel',
+  ]),
+  presets: new Set<KeybindAction>([
+    'openCommand',
+    'back',
+  ]),
+}
+
 export const DEFAULT_KEYBINDS: KeybindConfig = {
   normal: {
     j: 'selectNext',
@@ -197,15 +247,18 @@ function normalizeKeyName(key: string): string {
   return SPECIAL_KEY_NAMES[lower] ?? trimmed
 }
 
-function normalizeModeKeybinds(input: unknown): ModeKeybinds {
+function normalizeModeKeybinds(mode: ConfigurableMode, input: unknown): ModeKeybinds {
   if (!isObject(input)) return {}
 
   const out: ModeKeybinds = {}
   for (const [rawKey, rawAction] of Object.entries(input)) {
     if (typeof rawAction !== 'string') continue
+    if (!KEYBIND_ACTION_SET.has(rawAction)) continue
+    const action = rawAction as KeybindAction
+    if (!MODE_ACTION_SET[mode].has(action)) continue
     const key = normalizeKeyName(rawKey)
     if (!key) continue
-    out[key] = rawAction
+    out[key] = action
   }
   return out
 }
@@ -219,7 +272,7 @@ function loadUserKeybindOverrides(): Partial<KeybindConfig> {
 
     const overrides: Partial<KeybindConfig> = {}
     for (const mode of MODE_ORDER) {
-      overrides[mode] = normalizeModeKeybinds(parsed[mode])
+      overrides[mode] = normalizeModeKeybinds(mode, parsed[mode])
     }
     return overrides
   } catch {
@@ -263,9 +316,7 @@ export function getKeybindAction(mode: Mode, key: string): KeybindAction | undef
   if (!isConfigurableMode(mode)) return undefined
   const canonical = normalizeKeyName(key)
   if (!canonical) return undefined
-  const action = getMergedKeybinds()[mode][canonical]
-  if (!KEYBIND_ACTION_SET.has(action)) return undefined
-  return action as KeybindAction
+  return getMergedKeybinds()[mode][canonical]
 }
 
 function buildModeHint(modeKeybinds: ModeKeybinds): string {
@@ -295,9 +346,7 @@ function buildModeHint(modeKeybinds: ModeKeybinds): string {
 
   for (const [key, action] of entries) {
     if (consumed.has(`${key}\u0000${action}`)) continue
-    const label = KEYBIND_ACTION_SET.has(action)
-      ? ACTION_LABELS[action as KeybindAction]
-      : action
+    const label = ACTION_LABELS[action]
     parts.push(`${key} ${label}`)
   }
 

@@ -63,6 +63,38 @@ describe('keybinds', () => {
     }
   })
 
+  it('ignores invalid actions and keeps defaults', () => {
+    const home = mkdtempSync(join(tmpdir(), 'flt-keybinds-invalid-'))
+    const prevHome = process.env.HOME
+    process.env.HOME = home
+
+    mkdirSync(join(home, '.flt'), { recursive: true })
+    writeFileSync(
+      join(home, '.flt', 'keybinds.json'),
+      JSON.stringify({
+        normal: {
+          Enter: 'notARealAction',
+          q: 'notARealAction',
+        },
+      }),
+      'utf-8',
+    )
+
+    try {
+      reloadKeybinds()
+      expect(getKeybindAction('normal', 'Enter')).toBe('focusLog')
+      expect(getKeybindAction('normal', 'q')).toBe('quit')
+
+      const hint = getModeHint('normal')
+      expect(hint).toContain('Enter focus')
+      expect(hint).toContain('q quit')
+      expect(hint).not.toContain('notARealAction')
+    } finally {
+      process.env.HOME = prevHome
+      reloadKeybinds()
+    }
+  })
+
   it('formats mode hints from configured bindings', () => {
     const home = mkdtempSync(join(tmpdir(), 'flt-keybinds-hints-'))
     const prevHome = process.env.HOME

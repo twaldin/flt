@@ -1,5 +1,9 @@
 import { describe, it, expect } from 'bun:test'
+import { mkdtempSync, mkdirSync, writeFileSync } from 'fs'
+import { join } from 'path'
+import { tmpdir } from 'os'
 import { RawKeyParser, handleInputEvent, getCompletionHint, type InputBindings, type ParsedInputEvent } from '../../../src/tui/input'
+import { reloadKeybinds } from '../../../src/tui/keybinds'
 import { createInitialState, type AgentView } from '../../../src/tui/types'
 
 function mockAgent(name: string): AgentView {
@@ -147,5 +151,39 @@ describe('input dispatch', () => {
 
     handleInputEvent({ type: 'key', key: 'tab', raw: Buffer.from('\t') }, bindings)
     expect(state.commandInput).toBe('spawn worker --preset coder ')
+  })
+
+  it('honors printable command-mode bindings', () => {
+    const home = mkdtempSync(join(tmpdir(), 'flt-input-command-keybinds-'))
+    const prevHome = process.env.HOME
+    process.env.HOME = home
+
+    mkdirSync(join(home, '.flt'), { recursive: true })
+    writeFileSync(
+      join(home, '.flt', 'keybinds.json'),
+      JSON.stringify({
+        command: {
+          q: 'cancel',
+        },
+      }),
+      'utf-8',
+    )
+
+    const { state, bindings, calls } = createBindings('command')
+    state.commandInput = 'abc'
+    state.commandCursor = state.commandInput.length
+
+    try {
+      reloadKeybinds()
+      handleInputEvent({ type: 'text', text: 'q', raw: Buffer.from('q') }, bindings)
+
+      expect(state.mode).toBe('normal')
+      expect(state.commandInput).toBe('')
+      expect(calls).toContain('mode:normal')
+      expect(calls).not.toContain('cmd:abcq')
+    } finally {
+      process.env.HOME = prevHome
+      reloadKeybinds()
+    }
   })
 })
