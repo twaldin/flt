@@ -4,7 +4,8 @@ import { getStateDir } from '../state'
 
 export type SpawnRequestArgs = {
   name: string; cli?: string; model?: string; preset?: string; dir?: string
-  worktree?: boolean; bootstrap?: string; _callerName?: string; _callerDepth?: number
+  worktree?: boolean; bootstrap?: string; parent?: string
+  _callerName?: string; _callerDepth?: number
 }
 export type KillRequestArgs = { name: string }
 export type SendRequestArgs = { target: string; message: string; _caller?: unknown }

@@ -27,8 +27,10 @@ describe('presets', () => {
     rmSync(tempDir, { recursive: true, force: true })
   })
 
-  it('returns empty object when presets file does not exist', () => {
-    expect(loadPresets()).toEqual({})
+  it('seeds default preset when presets file does not exist', () => {
+    expect(loadPresets()).toEqual({
+      default: { cli: 'claude-code', model: 'sonnet', description: 'Default agent' },
+    })
   })
 
   it('saves and loads presets', () => {
@@ -51,7 +53,7 @@ describe('presets', () => {
     addPreset('coder', { cli: 'codex', model: 'gpt-5.3-codex' })
 
     const names = listPresets().map((preset) => preset.name)
-    expect(names).toEqual(['coder', 'reviewer'])
+    expect(names).toEqual(['coder', 'default', 'reviewer'])
     expect(getPreset('coder')).toEqual({ cli: 'codex', model: 'gpt-5.3-codex', description: undefined })
   })
 

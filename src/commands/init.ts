@@ -27,6 +27,10 @@ export function appendInbox(from: string, message: string): void {
 }
 
 export async function init(args: InitArgs): Promise<void> {
+  if (!process.env.TMUX) {
+    throw new Error('flt requires tmux. Run tmux first.')
+  }
+
   // Ensure state dir and inbox exist
   mkdirSync(getStateDir(), { recursive: true })
   const inboxPath = getInboxPath()
@@ -94,6 +98,10 @@ export async function init(args: InitArgs): Promise<void> {
 
 /** Launch TUI only — expects controller to be running */
 export async function tui(): Promise<void> {
+  if (!process.env.TMUX) {
+    throw new Error('flt requires tmux. Run tmux first.')
+  }
+
   const { ensureController } = await import('./controller')
   await ensureController()
 

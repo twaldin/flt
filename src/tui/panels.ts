@@ -111,7 +111,7 @@ function treeOrder(agents: AgentView[]): TreeEntry[] {
   function getChildren(parentName: string): AgentView[] {
     return agents.filter(a => !visited.has(a.name) && (
       a.parentName === parentName ||
-      (parentName === 'orchestrator' && !byName.has(a.parentName))
+      (parentName === 'human' && !byName.has(a.parentName))
     ))
   }
 
@@ -133,10 +133,6 @@ function treeOrder(agents: AgentView[]): TreeEntry[] {
       const hasChildren = getChildren(agent.name).length > 0
 
       result.push({ agent, index: agents.indexOf(agent), continuation, connector, hasChildren })
-      // Ancestry for children's subtree:
-      // - Copy current ancestry
-      // - If this agent is last child (└), parent's │ stops → set parent's entry to false
-      // - Then push this agent's own line: !isLast (or hasChildren for root)
       const childAncestry = [...ancestry]
       if (isLast && childAncestry.length > 0) {
         childAncestry[childAncestry.length - 1] = false
@@ -146,7 +142,7 @@ function treeOrder(agents: AgentView[]): TreeEntry[] {
     })
   }
 
-  walk('orchestrator', [], true)
+  walk('human', [], true)
   for (const agent of agents) {
     if (!visited.has(agent.name)) {
       result.push({ agent, index: agents.indexOf(agent), continuation: '', connector: '', hasChildren: false })
@@ -165,7 +161,13 @@ function renderSidebar(screen: Screen, state: AppState, top: number, left: numbe
   row += 2  // blank line after header
 
   if (state.agents.length === 0) {
-    putLine(screen, row, left, width, 'No agents', t.sidebarMuted, ATTR_DIM)
+    putLine(screen, row, left, width, 'No agents running.', t.sidebarMuted, ATTR_DIM)
+    row += 1
+    putLine(screen, row, left, width, '', t.sidebarMuted, ATTR_DIM)
+    row += 1
+    putLine(screen, row, left, width, 'Press : then type', t.sidebarMuted, ATTR_DIM)
+    row += 1
+    putLine(screen, row, left, width, 'spawn <name> -p default', t.sidebarMuted, ATTR_DIM)
     return
   }
 

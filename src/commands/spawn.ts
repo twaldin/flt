@@ -15,6 +15,7 @@ interface SpawnArgs {
   dir?: string
   worktree?: boolean
   bootstrap?: string
+  parent?: string
   _callerName?: string
   _callerDepth?: number
 }
@@ -102,14 +103,21 @@ export async function spawnDirect(args: SpawnArgs): Promise<void> {
     worktreeBranch = wt.branch
   }
 
-  // Determine parent info — use passed-through caller context or env vars
+  // Determine parent: --parent flag > caller agent > 'human'
   const callerName = args._callerName ?? process.env.FLT_AGENT_NAME
-  const callerSession = callerName ? `flt-${callerName}` : null
-  const orchSession = state.orchestrator?.tmuxSession ?? 'unknown'
+  let parentName: string
+  if (args.parent) {
+    parentName = args.parent
+  } else if (callerName && callerName !== 'cron') {
+    parentName = callerName
+  } else {
+    parentName = 'human'
+  }
 
-  const parentName = callerName ?? 'orchestrator'
-  const parentSession = callerSession && tmux.hasSession(callerSession)
-    ? callerSession
+  // Resolve parent session for env propagation
+  const orchSession = state.orchestrator?.tmuxSession ?? 'unknown'
+  const parentSession = parentName !== 'human' && tmux.hasSession(`flt-${parentName}`)
+    ? `flt-${parentName}`
     : orchSession
 
   // Project instructions into workspace

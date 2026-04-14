@@ -60,6 +60,7 @@ program
   .option('-m, --model <model>', 'Model to use')
   .option('-d, --dir <path>', 'Working directory (default: cwd)')
   .option('-W, --no-worktree', 'Skip git worktree creation')
+  .option('--parent <name>', 'Override parent agent for messaging')
   .argument('[bootstrap]', 'Initial message to send after agent is ready')
   .action(async (name, bootstrap, opts) => {
     try {
@@ -70,6 +71,7 @@ program
         model: opts.model,
         dir: opts.dir,
         worktree: opts.worktree,
+        parent: opts.parent,
         bootstrap,
       })
     } catch (e) {

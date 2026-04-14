@@ -73,6 +73,10 @@ function sortPresetMap(presets: PresetMap): PresetMap {
   return sorted
 }
 
+const DEFAULT_PRESETS: PresetMap = {
+  default: { cli: 'claude-code', model: 'sonnet', description: 'Default agent' },
+}
+
 export function loadPresets(): PresetMap {
   try {
     const raw = readFileSync(getPresetsPath(), 'utf-8')
@@ -87,10 +91,16 @@ export function loadPresets(): PresetMap {
       loaded[name] = validatePresetValue(name, value)
     }
 
+    if (Object.keys(loaded).length === 0) {
+      savePresets(DEFAULT_PRESETS)
+      return { ...DEFAULT_PRESETS }
+    }
+
     return loaded
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
-      return {}
+      savePresets(DEFAULT_PRESETS)
+      return { ...DEFAULT_PRESETS }
     }
     if (error instanceof Error) {
       throw new Error(`Failed to load presets from ${getPresetsPath()}: ${error.message}`)

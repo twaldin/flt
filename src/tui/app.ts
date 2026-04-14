@@ -25,7 +25,7 @@ function sortTreeOrder(agents: AgentView[]): AgentView[] {
   function walk(parentName: string): void {
     for (const agent of agents) {
       if (visited.has(agent.name)) continue
-      if (agent.parentName === parentName || (parentName === 'orchestrator' && !byName.has(agent.parentName))) {
+      if (agent.parentName === parentName || (parentName === 'human' && !byName.has(agent.parentName))) {
         visited.add(agent.name)
         result.push(agent)
         walk(agent.name)
@@ -33,7 +33,7 @@ function sortTreeOrder(agents: AgentView[]): AgentView[] {
     }
   }
 
-  walk('orchestrator')
+  walk('human')
   // Append any orphans
   for (const agent of agents) {
     if (!visited.has(agent.name)) result.push(agent)
