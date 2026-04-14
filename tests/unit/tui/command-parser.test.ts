@@ -44,6 +44,7 @@ describe('command-parser', () => {
     expect(isValidCommand('presets')).toBe(true)
     expect(isValidCommand('kill')).toBe(true)
     expect(isValidCommand('theme')).toBe(true)
+    expect(isValidCommand('keybinds')).toBe(true)
     expect(isValidCommand('invalid')).toBe(false)
   })
 })
