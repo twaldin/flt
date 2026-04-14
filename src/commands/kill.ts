@@ -8,6 +8,7 @@ import { execSync, execFileSync } from 'child_process'
 
 interface KillArgs {
   name: string
+  preserveWorktree?: boolean
 }
 
 export async function kill(args: KillArgs): Promise<void> {
@@ -40,8 +41,8 @@ export function killDirect(args: KillArgs): void {
   // Kill tmux session
   tmux.killSession(agent.tmuxSession)
 
-  // Clean up worktree
-  if (agent.worktreePath && agent.worktreeBranch) {
+  // Clean up worktree (skip if preserveWorktree — workflow steps need it for next agent)
+  if (agent.worktreePath && agent.worktreeBranch && !args.preserveWorktree) {
     // Find the base repo dir — worktree parent
     try {
       const repoDir = execSync('git rev-parse --show-toplevel', {

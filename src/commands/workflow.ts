@@ -1,8 +1,8 @@
 import { startWorkflow, loadWorkflowRun, listWorkflowRuns, cancelWorkflow } from '../workflow/engine'
 import { listWorkflowDefs } from '../workflow/parser'
 
-export async function workflowRun(name: string, parent?: string): Promise<void> {
-  const run = await startWorkflow(name, parent)
+export async function workflowRun(name: string, opts?: { parent?: string; task?: string; dir?: string }): Promise<void> {
+  const run = await startWorkflow(name, opts)
   console.log(`Started workflow "${name}" (step: ${run.currentStep}, parent: ${run.parentName})`)
 }
 

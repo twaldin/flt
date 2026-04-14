@@ -11,6 +11,7 @@ export interface WorkflowStepDef {
   on_complete?: string
   on_fail?: string
   max_retries?: number
+  worktree?: boolean  // default true; set false for evaluator steps that review another step's worktree
   run?: string
 }
 

@@ -49,7 +49,7 @@ export function listWorkflowRuns(): WorkflowRun[] {
   return runs
 }
 
-export async function startWorkflow(name: string, parentName?: string): Promise<WorkflowRun> {
+export async function startWorkflow(name: string, opts?: { parent?: string; task?: string; dir?: string }): Promise<WorkflowRun> {
   const def = loadWorkflowDef(name)
 
   // Check for existing active run
@@ -59,7 +59,7 @@ export async function startWorkflow(name: string, parentName?: string): Promise<
   }
 
   // Derive parent from caller if not provided
-  const callerName = parentName ?? process.env.FLT_AGENT_NAME
+  const callerName = opts?.parent ?? process.env.FLT_AGENT_NAME
   const resolvedParent = (callerName && callerName !== 'cron') ? callerName : 'human'
 
   const run: WorkflowRun = {
@@ -70,7 +70,12 @@ export async function startWorkflow(name: string, parentName?: string): Promise<
     parentName: resolvedParent,
     history: [],
     retries: {},
-    vars: {},
+    vars: {
+      _input: {
+        task: opts?.task ?? '',
+        dir: opts?.dir ?? process.cwd(),
+      },
+    },
     startedAt: new Date().toISOString(),
   }
 
@@ -114,10 +119,10 @@ export async function advanceWorkflow(workflowName: string): Promise<void> {
     agent: agentName,
   })
 
-  // Kill the completed agent
+  // Kill the completed agent but preserve its worktree (next step may need it)
   try {
     const { killDirect } = await import('../commands/kill')
-    killDirect({ name: agentName })
+    killDirect({ name: agentName, preserveWorktree: true })
   } catch {}
 
   // Determine next step
@@ -126,7 +131,7 @@ export async function advanceWorkflow(workflowName: string): Promise<void> {
     run.status = 'completed'
     run.completedAt = new Date().toISOString()
     saveWorkflowRun(run)
-    // Notify parent that workflow completed
+    cleanupWorkflowWorktrees(run)
     await notifyWorkflowParent(run, `Workflow "${run.workflow}" completed.`)
     return
   }
@@ -215,6 +220,7 @@ export async function cancelWorkflow(workflowName: string): Promise<void> {
   run.status = 'cancelled'
   run.completedAt = new Date().toISOString()
   saveWorkflowRun(run)
+  cleanupWorkflowWorktrees(run)
 }
 
 function shellEscapeArg(value: string): string {
@@ -264,13 +270,16 @@ async function executeStep(def: WorkflowDef, run: WorkflowRun, step: WorkflowSte
   // Agent step — spawn via preset
   const agentName = workflowAgentName(run.workflow, step.id)
   const task = resolveTemplate(step.task, run)
-  const dir = step.dir ? resolveTemplate(step.dir, run) : undefined
+  const dir = step.dir
+    ? resolveTemplate(step.dir, run)
+    : (run.vars._input?.dir || undefined)
 
   const { spawnDirect } = await import('../commands/spawn')
   await spawnDirect({
     name: agentName,
     preset: step.preset,
     dir,
+    worktree: step.worktree !== false,
     bootstrap: task,
   })
 
@@ -287,15 +296,36 @@ async function executeStep(def: WorkflowDef, run: WorkflowRun, step: WorkflowSte
 }
 
 function resolveTemplate(template: string, run: WorkflowRun): string {
-  return template.replace(/\{steps\.([^.]+)\.(\w+)\}/g, (match, stepId, field) => {
+  // Shorthand: {task} → {steps._input.task}, {dir} → {steps._input.dir}
+  let result = template
+    .replace(/\{task\}/g, run.vars._input?.task ?? '')
+    .replace(/\{dir\}/g, run.vars._input?.dir ?? '')
+  // Full form: {steps.<id>.<field>}
+  result = result.replace(/\{steps\.([^.]+)\.(\w+)\}/g, (match, stepId, field) => {
     const stepVars = run.vars[stepId]
     if (!stepVars) return match
     return stepVars[field] ?? match
   })
+  return result
 }
 
 export function workflowAgentName(workflowName: string, stepId: string): string {
   return `${workflowName}-${stepId}`
+}
+
+function cleanupWorkflowWorktrees(run: WorkflowRun): void {
+  for (const [stepId, vars] of Object.entries(run.vars)) {
+    const wtPath = vars.worktree
+    const branch = vars.branch
+    if (!wtPath || !wtPath.includes('flt-wt-') || !branch) continue
+    try {
+      const { removeWorktree } = require('../worktree') as typeof import('../worktree')
+      const repoDir = execSync('git rev-parse --show-toplevel', {
+        cwd: wtPath, encoding: 'utf-8', timeout: 5000,
+      }).trim()
+      removeWorktree(repoDir, wtPath, branch)
+    } catch {}
+  }
 }
 
 async function notifyWorkflowParent(run: WorkflowRun, message: string): Promise<void> {

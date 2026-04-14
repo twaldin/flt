@@ -218,10 +218,12 @@ workflowCmd
   .command('run <name>')
   .description('Start a workflow from ~/.flt/workflows/')
   .option('--parent <name>', 'Who gets notified on completion')
+  .option('-t, --task <task>', 'Task description (available as {task} in step templates)')
+  .option('-d, --dir <path>', 'Working directory for agent steps')
   .action(async (name, opts) => {
     try {
       const { workflowRun } = await import('./commands/workflow')
-      await workflowRun(name, opts.parent)
+      await workflowRun(name, { parent: opts.parent, task: opts.task, dir: opts.dir })
     } catch (e) {
       console.error(`Error: ${(e as Error).message}`)
       process.exit(1)

@@ -89,6 +89,7 @@ export function validateWorkflowDef(raw: unknown): WorkflowDef {
       on_complete: s.on_complete as string | undefined,
       on_fail: s.on_fail as string | undefined,
       max_retries: typeof s.max_retries === 'number' ? s.max_retries : undefined,
+      worktree: typeof s.worktree === 'boolean' ? s.worktree : undefined,
       run: s.run as string | undefined,
     })
   }
