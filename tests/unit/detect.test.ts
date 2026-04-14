@@ -10,11 +10,13 @@ describe('detect', () => {
       FLT_PARENT_SESSION: process.env.FLT_PARENT_SESSION,
       FLT_PARENT_NAME: process.env.FLT_PARENT_NAME,
       FLT_DEPTH: process.env.FLT_DEPTH,
+      TMUX: process.env.TMUX,
     }
     delete process.env.FLT_AGENT_NAME
     delete process.env.FLT_PARENT_SESSION
     delete process.env.FLT_PARENT_NAME
     delete process.env.FLT_DEPTH
+    delete process.env.TMUX
   })
 
   afterEach(() => {
