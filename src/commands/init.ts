@@ -15,12 +15,27 @@ export function getInboxPath(): string {
   return join(getStateDir(), 'inbox.log')
 }
 
+function loadTimeFormat(): boolean {
+  try {
+    const configPath = join(getStateDir(), 'config.json')
+    if (!existsSync(configPath)) return true
+    const config = JSON.parse(readFileSync(configPath, 'utf-8'))
+    if (config.timeFormat === '24h') return false
+    return true  // default: 12h
+  } catch {
+    return true
+  }
+}
+
 export function appendInbox(from: string, message: string): void {
   const inboxPath = getInboxPath()
   mkdirSync(getStateDir(), { recursive: true })
-  const ts = new Date().toLocaleTimeString('en-US', { hour12: false })
+  const hour12 = loadTimeFormat()
+  const ts = new Date().toLocaleTimeString('en-US', { hour12 })
   const tag = from.toUpperCase()
-  const line = `[${ts}] [${tag}]: ${message}\n`
+  // Escape newlines so multiline messages stay on one line in the log
+  const escaped = message.replace(/\n/g, '\\n')
+  const line = `[${ts}] [${tag}]: ${escaped}\n`
   const fd = require('fs').openSync(inboxPath, 'a')
   require('fs').writeSync(fd, line)
   require('fs').closeSync(fd)

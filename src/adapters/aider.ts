@@ -32,10 +32,14 @@ export const aiderAdapter: CliAdapter = {
   submitKeys: ['Enter'],
 
   spawnArgs(opts: SpawnOpts): string[] {
-    const args = ['aider', '--yes', '--read', '.flt-instructions.md']
+    const args: string[] = []
+    // GPT models: use env(1) to set vars that litellm needs
+    if (opts.model && isGptModel(opts.model)) {
+      args.push('env', `OPENAI_API_KEY=unused`, `OPENAI_API_BASE=${OAUTH_PROXY}`, `OPENAI_BASE_URL=${OAUTH_PROXY}`, 'BROWSER=echo')
+    }
+    args.push('aider', '--yes', '--no-show-model-warnings', '--no-browser', '--read', '.flt-instructions.md')
     if (opts.model) {
       args.push('--model', opts.model)
-      // GPT models: use OAuth proxy for free access
       if (isGptModel(opts.model)) {
         args.push('--openai-api-base', OAUTH_PROXY, '--openai-api-key', 'unused')
       }
@@ -49,6 +53,7 @@ export const aiderAdapter: CliAdapter = {
   },
 
   env(): Record<string, string> {
+    // API keys handled via env prefix in spawnArgs for reliability
     const env: Record<string, string> = {}
     const orKey = loadOpenRouterKey()
     if (orKey) env.OPENROUTER_API_KEY = orKey

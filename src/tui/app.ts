@@ -88,13 +88,13 @@ function parseInbox(content: string): InboxMessage[] {
     // New format: [HH:MM:SS] [SENDER]: message
     const tagMatch = line.match(/^\[(\S+)\]\s+\[([^\]]+)\]:\s+(.+)$/)
     if (tagMatch) {
-      messages.push({ timestamp: tagMatch[1], from: tagMatch[2], text: tagMatch[3] })
+      messages.push({ timestamp: tagMatch[1], from: tagMatch[2], text: tagMatch[3].replace(/\\n/g, '\n') })
       continue
     }
     // Legacy format: [HH:MM:SS] sender: message
     const legacyMatch = line.match(/^\[(\S+)\]\s+(\S+):\s+(.+)$/)
     if (legacyMatch) {
-      messages.push({ timestamp: legacyMatch[1], from: legacyMatch[2], text: legacyMatch[3] })
+      messages.push({ timestamp: legacyMatch[1], from: legacyMatch[2], text: legacyMatch[3].replace(/\\n/g, '\n') })
     }
   }
   return messages
@@ -137,6 +137,13 @@ export class App {
     this.running = true
 
     process.env.FLT_TUI_ACTIVE = '1'
+
+    // Suppress all console output — TUI owns stdout exclusively
+    const noop = () => {}
+    console.log = noop
+    console.error = noop
+    console.warn = noop
+    console.info = noop
     const themeBg = getThemeBackground()
     if (themeBg) {
       process.stdout.write(`\x1b[?1049h\x1b[?25l\x1b[${themeBg}m\x1b[2J\x1b[H`)
@@ -308,14 +315,12 @@ export class App {
   private captureShell(): void {
     if (!hasSession(this.shellSession)) return
     try {
-      const layout = calculateLayout(this.state.termWidth, this.state.termHeight, this.state.agents)
-      const content = capturePane(this.shellSession, Math.max(200, layout.logInnerHeight * 3))
+      // Only capture the visible pane — no scrollback. Matches what the user sees after clear.
+      const content = capturePaneVisible(this.shellSession)
       if (content !== this.shellContent) {
         this.shellContent = content
         this.state.logContent = content
-        // Auto-follow in shell mode
-        const lines = content.split('\n').length
-        this.state.logScrollOffset = Math.max(0, lines - layout.logInnerHeight)
+        this.state.logScrollOffset = 0
         this.render()
       }
     } catch {}
@@ -633,23 +638,31 @@ export class App {
       const messageTokens: string[] = []
 
       let persistent: boolean | undefined
+      let worktree: boolean | undefined
+      let parent: string | undefined
       let i = 1
       while (i < spawnArgs.length) {
-        if (spawnArgs[i] === '--cli' && i + 1 < spawnArgs.length) {
+        if ((spawnArgs[i] === '--cli' || spawnArgs[i] === '-c') && i + 1 < spawnArgs.length) {
           cli = spawnArgs[i + 1]
           i += 2
-        } else if (spawnArgs[i] === '--model' && i + 1 < spawnArgs.length) {
+        } else if ((spawnArgs[i] === '--model' || spawnArgs[i] === '-m') && i + 1 < spawnArgs.length) {
           model = spawnArgs[i + 1]
           i += 2
-        } else if (spawnArgs[i] === '--preset' && i + 1 < spawnArgs.length) {
+        } else if ((spawnArgs[i] === '--preset' || spawnArgs[i] === '-p') && i + 1 < spawnArgs.length) {
           preset = spawnArgs[i + 1]
           i += 2
-        } else if (spawnArgs[i] === '--dir' && i + 1 < spawnArgs.length) {
+        } else if ((spawnArgs[i] === '--dir' || spawnArgs[i] === '-d') && i + 1 < spawnArgs.length) {
           const raw = spawnArgs[i + 1]
           dir = raw.startsWith('~/') ? raw.replace('~', process.env.HOME || homedir()) : raw
           i += 2
+        } else if (spawnArgs[i] === '--parent' && i + 1 < spawnArgs.length) {
+          parent = spawnArgs[i + 1]
+          i += 2
         } else if (spawnArgs[i] === '--persistent') {
           persistent = true
+          i += 1
+        } else if (spawnArgs[i] === '--no-worktree' || spawnArgs[i] === '-W') {
+          worktree = false
           i += 1
         } else {
           messageTokens.push(spawnArgs[i])
@@ -669,7 +682,7 @@ export class App {
         this.setBanner(`Spawn ${name}: still waiting (check flt logs ${name})`, 'yellow')
       }, 65000)
 
-      spawn({ name, cli, preset, model, dir, bootstrap, persistent })
+      spawn({ name, cli, preset, model, dir, bootstrap, persistent, worktree, parent })
         .then(() => {
           clearTimeout(staleTimer)
           this.setBanner(`Spawned ${name}`, 'green', 3000)

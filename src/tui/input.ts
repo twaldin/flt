@@ -48,7 +48,7 @@ export interface InputBindings {
 }
 
 const COMMANDS = ['send', 'logs', 'spawn', 'presets', 'kill', 'theme', 'ascii', 'keybinds', 'help']
-const SPAWN_FLAGS = ['--cli', '--model', '--dir', '--preset', '--persistent']
+const SPAWN_FLAGS = ['--cli', '--model', '--dir', '--preset', '--persistent', '--no-worktree', '--parent']
 const PRESETS_ACTIONS = ['list', 'add', 'remove']
 const PRESETS_ADD_FLAGS = ['--cli', '--model', '--description']
 
@@ -140,14 +140,14 @@ function getCompletions(
 
     if (parts.length === 2) return empty
 
-    if (prevPart === '--cli') {
+    if (prevPart === '--cli' || prevPart === '-c') {
       return {
         completions: cliAdapters.filter((a) => a.startsWith(lastPart) && a !== lastPart),
         currentToken: lastPart,
       }
     }
 
-    if (prevPart === '--model') {
+    if (prevPart === '--model' || prevPart === '-m') {
       const cliIdx = parts.indexOf('--cli')
       const selectedCli = cliIdx !== -1 && cliIdx + 1 < parts.length ? parts[cliIdx + 1] : ''
       const models = MODEL_SUGGESTIONS[selectedCli]
@@ -159,7 +159,7 @@ function getCompletions(
       }
     }
 
-    if (prevPart === '--preset') {
+    if (prevPart === '--preset' || prevPart === '-p') {
       return {
         completions: presetNames.filter((name) => name.startsWith(lastPart) && name !== lastPart),
         currentToken: lastPart,
@@ -202,7 +202,7 @@ function getCompletions(
     }
 
     if (action === 'add') {
-      if (prevPart === '--cli') {
+      if (prevPart === '--cli' || prevPart === '-c') {
         return {
           completions: cliAdapters.filter((adapter) => adapter.startsWith(lastPart) && adapter !== lastPart),
           currentToken: lastPart,
