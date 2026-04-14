@@ -357,6 +357,19 @@ export class App {
   }
 
   private scrollLogUp(): void {
+    if (this.state.autoFollow) {
+      // Transitioning out of follow — will switch from visible-pane to scrollback capture.
+      // Pre-capture the scrollback so offset is relative to the full content.
+      const agent = this.selectedAgent
+      if (agent) {
+        try {
+          const full = capturePane(agent.tmuxSession, Math.max(200, (this.state.termHeight - 5) * 3))
+          this.state.logContent = full
+          this.lastLogContent = full
+          this.state.logScrollOffset = this.maxScroll(full)
+        } catch {}
+      }
+    }
     this.state.logScrollOffset = Math.max(0, this.state.logScrollOffset - 1)
     this.state.autoFollow = false
     this.render()
@@ -370,6 +383,17 @@ export class App {
   }
 
   private scrollLogPageUp(): void {
+    if (this.state.autoFollow) {
+      const agent = this.selectedAgent
+      if (agent) {
+        try {
+          const full = capturePane(agent.tmuxSession, Math.max(200, (this.state.termHeight - 5) * 3))
+          this.state.logContent = full
+          this.lastLogContent = full
+          this.state.logScrollOffset = this.maxScroll(full)
+        } catch {}
+      }
+    }
     const page = Math.max(1, Math.floor(this.logViewHeight() / 2))
     this.state.logScrollOffset = Math.max(0, this.state.logScrollOffset - page)
     this.state.autoFollow = false
