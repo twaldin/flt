@@ -22,6 +22,7 @@ export interface Banner {
 
 export interface AppState {
   mode: Mode
+  previousMode: Mode
   agents: AgentView[]
   selectedIndex: number
   logContent: string
@@ -44,6 +45,7 @@ export interface AppState {
 export function createInitialState(width = 80, height = 24): AppState {
   return {
     mode: 'normal',
+    previousMode: 'normal',
     agents: [],
     selectedIndex: 0,
     logContent: '',

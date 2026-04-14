@@ -616,7 +616,8 @@ function handleSpecialKey(event: Extract<ParsedInputEvent, { type: 'key' }>, bin
   if (state.mode === 'insert') {
     if (event.key === 'escape') {
       bindings.flushInsert()
-      bindings.setMode('log-focus')
+      const prev = state.previousMode
+      bindings.setMode(prev === 'normal' || prev === 'log-focus' ? prev : 'normal')
     } else if (event.key === 'enter') {
       bindings.flushInsert()
       bindings.sendInsertKey('Enter')

@@ -251,6 +251,7 @@ export class App {
   private setMode(mode: Mode): void {
     const previousMode = this.state.mode
     if (previousMode === mode) return
+    this.state.previousMode = previousMode
     this.state.mode = mode
     this.restartPolling()
 

@@ -162,6 +162,7 @@ const MODE_ACTION_SET: Record<ConfigurableMode, ReadonlySet<KeybindAction>> = {
     'quit',
     'focusLog',
     'toggleCollapse',
+    'enterInsert',
   ]),
   'log-focus': new Set<KeybindAction>([
     'enterInsert',
@@ -210,6 +211,7 @@ export const DEFAULT_KEYBINDS: KeybindConfig = {
     r: 'reply',
     t: 'openShell',
     q: 'quit',
+    i: 'enterInsert',
     Enter: 'focusLog',
     Tab: 'focusLog',
     'Shift-Enter': 'toggleCollapse',

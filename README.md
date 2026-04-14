@@ -106,6 +106,7 @@ All keybindings are configurable via `~/.flt/keybinds.json`. The defaults are vi
 |------|-----|--------|
 | Normal | `j/k` | Select agent |
 | Normal | `Enter` / `Tab` | Focus log pane |
+| Normal | `i` | Insert mode (type to agent) |
 | Normal | `s` | Open spawn command (`:spawn `) |
 | Normal | `r` | Reply to selected agent (`:send <name> `) |
 | Normal | `m` | Inbox |
@@ -124,7 +125,7 @@ All keybindings are configurable via `~/.flt/keybinds.json`. The defaults are vi
 | Insert | `Ctrl-c` | Interrupt agent (sends Escape, not SIGINT) |
 | Insert | `Alt-Backspace` | Delete word backward |
 | Insert | `Ctrl-u` | Delete to line start |
-| Insert | `Esc` | Exit insert mode |
+| Insert | `Esc` | Back to previous mode (normal or log-focus) |
 | Inbox | `j/k` | Select message |
 | Inbox | `d` | Delete message |
 | Inbox | `D` | Clear all |
