@@ -281,6 +281,7 @@ async function executeStep(def: WorkflowDef, run: WorkflowRun, step: WorkflowSte
     preset: step.preset,
     dir,
     worktree: step.worktree !== false,
+    parent: run.parentName,
     bootstrap: task,
   })
 
