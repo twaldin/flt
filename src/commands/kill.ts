@@ -66,8 +66,12 @@ export function killDirect(args: KillArgs): void {
     // Best-effort
   }
 
-  // Remove from state
+  // Remove from state + clean up poller tracking
   removeAgent(name)
+  try {
+    const { cleanupAgent } = require('../controller/poller') as typeof import('../controller/poller')
+    cleanupAgent(name)
+  } catch {}
 
   if (!process.env.FLT_TUI_ACTIVE) {
     console.log(`Killed ${name}`)

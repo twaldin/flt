@@ -2,8 +2,8 @@ import { readFileSync } from 'fs'
 import { join } from 'path'
 import { resolveAdapter, getAdapter } from '../adapters/registry'
 import type { AgentStatus } from '../adapters/types'
-import { allAgents, setAgent, type AgentState } from '../state'
-import { capturePane, hasSession } from '../tmux'
+import { allAgents, setAgent, loadState, saveState, type AgentState } from '../state'
+import { capturePane, hasSession, listSessions } from '../tmux'
 
 const CONTENT_STABLE_TIMEOUT_MS = 60_000
 
@@ -25,6 +25,7 @@ const stableTracker: Record<string, { hash: string; since: number }> = {}
 
 const ICON_IDLE_THRESHOLD = 3     // 3 consecutive same-icon polls (3s) before idle
 const CONTENT_IDLE_GRACE_MS = 5000 // 5s of stable content before flipping running→idle
+let cachedTypingAgent: string | null = null
 
 function extractSpinnerIcon(pane: string): string | null {
   // Match the LAST spinner icon in the pane — earlier ones may be stale "Cooked for" lines
@@ -91,8 +92,7 @@ function detectAgentStatusFromPane(name: string, agent: AgentState, pane: string
     lastHashes[name] = hash
 
     // If user is typing into this agent, ignore content changes
-    const typingAgent = getTypingAgent()
-    if (typingAgent === name) return agent.status ?? 'idle'
+    if (cachedTypingAgent === name) return agent.status ?? 'idle'
 
     if (prevHash && prevHash !== hash) {
       // Content changed — running, reset stable timer
@@ -139,11 +139,15 @@ export function setStatusChangeCallback(cb: StatusChangeCallback): void {
 }
 
 export function pollOnce(): void {
-  const agents = allAgents()
+  const state = loadState()
+  const agents = state.agents
   const now = new Date().toISOString()
+  let dirty = false
+  cachedTypingAgent = getTypingAgent()
+  const liveSessions = new Set(listSessions())
 
   for (const [name, agent] of Object.entries(agents)) {
-    if (!hasSession(agent.tmuxSession)) continue
+    if (!liveSessions.has(agent.tmuxSession)) continue
 
     const prevStatus = agent.status
     const pane = capturePane(agent.tmuxSession, 50)
@@ -151,12 +155,17 @@ export function pollOnce(): void {
     status = applyContentStableTimeout(name, pane, status)
 
     if (status !== prevStatus) {
-      setAgent(name, { ...agent, status, statusAt: now })
+      agent.status = status
+      agent.statusAt = now
+      dirty = true
       if (onStatusChange) {
         onStatusChange(name, prevStatus, status)
       }
     }
   }
+
+  // Single write for all status changes
+  if (dirty) saveState(state)
 }
 
 export function startPolling(intervalMs = 1000): void {
