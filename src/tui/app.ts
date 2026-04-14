@@ -681,16 +681,17 @@ export class App {
         return
       }
 
+      // :ascii <word> [fontfile.flf]
       let fontPath: string | null = null
-      const fontFlagIdx = parsed.args.indexOf('--font')
-      if (fontFlagIdx !== -1 && fontFlagIdx + 1 < parsed.args.length) {
-        const raw = parsed.args[fontFlagIdx + 1]
-        fontPath = raw.startsWith('~/') ? raw.replace('~', process.env.HOME || homedir()) : raw
+      const fontArg = parsed.args[1]
+      if (fontArg) {
+        const raw = fontArg.startsWith('~/') ? fontArg.replace('~', process.env.HOME || homedir()) : fontArg
         const { existsSync } = require('fs') as typeof import('fs')
-        if (!existsSync(fontPath)) {
-          this.setBanner(`Font file not found: ${fontPath}`, 'red', 4000)
+        if (!existsSync(raw)) {
+          this.setBanner(`Font file not found: ${raw}`, 'red', 4000)
           return
         }
+        fontPath = raw
       }
 
       setAsciiWord(word, fontPath)

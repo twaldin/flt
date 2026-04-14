@@ -15,6 +15,8 @@ function getConfigPath(): string {
   return `${process.env.HOME || homedir()}/.flt/config.json`
 }
 
+const DEFAULT_FONT = 'DOS Rebel'
+
 function renderLines(word: string, fontPath: string | null): string[] {
   try {
     let text: string
@@ -23,10 +25,9 @@ function renderLines(word: string, fontPath: string | null): string[] {
       figlet.parseFont('_ascii_custom', fontData)
       text = figlet.textSync(word, { font: '_ascii_custom' as figlet.Fonts })
     } else {
-      text = figlet.textSync(word)
+      text = figlet.textSync(word, { font: DEFAULT_FONT as figlet.Fonts })
     }
     const lines = text.split('\n')
-    // Trim trailing empty lines
     while (lines.length > 0 && !lines[lines.length - 1].trim()) {
       lines.pop()
     }

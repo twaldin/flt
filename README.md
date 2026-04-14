@@ -129,8 +129,8 @@ Launch with `flt tui`. The sidebar shows all agents in a tree hierarchy with liv
 :kill name
 :presets list
 :theme dracula
-:ascii hello              # change sidebar logo
-:ascii hello --font ~/f.flf   # custom figlet font
+:ascii hello              # change sidebar logo (DOS Rebel font)
+:ascii hello ~/font.flf   # custom figlet font
 :ascii reset              # restore default
 ```
 
