@@ -85,14 +85,14 @@ function parseInbox(content: string): InboxMessage[] {
   const messages: InboxMessage[] = []
   for (const line of content.split('\n')) {
     if (!line.trim()) continue
-    // New format: [HH:MM:SS] [SENDER]: message
-    const tagMatch = line.match(/^\[(\S+)\]\s+\[([^\]]+)\]:\s+(.+)$/)
+    // New format: [timestamp] [SENDER]: message (timestamp may contain spaces like "5:11:29 PM")
+    const tagMatch = line.match(/^\[([^\]]+)\]\s+\[([^\]]+)\]:\s+(.+)$/)
     if (tagMatch) {
       messages.push({ timestamp: tagMatch[1], from: tagMatch[2], text: tagMatch[3].replace(/\\n/g, '\n') })
       continue
     }
-    // Legacy format: [HH:MM:SS] sender: message
-    const legacyMatch = line.match(/^\[(\S+)\]\s+(\S+):\s+(.+)$/)
+    // Legacy format: [timestamp] sender: message
+    const legacyMatch = line.match(/^\[([^\]]+)\]\s+(\S+):\s+(.+)$/)
     if (legacyMatch) {
       messages.push({ timestamp: legacyMatch[1], from: legacyMatch[2], text: legacyMatch[3].replace(/\\n/g, '\n') })
     }
@@ -115,6 +115,7 @@ export class App {
   private shellContent = ''
   private lastAgentsHash = ''
   private lastLogContent = ''
+  private paneCache: Record<string, string> = {}  // cached pane content per agent
   private lastInboxRaw = ''
   private lastSelectedName: string | undefined
   private lastStatusByAgent: Record<string, string> = {}
@@ -371,10 +372,21 @@ export class App {
     this.render()
   }
 
+  private showCachedPane(): void {
+    const agent = this.state.agents[this.state.selectedIndex]
+    const cached = agent ? this.paneCache[agent.name] : undefined
+    if (cached) {
+      this.lastLogContent = cached
+      this.applyLogContent(cached)
+    } else {
+      this.lastLogContent = ''
+    }
+  }
+
   private selectPrev(): void {
     if (this.state.agents.length === 0) return
     this.state.selectedIndex = Math.max(0, this.state.selectedIndex - 1)
-    this.lastLogContent = ''
+    this.showCachedPane()
     const selected = this.selectedAgent
     if (selected) delete this.state.notifications[selected.name]
     this.sidebarScrollSync()
@@ -384,7 +396,7 @@ export class App {
   private selectNext(): void {
     if (this.state.agents.length === 0) return
     this.state.selectedIndex = Math.min(this.state.agents.length - 1, this.state.selectedIndex + 1)
-    this.lastLogContent = ''
+    this.showCachedPane()
     const selected = this.selectedAgent
     if (selected) delete this.state.notifications[selected.name]
     this.sidebarScrollSync()
@@ -1057,6 +1069,27 @@ export class App {
       return
     }
 
+    // Pre-resize all agent panes so switching is instant (no wrong-size frame)
+    if (!isInsert) {
+      const layout = calculateLayout(this.state.termWidth, this.state.termHeight, this.state.agents)
+      const paneWidth = Math.max(20, layout.logInnerWidth)
+      const paneHeight = Math.max(10, layout.logInnerHeight)
+      for (const [name, ag] of Object.entries(agents)) {
+        if (!hasSession(ag.tmuxSession)) continue
+        const last = this.lastResizedDims[ag.tmuxSession]
+        if (!last || last.width !== paneWidth || last.height !== paneHeight) {
+          resizeWindow(ag.tmuxSession, paneWidth, paneHeight)
+          this.lastResizedDims[ag.tmuxSession] = { width: paneWidth, height: paneHeight }
+        }
+        // Background-cache non-selected agents so switching is instant
+        if (!selected || name !== selected.name) {
+          try {
+            this.paneCache[name] = stripOsc8(capturePaneVisible(ag.tmuxSession))
+          } catch {}
+        }
+      }
+    }
+
     if (selected) {
       const agent = agents[selected.name]
       if (agent && agent.tmuxSession === selfSession) {
@@ -1068,16 +1101,7 @@ export class App {
       } else if (agent) {
         try {
           const layout = calculateLayout(this.state.termWidth, this.state.termHeight, this.state.agents)
-          const paneWidth = Math.max(20, layout.logInnerWidth)
           const paneHeight = Math.max(10, layout.logInnerHeight)
-
-          if (!isInsert) {
-            const last = this.lastResizedDims[agent.tmuxSession]
-            if (!last || last.width !== paneWidth || last.height !== paneHeight) {
-              resizeWindow(agent.tmuxSession, paneWidth, paneHeight)
-              this.lastResizedDims[agent.tmuxSession] = { width: paneWidth, height: paneHeight }
-            }
-          }
 
           // In auto-follow: capture only the visible pane (no scrollback).
           // This gives exactly paneHeight rows — a 1:1 match with the tmux pane.

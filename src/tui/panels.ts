@@ -194,14 +194,13 @@ function renderSidebar(screen: Screen, state: AppState, top: number, left: numbe
 
     // Name row
     const dot = (agent.persistent && agent.status === 'exited') ? '⟳' : statusSymbol(agent.status)
-    const persistentBadge = agent.persistent ? 'P ' : ''
     const age = formatAge(agent.spawnedAt)
     const notifDot = notification && !selected ? ' ●' : ''
     // Collapsed indicator: show [+N] when agent has hidden children
     const collapsedSuffix = (agent.collapsedChildCount !== undefined && agent.collapsedChildCount > 0)
       ? ` [+${agent.collapsedChildCount}]`
       : ''
-    const nameText = `${persistentBadge}${dot} ${agent.name}${collapsedSuffix}`
+    const nameText = `${dot} ${agent.name}${collapsedSuffix}`
     const ageWithNotif = `${notifDot} ${age}`
     const agePad = Math.max(0, innerWidth - widthOf(nameText) - widthOf(ageWithNotif))
     const line1 = `${pad}${namePrefix}${nameText}${' '.repeat(agePad)}${ageWithNotif}${pad}`
@@ -220,6 +219,14 @@ function renderSidebar(screen: Screen, state: AppState, top: number, left: numbe
 
     // Padding row below
     screen.put(row, left, padRight(`${pad}${belowPrefix}`, width), agentColor, bg)
+    row += 1
+  }
+
+  // Overflow indicator
+  const hiddenBelow = ordered.length - (scrollOffset + visibleCount)
+  if (hiddenBelow > 0 && row < top + height) {
+    const overflowText = `  +${hiddenBelow} more`
+    putLine(screen, row, left, width, overflowText, t.sidebarMuted, ATTR_DIM)
     row += 1
   }
 
