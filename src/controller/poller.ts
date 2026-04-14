@@ -27,8 +27,10 @@ const ICON_IDLE_THRESHOLD = 3     // 3 consecutive same-icon polls (3s) before i
 const CONTENT_IDLE_GRACE_MS = 5000 // 5s of stable content before flipping running→idle
 
 function extractSpinnerIcon(pane: string): string | null {
-  const match = pane.match(/^[\u00B7\u2722\u2733\u2217\u273B\u273D]/m)
-  return match ? match[0] : null
+  // Match the LAST spinner icon in the pane — earlier ones may be stale "Cooked for" lines
+  // U+00B7 · U+2217 ∗ U+2722 ✢ U+2733 ✳ U+2736 ✶ U+273B ✻ U+273D ✽
+  const matches = pane.match(/^[\u00B7\u2217\u2722\u2733\u2736\u273B\u273D]/gm)
+  return matches ? matches[matches.length - 1] : null
 }
 
 function simpleHash(s: string): string {
