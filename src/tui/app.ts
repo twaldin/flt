@@ -1,5 +1,6 @@
-import { existsSync, readFileSync } from 'fs'
+import { existsSync, readFileSync, writeFileSync, unlinkSync } from 'fs'
 import { homedir } from 'os'
+import { join } from 'path'
 import { listAdapters } from '../adapters/registry'
 import { kill } from '../commands/kill'
 import { formatPresetList, presetsAdd, presetsRemove } from '../commands/presets'
@@ -170,6 +171,9 @@ export class App {
       this.cleanupInput = null
     }
 
+    // Clean up typing indicator
+    try { unlinkSync(join(homedir(), '.flt', 'typing')) } catch {}
+
     process.stdout.write('\x1b[0m\x1b[?25h\x1b[?1049l')
   }
 
@@ -196,6 +200,15 @@ export class App {
     if (previousMode === mode) return
     this.state.mode = mode
     this.restartPolling()
+
+    // Signal controller which agent is being typed into
+    const typingFile = join(homedir(), '.flt', 'typing')
+    if (mode === 'insert' && this.selectedAgent) {
+      try { writeFileSync(typingFile, this.selectedAgent.name) } catch {}
+    } else if (previousMode === 'insert') {
+      try { unlinkSync(typingFile) } catch {}
+    }
+
     // Immediately capture content for the new mode
     if (mode === 'log-focus' || mode === 'insert' || (mode === 'normal' && previousMode === 'presets')) {
       this.captureSelectedPane()

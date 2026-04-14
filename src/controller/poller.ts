@@ -1,9 +1,20 @@
+import { readFileSync } from 'fs'
+import { join } from 'path'
 import { resolveAdapter, getAdapter } from '../adapters/registry'
 import type { AgentStatus } from '../adapters/types'
 import { allAgents, setAgent, type AgentState } from '../state'
 import { capturePane, hasSession } from '../tmux'
 
 const CONTENT_STABLE_TIMEOUT_MS = 60_000
+
+function getTypingAgent(): string | null {
+  try {
+    const home = process.env.HOME ?? require('os').homedir()
+    return readFileSync(join(home, '.flt', 'typing'), 'utf-8').trim() || null
+  } catch {
+    return null
+  }
+}
 
 // Per-agent tracking state
 const lastIcons: Record<string, string> = {}
@@ -21,7 +32,7 @@ function simpleHash(s: string): string {
   return String(h)
 }
 
-function detectAgentStatusFromPane(agent: AgentState, pane: string): AgentStatus {
+function detectAgentStatusFromPane(name: string, agent: AgentState, pane: string): AgentStatus {
   try {
     const adapter = getAdapter(agent.cli)
     if (!adapter) return 'unknown'
@@ -57,21 +68,19 @@ function detectAgentStatusFromPane(agent: AgentState, pane: string): AgentStatus
     const adapterResult = adapter.detectStatus(pane)
     if (adapterResult !== 'unknown') return adapterResult
 
-    // Fallback: content-delta — one-way filter
-    // Content changing can KEEP running, content stable can MOVE to idle
-    // But content changing alone cannot move idle → running
-    // Only adapter-specific signals (above) can transition to running
+    // Fallback: content-delta
     const key = agent.tmuxSession
     const hash = simpleHash(pane)
     const prevHash = lastHashes[key]
     lastHashes[key] = hash
-    const contentChanged = prevHash && prevHash !== hash
-    const prevStatus = agent.status ?? 'idle'
 
-    if (prevStatus === 'running' && contentChanged) return 'running'
-    if (prevStatus === 'running' && !contentChanged) return 'idle'
-    // If was idle/unknown, stay idle — only adapter can flip to running
-    return prevStatus === 'rate-limited' ? prevStatus : 'idle'
+    // If user is typing into this agent, ignore content changes
+    const typingAgent = getTypingAgent()
+    if (typingAgent === name) return agent.status ?? 'idle'
+
+    if (prevHash && prevHash !== hash) return 'running'
+    if (prevHash && prevHash === hash) return 'idle'
+    return 'idle'
   } catch {
     return 'unknown'
   }
@@ -114,7 +123,7 @@ export function pollOnce(): void {
 
     const prevStatus = agent.status
     const pane = capturePane(agent.tmuxSession, 20)
-    let status = detectAgentStatusFromPane(agent, pane)
+    let status = detectAgentStatusFromPane(name, agent, pane)
     status = applyContentStableTimeout(name, pane, status)
 
     if (status !== prevStatus) {
