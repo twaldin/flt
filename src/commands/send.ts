@@ -35,6 +35,19 @@ export async function sendDirect(args: SendArgs): Promise<void> {
   const caller = _caller ?? detectCaller()
   const senderName = caller.agentName ?? (caller.mode === 'human' ? detectUsername() : 'unknown')
 
+  // Block workflow agents from sending messages — they should use flt workflow pass/fail
+  if (caller.agentName) {
+    try {
+      const { getWorkflowForAgent } = await import('../workflow/engine')
+      const workflowId = getWorkflowForAgent(caller.agentName)
+      if (workflowId) {
+        throw new Error(`Blocked: you are in workflow "${workflowId}". Use "flt workflow pass" or "flt workflow fail <reason>" instead of flt send.`)
+      }
+    } catch (e) {
+      if (e instanceof Error && e.message.startsWith('Blocked:')) throw e
+    }
+  }
+
   if (target === 'parent') {
     if (caller.mode !== 'agent') {
       throw new Error('Cannot send to "parent" — not running as a fleet agent.')

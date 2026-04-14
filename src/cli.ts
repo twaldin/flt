@@ -55,6 +55,19 @@ program
   })
 
 program
+  .command('exit')
+  .description('Shut down the fleet: cancel workflows, kill all agents, stop controller')
+  .action(async () => {
+    try {
+      const { exit } = await import('./commands/exit')
+      await exit()
+    } catch (e) {
+      console.error(`Error: ${(e as Error).message}`)
+      process.exit(1)
+    }
+  })
+
+program
   .command('spawn <name>')
   .description('Spawn an agent in a tmux session')
   .option('-c, --cli <cli>', `CLI adapter (${listAdapters().join(', ')})`)

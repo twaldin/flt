@@ -68,6 +68,15 @@ export function killDirect(args: KillArgs): void {
     // Best-effort
   }
 
+  // Cancel any workflow this agent belongs to
+  try {
+    const { getWorkflowForAgent, cancelWorkflow } = require('../workflow/engine') as typeof import('../workflow/engine')
+    const workflowId = getWorkflowForAgent(name)
+    if (workflowId) {
+      cancelWorkflow(workflowId).catch(() => {})
+    }
+  } catch {}
+
   // Remove from state + clean up poller tracking
   removeAgent(name)
   try {
