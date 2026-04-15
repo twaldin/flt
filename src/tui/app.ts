@@ -385,7 +385,8 @@ export class App {
 
   private selectPrev(): void {
     if (this.state.agents.length === 0) return
-    this.state.selectedIndex = Math.max(0, this.state.selectedIndex - 1)
+    const total = this.state.agents.length
+    this.state.selectedIndex = (this.state.selectedIndex - 1 + total) % total
     this.showCachedPane()
     const selected = this.selectedAgent
     if (selected) delete this.state.notifications[selected.name]
@@ -395,7 +396,7 @@ export class App {
 
   private selectNext(): void {
     if (this.state.agents.length === 0) return
-    this.state.selectedIndex = Math.min(this.state.agents.length - 1, this.state.selectedIndex + 1)
+    this.state.selectedIndex = (this.state.selectedIndex + 1) % this.state.agents.length
     this.showCachedPane()
     const selected = this.selectedAgent
     if (selected) delete this.state.notifications[selected.name]
