@@ -4,6 +4,8 @@ flt is a CLI that spawns, messages, and manages AI coding agents across any harn
 
 The same commands work whether you type them, an agent runs them from its tmux session, or a cron job fires them. `flt spawn`, `flt send`, `flt kill`. That's the whole API. Humans, agents, and automation all speak the same language.
 
+![flt demo](demo/demo.gif)
+
 ## Why flt
 
 Every AI coding CLI is good at working alone. None of them know about each other. flt gives them fleet awareness — agents know they're part of a team, who spawned them, how to message siblings, and what skills they have.
