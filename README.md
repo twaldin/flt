@@ -1,27 +1,10 @@
 # flt
 
-flt is a CLI that spawns, messages, and manages AI coding agents across any harness — Claude Code, Codex, Gemini CLI, Aider, OpenCode, SWE-agent — from one place.
+You build an agent in Claude Code. It's good. Then you need one in Codex for the fast stuff, one in Gemini for the cheap stuff. Now you have three tools that don't know about each other, three different instruction formats, three ways to check status. You're locked into whichever ecosystem you started with, or you're managing three separate workflows.
 
-The same commands work whether you type them, an agent runs them from its tmux session, or a cron job fires them. `flt spawn`, `flt send`, `flt kill`. That's the whole API. Humans, agents, and automation all speak the same language.
+flt makes every AI coding CLI feel like the same tool. `flt spawn`, `flt send`, `flt kill` — works the same whether the agent runs in Claude Code, Codex, Gemini CLI, Aider, OpenCode, or SWE-agent. Agents message each other across CLIs. A Claude Code orchestrator can spawn a Codex coder and a Gemini researcher, and they all report back through the same inbox.
 
 ![flt demo](demo/demo.gif)
-
-## Why flt
-
-Every AI coding CLI is good at working alone. None of them know about each other. flt gives them fleet awareness — agents know they're part of a team, who spawned them, how to message siblings, and what skills they have.
-
-```bash
-# You spawn an agent
-flt spawn coder -p coder -d ~/project "fix the parser bug"
-
-# That agent spawns a reviewer
-flt spawn reviewer -p evaluator -d ~/project "review PR #5"
-
-# A cron spawns a monitor every 30 minutes
-*/30 * * * * flt spawn monitor -p monitor -d ~/project "run health checks"
-
-# Same CLI. Human, agent, or cron. No difference.
-```
 
 ## Install
 
@@ -29,318 +12,138 @@ flt spawn reviewer -p evaluator -d ~/project "review PR #5"
 bun install -g @twaldin/flt-cli
 ```
 
-Requires [Bun](https://bun.sh) (runtime) and [tmux](https://github.com/tmux/tmux) (session management). Node.js is not supported — flt is Bun-native.
-
-You also need at least one AI coding CLI installed: `claude` (Claude Code), `codex` (OpenAI Codex), `gemini` (Gemini CLI), `aider`, `opencode`, or a SWE-agent setup. `git` is required for worktree-based agent isolation.
+Requires [Bun](https://bun.sh) and [tmux](https://github.com/tmux/tmux). You need at least one AI coding CLI installed (`claude`, `codex`, `gemini`, `aider`, `opencode`, or SWE-agent). `git` is required for worktree-based agent isolation.
 
 ## Quick start
 
 ```bash
-# Initialize the fleet
-flt init
+flt init                    # initialize fleet + start controller
+flt tui                     # open the terminal UI
 
-# Open the TUI
-flt tui
+# spawn agents in any CLI from the same interface
+flt spawn coder -c claude-code -m sonnet -d ~/project "fix the login bug"
+flt spawn fast -c codex -m gpt-5.3-codex -d ~/project "add input validation"
+flt spawn researcher -c gemini -m gemini-2.5-flash -d ~/project "find similar auth patterns"
 
-# Spawn your first agent
-flt spawn mycoder -c claude-code -m sonnet -d ~/project "fix the login bug"
+# talk to them
+flt send coder "also add tests for the edge case"
 
-# Or use presets for quick spawning
-flt presets add coder -c codex -m gpt-5.3-codex
-flt spawn mycoder -p coder -d ~/project "fix the login bug"
+# they talk to each other
+# (from inside the researcher agent)
+flt send coder "found 3 patterns in the codebase, see PR #12 for details"
 
-# Talk to it
-flt send mycoder "also add tests for the edge case"
-
-# Watch it work (from TUI or CLI)
-flt logs mycoder
-
-# Kill when done
-flt kill mycoder
+# watch, kill
+flt logs coder
+flt kill fast
 ```
 
-Use `--no-worktree` (`-W`) if your working directory isn't a git repo. By default, flt creates an isolated git worktree per agent.
-
-## The fleet pattern
-
-flt shines when agents manage other agents. Here's a real example — a VPS monitor that automatically fixes bugs it finds:
-
-**1. Set up a monitor agent with a SOUL.md identity:**
-
-```markdown
-# ~/.flt/agents/monitor/SOUL.md
-## Role
-You monitor the production VPS every 30 minutes.
-
-## When you find a bug
-1. Open a GitHub issue: `gh issue create --title "..." --body "..."`
-2. Spawn a coder: `flt spawn fix-123 -p coder -d ~/project "fix issue #123"`
-3. Wait for the coder to report back
-4. Spawn an evaluator: `flt spawn eval-123 -p evaluator -d ~/project "review PR #45"`
-5. If evaluator says PASS: `flt send parent "PR #45 ready for merge"`
-6. If FAIL: the coder loops automatically
-7. Clean up: `flt kill fix-123 && flt kill eval-123`
-```
-
-**2. Set up a cron to spawn the monitor every 30 minutes:**
+Save presets so you stop typing flags:
 
 ```bash
-*/30 * * * * flt spawn monitor -p monitor -d ~/project "run health checks"
+flt presets add coder -c codex -m gpt-5.3-codex
+flt spawn coder -d ~/project "fix the parser bug"   # auto-resolves preset by name
 ```
 
-**3. The monitor runs, finds a pricing bug, opens an issue, spawns a coder, the coder makes a PR, spawns an evaluator, the evaluator passes it, and you get a message in your inbox:**
+Presets can also store `dir`, `parent`, `worktree`, and `persistent` — so a cron entry becomes a one-liner:
+
+```bash
+*/30 * * * * flt spawn monitor "run health checks"
+```
+
+## The TUI
+
+The real-time terminal UI is built from scratch — raw ANSI screen buffer with double-buffered damage tracking, not a framework. It renders the full fleet in a sidebar with live status indicators, lets you read agent output, type to agents directly, and manage everything without leaving the terminal.
 
 ```
-[MONITOR]: PR #45 ready for merge — fixed KNN pricing regression
+:theme dracula              # 15 built-in themes
+:theme tokyo-night
+:ascii cairn                # custom sidebar logo (figlet)
+:spawn coder -p coder "fix it"
+:send coder "add tests too"
+:kill coder
 ```
 
-You approve. The agent fleet handled everything else.
+Keybinds are vim-style and fully configurable via `~/.flt/keybinds.json`. Sidebar shows agent hierarchy (who spawned whom), live status (running/idle/exited), and inbox notifications. The main pane streams the selected agent's terminal output. Insert mode forwards keystrokes directly to the agent.
 
-## TUI
-
-Launch with `flt tui`. The sidebar shows all agents in a tree hierarchy with live status. The main pane shows the selected agent's terminal output. You can type directly to agents in insert mode.
-
-### Keybindings
-
-All keybindings are configurable via `~/.flt/keybinds.json`. The defaults are vim-style. Use `:keybinds` in the TUI to show bindings for the current mode.
+DEC 2026 synchronized output for zero-flicker rendering on modern terminals (Ghostty, WezTerm, iTerm2).
 
 | Mode | Key | Action |
 |------|-----|--------|
 | Normal | `j/k` | Select agent |
 | Normal | `Enter` | Focus log pane |
 | Normal | `i` | Insert mode (type to agent) |
-| Normal | `s` | Open spawn command (`:spawn `) |
-| Normal | `r` | Reply to selected agent (`:send <name> `) |
+| Normal | `s` | Spawn |
+| Normal | `r` | Reply to selected agent |
 | Normal | `m` | Inbox |
 | Normal | `t` | Shell |
-| Normal | `K` | Kill agent (prompts confirmation) |
-| Normal | `:` | Command bar |
+| Normal | `K` | Kill agent |
 | Normal | `q` | Quit |
-| Normal | `Tab` | Collapse/expand agent subtree |
-| Log focus | `j/k` | Scroll one line |
-| Log focus | `G` / `g` | Jump to bottom / top |
-| Log focus | `i` | Insert mode (type to agent) |
-| Log focus | `Ctrl-d/u` | Page scroll |
-| Log focus | `/` | Search (highlight matches) |
-| Log focus | `r` | Reply to selected agent |
-| Log focus | `Esc` | Back to normal |
-| Insert | any key | Forwarded to agent |
-| Insert | `Ctrl-c` | Interrupt agent (sends Escape, not SIGINT) |
-| Insert | `Alt-Backspace` | Delete word backward |
-| Insert | `Ctrl-u` | Delete to line start |
-| Insert | `Esc` | Back to previous mode (normal or log-focus) |
-| Inbox | `j/k` | Select message |
-| Inbox | `d` | Delete message |
-| Inbox | `D` | Clear all |
-| Inbox | `r` | Reply to sender |
-| Inbox | `Esc` | Close inbox |
-| Kill confirm | `y` / `n` | Confirm / cancel kill |
-| Kill confirm | `Esc` | Cancel kill |
+| Log focus | `j/k` | Scroll |
+| Log focus | `G/g` | Jump to bottom/top |
+| Log focus | `/` | Search |
+| Insert | `Esc` | Back to previous mode |
+| Inbox | `j/k` | Navigate, `d` delete, `r` reply |
 
-### TUI Commands
+## Why not just use one CLI?
 
-```
-:spawn name -c claude-code -m sonnet -d ~/project "task"
-:spawn name -p coder -d ~/project "task"
-:send name message
-:kill name
-:presets list
-:theme dracula
-:keybinds                 # show keybinds for current mode
-:ascii hello              # change sidebar logo (DOS Rebel font)
-:ascii hello ~/font.flf   # custom figlet font
-:ascii reset              # restore default
-```
+Every AI coding CLI is good at working alone. The problem is they're all good at different things:
 
-## CLI Reference
+- **Claude Code** — best at complex multi-file refactors, deep codebase understanding
+- **Codex** — fastest for straightforward fixes, cheapest for bulk work
+- **Gemini CLI** — huge context window, good for research and large file analysis
+- **Aider** — best git integration, works with any model via OpenRouter
 
-```
-flt init [-o name]                      # Initialize fleet, start controller, open TUI
-flt tui                                 # Attach to fleet TUI (lightweight reconnect)
-flt spawn <name> [options] [bootstrap]  # Spawn an agent
-flt send <target> <message>             # Send message to agent or parent
-flt kill <name>                         # Kill an agent
-flt list                                # List all agents with status
-flt logs <name> [-n lines]              # View agent terminal output
-flt tail                                # Tail inbox (lightweight, no TUI)
-flt activity [-n lines] [--type type] [--since iso]  # Show fleet activity log
-flt exit                                # Shut down fleet: cancel workflows, kill agents, stop controller
-flt controller start|stop|status        # Manage the fleet controller daemon
-flt workflow run|status|list|cancel     # Multi-step agent workflows
-flt workflow pass                       # Signal PASS from inside a workflow step
-flt workflow fail [reason]              # Signal FAIL from inside a workflow step
-flt cron list                           # List flt crontab entries with status
-flt cron add <name> --every <interval>  # Create a cron job for an agent
-flt cron remove <name>                  # Remove a cron job
-flt presets list|add|remove             # Manage spawn presets
-flt skills list                         # List available skills
-```
-
-### Spawn flags
-
-| Flag | Short | Description |
-|------|-------|-------------|
-| `--cli <cli>` | `-c` | CLI adapter (claude-code, codex, gemini, aider, opencode, swe-agent) |
-| `--model <model>` | `-m` | Model to use |
-| `--preset <name>` | `-p` | Use a saved preset |
-| `--dir <path>` | `-d` | Working directory |
-| `--no-worktree` | `-W` | Skip git worktree creation |
-| `--parent <name>` | | Override parent for messaging |
-| `--persistent` | | Mark agent as persistent — shows ⟳ instead of ○ when dead |
+Without flt, picking one means giving up the others. With flt, you use the right tool for each task and they all coordinate through the same messaging system.
 
 ## Adapters
 
-| CLI | Adapter | Example Models |
-|-----|---------|----------------|
-| Claude Code | `claude-code` | haiku, sonnet, opus |
-| Codex | `codex` | gpt-5.3-codex, gpt-5.4, o3 |
-| Gemini CLI | `gemini` | gemini-2.5-pro, gemini-2.5-flash |
-| Aider | `aider` | Any via OpenRouter/Anthropic/OpenAI |
-| OpenCode | `opencode` | Any via OpenRouter |
-| SWE-agent | `swe-agent` | Any via OpenRouter |
+Each adapter handles the messy per-CLI differences so you don't have to:
 
-Each adapter handles:
-- **Spawning** with the right flags (`--dangerously-skip-permissions`, `--yes`, etc.)
-- **Ready detection** — knows when the CLI has finished loading and is accepting input
-- **Dialog auto-approval** — permission prompts, trust dialogs, and update notices are automatically handled so agents can run unattended from cron without blocking on human approval
-- **Status detection** — per-CLI ground truth (spinner icon cycling for Claude Code, "esc to interrupt" for Codex, braille spinners for Gemini/OpenCode, pane-content-delta as universal fallback)
+| CLI | Adapter | What it handles |
+|-----|---------|-----------------|
+| Claude Code | `claude-code` | Permission bypass, trust dialogs, spinner detection |
+| Codex | `codex` | Sandbox bypass, slow startup (~60s), "esc to interrupt" detection |
+| Gemini CLI | `gemini` | Tool execution prompts, braille spinner detection |
+| Aider | `aider` | `--yes` flag, OpenRouter model routing |
+| OpenCode | `opencode` | Agent file injection, full-pane ready detection |
+| SWE-agent | `swe-agent` | Prompt template injection, no instruction file |
 
-## Presets
+Dialog auto-approval means agents spawned from cron never block on permission prompts. This is what makes unattended operation work.
 
-Save CLI/model combos:
+## Agent identity
+
+Agents get their identity from two sources:
+
+**SOUL.md** — who the agent is. Lives at `~/.flt/agents/<name>/SOUL.md` or referenced via preset. Defines role, behavior, domain knowledge. Injected into the CLI's native instruction file on spawn.
+
+**Skills** — what the agent can do. Markdown files in `~/.flt/skills/` (global) or `~/.flt/agents/<name>/skills/` (per-agent). For Claude Code, skills become slash commands. For other CLIs, skills are embedded in the instruction file.
+
+The project's own instructions (CLAUDE.md, AGENTS.md, GEMINI.md) stay untouched — flt prepends its block with markers and removes it on kill.
+
+## The fleet pattern
+
+flt gets interesting when agents manage other agents. A monitor finds a bug, spawns a coder, the coder makes a PR, a reviewer checks it, and you get a message:
+
+```
+[MONITOR]: PR #45 ready for merge — fixed KNN pricing regression
+```
+
+The monitor, coder, and reviewer can each be different CLIs and models. The orchestrator picks the right tool for each job.
 
 ```bash
-flt presets add coder -c codex -m gpt-5.3-codex -D "Fast coder"
-flt presets add reviewer -c codex -m gpt-5.4 -D "Thorough review"
-flt presets add researcher -c claude-code -m haiku -D "Web research"
+# cron spawns the monitor every 30 minutes
+*/30 * * * * flt spawn monitor "run health checks"
+
+# monitor's SOUL.md tells it to spawn coders when it finds bugs
+# the coder's preset uses codex for speed
+# the reviewer's preset uses gpt-5.4 for thoroughness
 ```
 
-Stored in `~/.flt/presets.json`.
-
-## Agent Identity (SOUL.md)
-
-Each agent can have a `~/.flt/agents/<name>/SOUL.md` defining its role, responsibilities, and hard rules. This gets injected into the agent's instruction file on spawn. Keep it short — identity and values, not reference material.
-
-Presets can also reference a shared soul file via the `soul` field in `presets.json`:
-
-```json
-{
-  "coder": {
-    "cli": "codex",
-    "model": "gpt-5.3-codex",
-    "soul": "souls/coder.md"
-  }
-}
-```
-
-Soul resolution: agent-specific `~/.flt/agents/<name>/SOUL.md` first, then preset `soul` path (relative to `~/.flt/`), then nothing.
-
-## Skills
-
-Skills are markdown files injected into agents. Global skills in `~/.flt/skills/`, per-agent skills in `~/.flt/agents/<name>/skills/`.
-
-```markdown
----
-name: health-check
-description: VPS health check procedure
-cli-support: ['*']
----
-
-SSH into the VPS and run these commands...
-```
-
-For Claude Code agents, skills become slash commands. For all other CLIs, skills are appended to the instruction file (AGENTS.md, GEMINI.md, etc.).
-
-## Orchestrator Mode
-
-`flt init -o` spawns a persistent orchestrator agent that manages the fleet. The orchestrator is itself an flt agent — it uses the same `flt spawn`, `flt send`, `flt kill` commands you do.
-
-```bash
-# Spawn an orchestrator named "cairn" using opus
-flt init -o cairn -p cairn
-
-# The orchestrator now manages subagents:
-# - It reads its SOUL.md for identity and decision policy
-# - It spawns coders (haiku/codex for cheap tasks, sonnet for balanced, opus for thorough)
-# - It reviews agent work before merging
-# - Agents don't commit — the orchestrator merges their work
-```
-
-The orchestrator pattern enforces a trust boundary: agents propose changes in worktrees, the orchestrator reviews and merges. No rogue commits to main.
-
-## Unattended Operation
-
-flt is designed to run from cron without human babysitting. Every CLI adapter includes a dialog auto-approval poller that detects and handles permission prompts, trust dialogs, and update notices. Without this, a cron-spawned agent would silently block waiting for human input.
-
-```bash
-# This works unattended — dialog poller handles Claude Code's permission prompt
-*/30 * * * * flt spawn monitor -p monitor -d ~/project "run health checks"
-```
-
-## Messaging
-
-```bash
-flt send mycoder "also add tests"      # human → agent
-flt send parent "task complete"         # agent → parent (from inside agent)
-flt send reviewer "check my PR"        # agent → agent
-```
-
-Messages are tagged with `[SENDER]:` for attribution. `flt send parent` routes to whoever spawned the agent — single delivery, no duplication. If parent is `human` (spawned by you or cron), the message goes to your inbox. If parent is another agent (e.g., cairn spawned a coder), the message goes to that agent's tmux session only.
-
-Use `--parent` on spawn to override: `flt spawn coder -p coder --parent cairn` makes the coder report to cairn instead of you.
-
-The inbox (`m` in TUI) shows messages in an email-client layout — message list on top, selected message detail with word wrap below. `d` deletes a message, `D` clears all.
-
-## Themes
-
-15 built-in themes: `dark`, `light`, `minimal`, `catppuccin`, `gruvbox`, `tokyo-night`, `nord`, `dracula`, `one-dark`, `solarized-dark`, `solarized-light`, `monokai`, `rose-pine`, `everforest`, `kanagawa`.
-
-Each theme controls its own background color for consistent appearance across terminals. `minimal` uses transparent background (your terminal's native bg). Custom themes go in `~/.flt/themes/` as JSON files:
-
-```json
-{
-  "extends": "dracula",
-  "background": "48;2;30;30;40",
-  "sidebarBorder": "38;2;255;100;100"
-}
-```
-
-```
-:theme dracula
-```
-
-## Model Suggestions
-
-Autocomplete is configurable in `~/.flt/models.json`:
-
-```json
-{
-  "aider": ["sonnet", "opus", "deepseek/deepseek-chat"],
-  "opencode": ["gpt-5.3", "openrouter/qwen/qwen3-coder"]
-}
-```
-
-## Fleet Controller
-
-The fleet controller is a headless daemon that manages all agent lifecycle, status polling, and state persistence. It runs in its own tmux session (`flt-controller`) and is the single writer to `state.json` — eliminating race conditions when multiple agents spawn or kill concurrently.
-
-```bash
-flt controller start    # Start the daemon (auto-started by any flt command)
-flt controller status   # Show uptime, PID, agent count
-flt controller stop     # Stop the daemon
-```
-
-The controller:
-- Polls agent status every second (adapter-specific detection + 60s content-stable timeout)
-- Reconciles orphaned tmux sessions on boot (discovers agents that outlived a previous controller)
-- Routes all `spawn`, `kill`, and `send` commands through a Unix socket (`~/.flt/controller.sock`)
-- Advances workflow steps when agents go idle
-
-The TUI is a pure read-only observer — it reads `state.json` and displays what the controller writes. You can close and reopen the TUI without affecting running agents.
+Messaging is simple: `flt send parent` routes to whoever spawned you. `flt send <name>` goes to any agent. Messages land in the inbox or the parent agent's tmux session, depending on who the parent is.
 
 ## Workflows
 
-Workflows are YAML state machines that chain agents together. Define steps with presets, and the controller automatically advances when each agent goes idle — or when the agent explicitly signals completion.
+YAML state machines that chain agents together:
 
 ```yaml
 # ~/.flt/workflows/code-review.yaml
@@ -355,86 +158,78 @@ steps:
     preset: reviewer
     task: "Review PR {pr}. Branch: {steps.implement.branch}"
     on_complete: done
-    on_fail: implement    # loop back on failure
+    on_fail: implement
     max_retries: 2
-    worktree: false       # reviewer reads implement's worktree, doesn't need its own
 ```
 
 ```bash
-flt workflow run code-review -t "add OAuth login"  # Pass task description into {task}
-flt workflow run code-review --parent cairn         # Notify "cairn" on completion
-flt workflow status code-review                     # Show current step + history
-flt workflow list                                   # List definitions and active runs
-flt workflow cancel code-review                     # Cancel and kill agents
+flt workflow run code-review -t "add OAuth login"
+flt workflow status code-review
 ```
 
-Template variables let later steps reference earlier agents' workspaces:
-
-| Variable | Value |
-|----------|-------|
-| `{task}` | Task passed via `--task` flag |
-| `{dir}` | Dir passed via `--dir` flag |
-| `{pr}` | PR URL (auto-created after first worktree step) |
-| `{fail_reason}` | Reason string from `flt workflow fail` |
-| `{steps.<id>.worktree}` | Absolute path to that step's git worktree |
-| `{steps.<id>.dir}` | That step's working directory |
-| `{steps.<id>.branch}` | That step's git branch |
-
-Steps can also use `run:` for shell commands instead of agents. After each worktree step the engine auto-commits any uncommitted changes and creates (or pushes to) a PR.
-
-Agents signal workflow transitions explicitly with `flt workflow pass` or `flt workflow fail 'reason'`, which sets `on_complete` / `on_fail` routing immediately on idle. Multiple runs of the same workflow get sequential IDs: `code-review`, `code-review-2`, etc.
+Later steps can reference earlier agents' worktrees, branches, and PRs via template variables. Agents signal transitions with `flt workflow pass` or `flt workflow fail`.
 
 ## Architecture
 
 ```
 ~/.flt/
-  state.json           # Fleet state — single writer: controller
+  state.json           # fleet state (single writer: controller)
   controller.sock      # Unix socket for CLI → controller RPC
-  controller.pid       # Controller process ID
-  config.json          # Settings, theme
-  presets.json         # Spawn presets
-  models.json          # Model autocomplete
-  inbox.log            # Agent messages
-  activity.log         # JSONL event stream (spawn/kill/status/workflow events)
-  workflows/           # Workflow YAML definitions
-    runs/              # Per-run state files (<id>.json)
-  skills/              # Global skills (injected into all agents)
+  presets.json         # spawn presets (cli, model, dir, parent, worktree, persistent, soul)
+  config.json          # settings, theme
+  inbox.log            # agent messages
+  activity.log         # JSONL event stream
+  workflows/           # YAML definitions + run state
+  skills/              # global skills
   agents/<name>/
-    SOUL.md            # Agent identity
-    state.md           # Agent state (for compaction/resume)
-    skills/            # Per-agent skills
+    SOUL.md            # identity
+    state.md           # agent state (compaction/resume)
+    skills/            # per-agent skills
 ```
 
 ```
 ┌──────────┐     ┌────────────┐     ┌─────────────┐
 │ flt CLI  │────▶│ Controller │────▶│ tmux agents │
-│ flt TUI  │     │ (daemon)   │     │ flt-coder   │
-│ cron     │     │            │     │ flt-reviewer│
-└──────────┘     │ state.json │     │ flt-monitor │
+│ flt TUI  │     │ (daemon)   │     │ claude-code │
+│ cron     │     │            │     │ codex       │
+└──────────┘     │ state.json │     │ gemini      │
    Unix socket   │ polling    │     └─────────────┘
                  │ workflows  │
                  └────────────┘
 ```
 
-All commands route through the controller via Unix socket. The controller is the single writer to `state.json`. The TUI reads state and captures panes for display — never writes. Agents, cron scripts, and humans all use the same CLI commands.
+The controller is the single writer to state. The TUI is a pure reader — close and reopen it without affecting running agents. State is flat JSON files that agents can read directly.
 
-Each agent runs in its own tmux session (`flt-<name>`). Git worktrees provide branch isolation by default. State is flat JSON files — agents can read `~/.flt/state.json` to understand fleet state, which database-backed systems can't offer.
+## CLI reference
 
-The TUI is a raw ANSI screen buffer with damage tracking (not Ink/React). It maintains a double-buffered cell grid, diffs front vs back, and writes only changed cells in a single `stdout.write()`. Supports DEC 2026 synchronized output for zero-flicker on modern terminals like Ghostty.
+```
+flt init [-o name]                      # initialize fleet, start controller, open TUI
+flt tui                                 # attach to TUI (lightweight reconnect)
+flt spawn <name> [options] [bootstrap]  # spawn an agent
+flt send <target> <message>             # message an agent or parent
+flt kill <name>                         # kill an agent
+flt list                                # list agents with status
+flt logs <name> [-n lines]              # view agent output
+flt tail                                # tail inbox
+flt activity                            # fleet event log
+flt exit                                # shut down fleet
+flt presets list|add|remove             # manage presets
+flt workflow run|status|list|cancel     # manage workflows
+flt skills list                         # list available skills
+flt controller start|stop|status        # manage controller daemon
+```
 
-## Status Detection
+### Spawn flags
 
-| Icon | Meaning |
-|------|---------|
-| `▶` | Running — actively generating |
-| `⏸` | Idle — waiting at prompt |
-| `○` | Exited — session died |
-| `⟳` | Persistent agent — dead but expected to respawn |
-| `?` | Unknown / spawning / rate-limited / error |
-
-Detection is per-CLI: spinner icon cycling for Claude Code, `esc to interrupt` text for Codex, braille spinners for Gemini/OpenCode, pane-content-delta as universal fallback. A 60-second content-stable timeout forces any stuck `running` or `unknown` state to `idle`.
-
-The **watchdog** monitors for two failure modes: dead sessions (tmux session gone → status `exited`, inbox notification) and stuck agents (continuously `running` for 30+ minutes → inbox warning).
+| Flag | Short | Description |
+|------|-------|-------------|
+| `--cli <cli>` | `-c` | CLI adapter |
+| `--model <model>` | `-m` | Model |
+| `--preset <name>` | `-p` | Use a preset (auto-detected if name matches) |
+| `--dir <path>` | `-d` | Working directory |
+| `--no-worktree` | `-W` | Skip git worktree creation |
+| `--parent <name>` | | Override parent for messaging |
+| `--persistent` | | Agent expected to respawn (shows different icon when dead) |
 
 ## License
 
