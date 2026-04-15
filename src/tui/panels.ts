@@ -370,10 +370,11 @@ function renderInbox(screen: Screen, state: AppState, top: number, left: number,
       col += senderWidth + 1
     }
 
-    // Preview text
+    // Preview text (first line only)
     if (col < left + width) {
       const previewWidth = left + width - col
-      screen.put(row, col, truncate(msg.text, previewWidth), fgText, bg)
+      const firstLine = msg.text.split('\n')[0]
+      screen.put(row, col, truncate(firstLine, previewWidth), fgText, bg)
     }
   }
 

@@ -56,9 +56,12 @@ export const geminiAdapter: CliAdapter = {
     if (/Do you trust the files/i.test(pane) || /Trust folder/i.test(pane)) {
       return ['Enter']
     }
-    // "Action Required" / "Allow execution" permission prompt
+    // Permission prompts: "Action Required" or "Allow execution of [tool]?"
     // Accept whatever option is selected (usually "Allow once")
     if (/Action Required/i.test(pane) && /Allow/i.test(pane)) {
+      return ['Enter']
+    }
+    if (/Allow execution of/i.test(pane)) {
       return ['Enter']
     }
     return null
@@ -75,6 +78,9 @@ export const geminiAdapter: CliAdapter = {
       return 'dialog' as AgentStatus
     }
     if (/Action Required/i.test(last20) && /Allow/i.test(last20)) {
+      return 'dialog' as AgentStatus
+    }
+    if (/Allow execution of/i.test(last20)) {
       return 'dialog' as AgentStatus
     }
 

@@ -6,7 +6,11 @@ export interface Preset {
   cli: string
   model: string
   description?: string
-  soul?: string  // path to SOUL.md (relative to ~/.flt/ or absolute)
+  soul?: string       // path to SOUL.md (relative to ~/.flt/ or absolute)
+  dir?: string        // working directory (~ expanded at resolve time)
+  parent?: string     // parent agent name
+  worktree?: boolean  // false = --no-worktree
+  persistent?: boolean
 }
 
 export interface NamedPreset extends Preset {
@@ -61,12 +65,28 @@ function validatePresetValue(name: string, value: unknown): Preset {
   if (preset.soul !== undefined && typeof preset.soul !== 'string') {
     throw new Error(`Invalid preset "${name}": "soul" must be a string path.`)
   }
+  if (preset.dir !== undefined && typeof preset.dir !== 'string') {
+    throw new Error(`Invalid preset "${name}": "dir" must be a string path.`)
+  }
+  if (preset.parent !== undefined && typeof preset.parent !== 'string') {
+    throw new Error(`Invalid preset "${name}": "parent" must be a string.`)
+  }
+  if (preset.worktree !== undefined && typeof preset.worktree !== 'boolean') {
+    throw new Error(`Invalid preset "${name}": "worktree" must be a boolean.`)
+  }
+  if (preset.persistent !== undefined && typeof preset.persistent !== 'boolean') {
+    throw new Error(`Invalid preset "${name}": "persistent" must be a boolean.`)
+  }
 
   return {
     cli: preset.cli,
     model: preset.model,
     description: normalizeDescription(preset.description as string | undefined),
     soul: typeof preset.soul === 'string' ? preset.soul.trim() || undefined : undefined,
+    dir: typeof preset.dir === 'string' ? preset.dir.trim() || undefined : undefined,
+    parent: typeof preset.parent === 'string' ? preset.parent.trim() || undefined : undefined,
+    worktree: typeof preset.worktree === 'boolean' ? preset.worktree : undefined,
+    persistent: typeof preset.persistent === 'boolean' ? preset.persistent : undefined,
   }
 }
 

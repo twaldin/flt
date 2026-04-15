@@ -59,15 +59,26 @@ export async function spawnDirect(args: SpawnArgs): Promise<void> {
   let cli = explicitCli
   let resolvedModel = model
 
+  // Auto-detect name → preset: if no --preset flag but a preset with the same name exists, use it
+  const effectivePreset = preset ?? (getPreset(name) ? name : undefined)
+
   let presetSoul: string | undefined
-  if (preset) {
-    const presetConfig = getPreset(preset)
+  let presetDir: string | undefined
+  let presetParent: string | undefined
+  let presetWorktree: boolean | undefined
+  let presetPersistent: boolean | undefined
+  if (effectivePreset) {
+    const presetConfig = getPreset(effectivePreset)
     if (!presetConfig) {
-      throw new Error(`Preset "${preset}" does not exist. Use "flt presets list".`)
+      throw new Error(`Preset "${effectivePreset}" does not exist. Use "flt presets list".`)
     }
     cli = cli ?? presetConfig.cli
     resolvedModel = resolvedModel ?? presetConfig.model
     presetSoul = presetConfig.soul
+    presetDir = presetConfig.dir
+    presetParent = presetConfig.parent
+    presetWorktree = presetConfig.worktree
+    presetPersistent = presetConfig.persistent
   }
 
   if (!cli) {
@@ -85,7 +96,14 @@ export async function spawnDirect(args: SpawnArgs): Promise<void> {
   }
 
   const adapter = resolveAdapter(cli)
-  const baseDir = resolve(rawDir || process.cwd())
+
+  // Resolve dir: explicit flag > preset > cwd
+  let resolvedDir = rawDir ?? presetDir
+  // Expand ~ in dir paths
+  if (resolvedDir?.startsWith('~')) {
+    resolvedDir = resolvedDir.replace(/^~/, process.env.HOME || require('os').homedir())
+  }
+  const baseDir = resolve(resolvedDir || process.cwd())
 
   // Check depth limit
   const state = loadState()
@@ -99,7 +117,9 @@ export async function spawnDirect(args: SpawnArgs): Promise<void> {
   let worktreePath: string | undefined
   let worktreeBranch: string | undefined
 
-  if (worktree) {
+  // Resolve worktree: explicit --no-worktree flag > preset > default (true)
+  const useWorktree = worktree && (presetWorktree !== false)
+  if (useWorktree) {
     if (!isGitRepo(baseDir)) {
       throw new Error(`Cannot create worktree: "${baseDir}" is not a git repository.`)
     }
@@ -109,11 +129,13 @@ export async function spawnDirect(args: SpawnArgs): Promise<void> {
     worktreeBranch = wt.branch
   }
 
-  // Determine parent: --parent flag > caller agent > 'human'
+  // Determine parent: --parent flag > preset > caller agent > 'human'
   const callerName = args._callerName ?? process.env.FLT_AGENT_NAME
   let parentName: string
   if (args.parent) {
     parentName = args.parent
+  } else if (presetParent) {
+    parentName = presetParent
   } else if (callerName && callerName !== 'cron') {
     parentName = callerName
   } else {
@@ -174,13 +196,13 @@ export async function spawnDirect(args: SpawnArgs): Promise<void> {
     worktreePath,
     worktreeBranch,
     spawnedAt: new Date().toISOString(),
-    persistent: args.persistent,
+    persistent: args.persistent ?? presetPersistent,
   })
 
   appendEvent({
     type: 'spawn',
     agent: name,
-    detail: `cli=${adapter.name} model=${resolvedModel ?? 'default'}${preset ? ` preset=${preset}` : ''} dir=${workDir}`,
+    detail: `cli=${adapter.name} model=${resolvedModel ?? 'default'}${effectivePreset ? ` preset=${effectivePreset}` : ''} dir=${workDir}`,
     at: new Date().toISOString(),
   })
 
