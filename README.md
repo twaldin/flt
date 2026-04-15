@@ -37,18 +37,20 @@ flt logs coder
 flt kill fast
 ```
 
-Save presets so you stop typing flags:
+Save presets so you stop typing flags. The name is the preset — if a preset matches the agent name, it resolves automatically:
 
 ```bash
 flt presets add coder -c codex -m gpt-5.3-codex
-flt spawn coder -d ~/project "fix the parser bug"   # auto-resolves preset by name
+flt spawn coder -d ~/project "fix the parser bug"   # name == preset, auto-resolved
 ```
 
-Presets can also store `dir`, `parent`, `worktree`, and `persistent` — so a cron entry becomes a one-liner:
+Presets can store everything — `cli`, `model`, `dir`, `parent`, `worktree`, `persistent`, `soul`. A fully configured preset means spawn is just name + task:
 
 ```bash
-*/30 * * * * flt spawn monitor "run health checks"
+*/30 * * * * flt spawn monitor "run health checks"   # dir, parent, cli, model all in preset
 ```
+
+`-p` is only needed when the name differs from the preset: `flt spawn monitor2 -p monitor`.
 
 ## The TUI
 
