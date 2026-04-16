@@ -1,8 +1,18 @@
 import { readFileSync, writeFileSync, existsSync, copyFileSync, unlinkSync, mkdirSync } from 'fs'
 import { join, dirname } from 'path'
 
-const TEMPLATE_PATH = join(import.meta.dir, '..', 'templates', 'system-block.md')
-const WORKFLOW_TEMPLATE_PATH = join(import.meta.dir, '..', 'templates', 'workflow-block.md')
+// Local override templates take precedence over bundled ones
+// This allows template updates without waiting for npm publish
+const BUNDLED_TEMPLATE_PATH = join(import.meta.dir, '..', 'templates', 'system-block.md')
+const BUNDLED_WORKFLOW_PATH = join(import.meta.dir, '..', 'templates', 'workflow-block.md')
+
+function resolveTemplate(localName: string, bundledPath: string): string {
+  const localPath = join(home(), '.flt', 'templates', localName)
+  return existsSync(localPath) ? localPath : bundledPath
+}
+
+const TEMPLATE_PATH = resolveTemplate('system-block.md', BUNDLED_TEMPLATE_PATH)
+const WORKFLOW_TEMPLATE_PATH = resolveTemplate('workflow-block.md', BUNDLED_WORKFLOW_PATH)
 const FLT_MARKER_START = '<!-- flt:start -->'
 const FLT_MARKER_END = '<!-- flt:end -->'
 
