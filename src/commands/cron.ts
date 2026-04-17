@@ -228,6 +228,28 @@ function formatAge(ms: number): string {
   return `${Math.floor(hours / 24)}d`
 }
 
+export function cronPeriodMs(schedule: string): number {
+  const parts = schedule.split(' ')
+  if (parts.length !== 5) return 24 * 60 * 60 * 1000
+  const [min, hour] = parts
+
+  // */N * * * * → every N minutes
+  if (min.startsWith('*/') && hour === '*') return parseInt(min.slice(2)) * 60 * 1000
+
+  // fixed minute, every hour (e.g. "17 * * * *", "0 * * * *")
+  if (!min.includes('*') && !min.includes('/') && hour === '*') return 60 * 60 * 1000
+
+  // 0 */N * * * → every N hours
+  if (min === '0' && hour.startsWith('*/')) return parseInt(hour.slice(2)) * 60 * 60 * 1000
+
+  // fixed minute + fixed hour → daily
+  if (!min.includes('*') && !min.includes('/') && !hour.includes('*') && !hour.includes('/')) {
+    return 24 * 60 * 60 * 1000
+  }
+
+  return 24 * 60 * 60 * 1000
+}
+
 export function cronList(): void {
   const entries = parseCrontabLines(readCrontab())
   if (entries.length === 0) {
@@ -240,18 +262,28 @@ export function cronList(): void {
   for (const entry of entries) {
     const human = cronToHuman(entry.schedule)
 
+    // Last-run: prefer companion work log (e.g. heartbeat.log > cron-heartbeat.log)
+    let lastRunMs = 0
+    if (entry.logPath && existsSync(entry.logPath)) {
+      lastRunMs = statSync(entry.logPath).mtimeMs
+    }
+    const workLog = join(fltLogs(), `${entry.name}.log`)
+    if (existsSync(workLog)) {
+      const workLogMs = statSync(workLog).mtimeMs
+      if (workLogMs > lastRunMs) lastRunMs = workLogMs
+    }
+    const lastRunStr = lastRunMs > 0 ? `${formatAge(Date.now() - lastRunMs)} ago` : 'never'
+
+    // Alive: fleet agent with active session, OR log updated within 2× expected period
     const agent = state.agents[entry.name]
+    const periodMs = cronPeriodMs(entry.schedule)
     let aliveStr: string
     if (agent && tmux.hasSession(agent.tmuxSession)) {
-      const status = agent.status ?? 'unknown'
-      aliveStr = `\x1b[32malive\x1b[0m (${status})`
+      aliveStr = `\x1b[32malive\x1b[0m (${agent.status ?? 'unknown'})`
+    } else if (lastRunMs > 0 && (Date.now() - lastRunMs) < 2 * periodMs) {
+      aliveStr = '\x1b[32malive\x1b[0m'
     } else {
       aliveStr = '\x1b[90mdead\x1b[0m'
-    }
-
-    let lastRunStr = 'never'
-    if (entry.logPath && existsSync(entry.logPath)) {
-      lastRunStr = `${formatAge(Date.now() - statSync(entry.logPath).mtimeMs)} ago`
     }
 
     console.log(

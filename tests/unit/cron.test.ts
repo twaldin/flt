@@ -5,6 +5,7 @@ import {
   parseTimeout,
   parseCrontabLines,
   generateScript,
+  cronPeriodMs,
 } from '../../src/commands/cron'
 
 // ── intervalToCron ───────────────────────────────────────────────────────────
@@ -165,6 +166,45 @@ describe('parseCrontabLines', () => {
   it('handles empty input', () => {
     expect(parseCrontabLines('')).toEqual([])
     expect(parseCrontabLines('# just a comment\n')).toEqual([])
+  })
+})
+
+// ── generateScript ────────────────────────────────────────────────────────────
+
+// ── cronPeriodMs ─────────────────────────────────────────────────────────────
+
+describe('cronPeriodMs', () => {
+  const MIN = 60 * 1000
+  const HOUR = 60 * MIN
+  const DAY = 24 * HOUR
+
+  it('computes period for every-N-minutes schedules', () => {
+    expect(cronPeriodMs('*/30 * * * *')).toBe(30 * MIN)
+    expect(cronPeriodMs('*/5 * * * *')).toBe(5 * MIN)
+    expect(cronPeriodMs('*/15 * * * *')).toBe(15 * MIN)
+  })
+
+  it('computes 1-hour period for fixed-minute-every-hour schedules', () => {
+    expect(cronPeriodMs('17 * * * *')).toBe(HOUR)
+    expect(cronPeriodMs('0 * * * *')).toBe(HOUR)
+    expect(cronPeriodMs('30 * * * *')).toBe(HOUR)
+  })
+
+  it('computes period for every-N-hours schedules', () => {
+    expect(cronPeriodMs('0 */2 * * *')).toBe(2 * HOUR)
+    expect(cronPeriodMs('0 */6 * * *')).toBe(6 * HOUR)
+    expect(cronPeriodMs('0 */12 * * *')).toBe(12 * HOUR)
+  })
+
+  it('computes 1-day period for fixed daily schedules', () => {
+    expect(cronPeriodMs('0 0 * * *')).toBe(DAY)
+    expect(cronPeriodMs('30 4 * * *')).toBe(DAY)
+    expect(cronPeriodMs('0 5 * * *')).toBe(DAY)
+  })
+
+  it('defaults to 1 day for complex/unknown schedules', () => {
+    expect(cronPeriodMs('*/30 14-21 * * 1-5')).toBe(DAY)
+    expect(cronPeriodMs('invalid')).toBe(DAY)
   })
 })
 
