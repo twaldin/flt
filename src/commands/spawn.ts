@@ -186,6 +186,11 @@ export async function spawnDirect(args: SpawnArgs): Promise<void> {
   // Poll for readiness (60s timeout — some CLIs have multiple sequential dialogs)
   await waitForReady(sessionName, adapter, 60_000)
 
+  // Resize to current terminal dimensions so agent doesn't start at tmux's 80x24 default
+  const termWidth = process.stdout.columns ?? 80
+  const termHeight = process.stdout.rows ?? 24
+  tmux.resizeWindow(sessionName, termWidth, termHeight)
+
   // Register in state before bootstrap — agent is live and discoverable immediately
   setAgent(name, {
     cli: adapter.name,

@@ -119,7 +119,7 @@ export class App {
   private lastInboxRaw = ''
   private lastSelectedName: string | undefined
   private lastStatusByAgent: Record<string, string> = {}
-  private lastResizedDims: Record<string, { width: number; height: number }> = {}
+  private lastResizedDims: Record<string, { width: number; height: number; spawnedAt: string }> = {}
   // Status detection moved to controller poller — these are no longer needed
   private bannerTimer: ReturnType<typeof setTimeout> | null = null
   private insertCaptureTimer: ReturnType<typeof setTimeout> | null = null
@@ -1078,9 +1078,9 @@ export class App {
       for (const [name, ag] of Object.entries(agents)) {
         if (!hasSession(ag.tmuxSession)) continue
         const last = this.lastResizedDims[ag.tmuxSession]
-        if (!last || last.width !== paneWidth || last.height !== paneHeight) {
+        if (!last || last.spawnedAt !== ag.spawnedAt || last.width !== paneWidth || last.height !== paneHeight) {
           resizeWindow(ag.tmuxSession, paneWidth, paneHeight)
-          this.lastResizedDims[ag.tmuxSession] = { width: paneWidth, height: paneHeight }
+          this.lastResizedDims[ag.tmuxSession] = { width: paneWidth, height: paneHeight, spawnedAt: ag.spawnedAt }
         }
         // Background-cache non-selected agents so switching is instant
         if (!selected || name !== selected.name) {
