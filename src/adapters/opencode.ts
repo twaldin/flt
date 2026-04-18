@@ -1,7 +1,24 @@
 import type { CliAdapter, SpawnOpts, ReadyState, AgentStatus } from './types'
 import { stripAnsi } from '../utils/stripAnsi'
+import { existsSync, readFileSync } from 'fs'
+import { join } from 'path'
 
 const OAUTH_PROXY = 'http://127.0.0.1:10531/v1'
+
+function loadOpenRouterKey(): string | undefined {
+  for (const path of [
+    join(process.env.HOME ?? '', '.agentelo', '.env'),
+    join(process.env.HOME ?? '', '.env'),
+  ]) {
+    try {
+      if (!existsSync(path)) continue
+      const content = readFileSync(path, 'utf-8')
+      const match = content.match(/^OPENROUTER_API_KEY=(.+)$/m)
+      if (match) return match[1].trim()
+    } catch {}
+  }
+  return process.env.OPENROUTER_API_KEY
+}
 
 export const opencodeAdapter: CliAdapter = {
   name: 'opencode',
@@ -16,11 +33,14 @@ export const opencodeAdapter: CliAdapter = {
   },
 
   env(): Record<string, string> {
-    // OpenCode reads OPENAI_API_KEY and OPENAI_BASE_URL for GPT models
-    return {
+    // OAUTH_PROXY handles ChatGPT-sub models; OPENROUTER_API_KEY needed for openrouter-provider models.
+    const env: Record<string, string> = {
       OPENAI_BASE_URL: OAUTH_PROXY,
       OPENAI_API_KEY: 'unused',
     }
+    const orKey = loadOpenRouterKey()
+    if (orKey) env.OPENROUTER_API_KEY = orKey
+    return env
   },
 
   detectReady(pane: string): ReadyState {
