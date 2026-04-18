@@ -1,0 +1,70 @@
+#!/bin/bash
+# flt heartbeat — hourly fleet health check + auto-compaction
+# Runs every hour, 24/7
+
+export FLT_AGENT_NAME=cron
+export PATH="/Users/twaldin/.bun/bin:/opt/homebrew/bin:/usr/bin:/bin:/usr/sbin:/sbin:$PATH"
+
+TIMESTAMP=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+TODAY=$(date +%Y-%m-%d)
+LOG="$HOME/.flt/logs/heartbeat.log"
+DAILY_LOG="$HOME/.flt/agents/cairn/memory/$TODAY.md"
+STATE="$HOME/.flt/state.json"
+CRASH_LOG="$HOME/.flt/logs/crashes.log"
+
+# 1. Fleet status — parse state.json instead of scraping tree chars
+TOTAL=$(jq '.agents | length' "$STATE" 2>/dev/null || echo 0)
+ALIVE=$(jq '[.agents[] | select(.status != "exited")] | length' "$STATE" 2>/dev/null || echo 0)
+
+# 2. Check ALL claude-code agents for context usage (including cairn)
+FLEET=$(flt list 2>/dev/null)
+COMPACT_NEEDED=""
+for agent in $(echo "$FLEET" | grep "claude-code" | awk '{print $2}'); do
+  PANE=$(tmux capture-pane -t "flt-$agent:^" -p 2>/dev/null | tail -5 | sed 's/\x1b\[[0-9;?]*[A-Za-z]//g')
+  PCT=$(echo "$PANE" | grep -oE '[0-9]+%' | head -1 | tr -d '%')
+  if [ -n "$PCT" ] && [ "$PCT" -gt 50 ] 2>/dev/null; then
+    COMPACT_NEEDED="$COMPACT_NEEDED $agent($PCT%)"
+  fi
+done
+
+# 3. Crash detection: state says idle/running but tmux session is gone
+DEAD=""
+while IFS= read -r line; do
+  agent=$(echo "$line" | jq -r '.name')
+  session=$(echo "$line" | jq -r '.tmux')
+  if ! tmux has-session -t "$session" 2>/dev/null; then
+    DEAD="$DEAD $agent"
+    echo "[$TIMESTAMP] CRASH: $agent (session $session missing)" >> "$CRASH_LOG"
+  fi
+done < <(jq -c '.agents | to_entries[] | select(.value.status == "idle" or .value.status == "running") | {name: .key, tmux: .value.tmuxSession}' "$STATE" 2>/dev/null)
+
+# 4. Build report and send to cairn
+REPORT="HB: $ALIVE alive ($TOTAL total)"
+[ -n "$COMPACT_NEEDED" ] && REPORT="$REPORT | COMPACT:$COMPACT_NEEDED"
+[ -n "$DEAD" ] && REPORT="$REPORT | DEAD:$DEAD"
+echo "[$TIMESTAMP] $REPORT" >> "$LOG"
+
+# Always ping cairn
+flt send cairn "$REPORT"
+
+# 5. Append material events to cairn daily log
+if [ -n "$COMPACT_NEEDED" ] || [ -n "$DEAD" ]; then
+  if [ ! -f "$DAILY_LOG" ]; then
+    echo "# Cairn Daily Log — $TODAY" > "$DAILY_LOG"
+  fi
+  echo "" >> "$DAILY_LOG"
+  echo "### Heartbeat $TIMESTAMP" >> "$DAILY_LOG"
+  [ -n "$COMPACT_NEEDED" ] && echo "- Compaction triggered:$COMPACT_NEEDED" >> "$DAILY_LOG"
+  [ -n "$DEAD" ] && echo "- Dead agents:$DEAD" >> "$DAILY_LOG"
+fi
+
+# 6. Trigger compaction for high-context agents
+if [ -n "$COMPACT_NEEDED" ]; then
+  for agent in $(echo "$COMPACT_NEEDED" | tr ' ' '\n' | sed 's/(.*//' | grep .); do
+    if [ "$agent" = "cairn" ]; then
+      ~/.flt/bin/compact-cairn >> "$LOG" 2>&1 &
+    else
+      ~/.flt/bin/compact-agent "$agent" >> "$LOG" 2>&1 &
+    fi
+  done
+fi
