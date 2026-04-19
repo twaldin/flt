@@ -22,6 +22,13 @@ export function activity(args: ActivityArgs): void {
     const d = new Date(event.at)
     const time = d.toLocaleDateString() + ' ' + d.toLocaleTimeString()
     const agent = event.agent ? ` [${event.agent}]` : ''
-    console.log(`${time}  ${event.type}${agent}  ${event.detail}`)
+    let suffix = ''
+    if (event.tokens_in != null || event.tokens_out != null) {
+      suffix += `  tokens=${event.tokens_in ?? '?'}/${event.tokens_out ?? '?'}`
+    }
+    if (event.cost_usd != null) {
+      suffix += `  cost=$${event.cost_usd.toFixed(4)}`
+    }
+    console.log(`${time}  ${event.type}${agent}  ${event.detail}${suffix}`)
   }
 }

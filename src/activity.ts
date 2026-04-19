@@ -7,6 +7,11 @@ export interface FleetEvent {
   agent?: string
   detail: string
   at: string
+  // Optional cost/token telemetry attached to `kill` events via harness extract.
+  // Other event types leave these undefined; consumers must not assume presence.
+  cost_usd?: number | null
+  tokens_in?: number | null
+  tokens_out?: number | null
 }
 
 function getLogPath(): string {
