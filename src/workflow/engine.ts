@@ -5,6 +5,9 @@ import { loadWorkflowDef } from './parser'
 import { getAgent, allAgents } from '../state'
 import type { WorkflowDef, WorkflowRun, WorkflowStepDef } from './types'
 import { appendEvent } from '../activity'
+import * as tmux from '../tmux'
+import { sendDirect } from '../commands/send'
+import type { CallerContext } from '../detect'
 
 function getRunsDir(): string {
   return join(process.env.HOME ?? require('os').homedir(), '.flt', 'workflows', 'runs')
@@ -113,6 +116,38 @@ export async function advanceWorkflow(runId: string): Promise<void> {
       branch: agent.worktreeBranch ?? '',
     }
   }
+
+  // Idle-without-verdict guard: an agent that went idle without calling
+  // `flt workflow pass` / `flt workflow fail <reason>` used to silently default
+  // to pass, which swallowed reviewer feedback (e.g. agentelo PR 10). Instead,
+  // prod the agent up to 2 times to force an explicit verdict, then fail the
+  // step if they still won't report.
+  if (run.stepResult === undefined) {
+    const prods = run.stepProdCount ?? 0
+    if (prods < 2 && agent && tmux.hasSession(agent.tmuxSession)) {
+      run.stepProdCount = prods + 1
+      saveWorkflowRun(run)
+      const urgency = prods === 0 ? '' : ' (second prompt — next silent idle fails the step)'
+      const prodMsg = `you went idle without emitting a verdict${urgency}. Review your work against the task and call exactly one of:\n  flt workflow pass\n  flt workflow fail "<one-line reason>"\nDo it now.`
+      try {
+        await sendDirect({ target: agentName, message: prodMsg, _caller: { mode: 'agent', agentName: 'flt-controller', depth: 0 } as CallerContext })
+      } catch (e) {
+        const { appendInbox } = await import('../commands/init')
+        appendInbox('WORKFLOW', `Failed to prod ${agentName} for verdict: ${(e as Error).message}`)
+      }
+      appendEvent({ type: 'workflow', detail: `prod ${run.id}/${currentStepDef.id}: no verdict after idle (attempt ${run.stepProdCount})`, at: new Date().toISOString() })
+      return
+    }
+    if (prods >= 2) {
+      // Third silent idle — treat as fail with a clear reason.
+      run.stepResult = 'fail'
+      run.stepFailReason = `agent went idle ${prods + 1} times without emitting PASS or FAIL via flt workflow`
+      appendEvent({ type: 'workflow', detail: `forced-fail ${run.id}/${currentStepDef.id}: ${run.stepFailReason}`, at: new Date().toISOString() })
+    }
+  }
+
+  // Clear prod counter once we have a verdict (or forced one).
+  run.stepProdCount = undefined
 
   // Check if agent signaled pass/fail (don't clear failReason yet — templates need it)
   const signalResult = run.stepResult ?? 'pass'
