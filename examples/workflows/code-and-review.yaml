@@ -1,0 +1,14 @@
+name: code-and-review
+steps:
+  - id: coder
+    preset: sonnet-coder
+    task: "{task} {fail_reason}"
+    on_complete: reviewer
+
+  - id: reviewer
+    preset: evaluator
+    dir: "{steps.coder.worktree}"
+    worktree: false
+    task: "Review the coder's work. You are cd'd into the coder's worktree on branch {steps.coder.branch} (PR URL if auto-create succeeded: {pr}). Run 'git diff main...HEAD', 'git status', 'git log -5', or 'gh pr diff' to see changes. Check for bugs, logic errors, missing edge cases, security issues, and code quality. If the code passes review, run: flt workflow pass. If there are problems that need fixing, run: flt workflow fail 'detailed description of what needs to change'. Be thorough — the coder will get your feedback and iterate."
+    on_complete: done
+    on_fail: coder

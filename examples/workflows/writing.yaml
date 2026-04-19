@@ -1,0 +1,40 @@
+name: writing
+steps:
+  - id: writer
+    preset: writer
+    task: |
+      You are writing or rewriting prose in Tim's voice. Load the `writing` skill FIRST, then follow it.
+
+      Task from parent: {task}
+
+      Reader feedback from previous iteration, if any: {fail_reason}
+
+      When the draft is saved to the agreed path and you have self-audited against stopslop-rules.md:
+        flt workflow pass
+
+      Do NOT flt send anything else — parent isn't listening for mid-run commentary. The reader will pick up your draft at the path specified in {task}.
+    on_complete: reader
+
+  - id: reader
+    preset: critical-reader
+    dir: "{steps.writer.worktree}"
+    worktree: false
+    task: |
+      Critical read of Tim-voice prose. Load the `writing` skill FIRST — read ALL three reference files in ~/.flt/skills/writing-refs/ and at least one example from corpus.md before touching the draft.
+
+      Task context from parent: {task}
+
+      The writer's draft lives at the path specified in the task. Read it fully. Grade against:
+        - stopslop-rules.md (hard fails on banned words/constructions)
+        - tim-voice.md (voice signature — opening, cadence, parentheticals, no ceremony headers)
+        - corpus.md (voice anchor)
+
+      If the draft PASSES (zero hard fails, voice on, numbers throughout, concrete opener):
+        flt workflow pass
+
+      If REWRITE needed, emit your verdict format (quoted HARD FAILS with line numbers, SOFT FLAGS, OVERALL) then:
+        flt workflow fail '<one-paragraph structured critique — writer gets this as {fail_reason} on the next iteration>'
+
+      Be honest. Polite PASSes on slop-filled drafts waste everyone's time. Do NOT rewrite the draft yourself.
+    on_complete: done
+    on_fail: writer
