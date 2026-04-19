@@ -6,6 +6,8 @@ import { resolveAdapter } from '../adapters/registry'
 import * as tmux from '../tmux'
 import { execSync, execFileSync } from 'child_process'
 import { appendEvent } from '../activity'
+import { harnessExtract, archiveRun } from '../harness'
+import { appendInbox } from './init'
 
 interface KillArgs {
   name: string
@@ -41,6 +43,35 @@ export function killDirect(args: KillArgs): void {
 
   // Kill tmux session
   tmux.killSession(agent.tmuxSession)
+
+  // Give the agent's CLI a moment to flush its trailing session-log entry
+  // before we try to parse it. claude-code receives SIGHUP when tmux dies
+  // and may have a half-written final JSONL line otherwise.
+  Bun.sleepSync(300)
+
+  // Post-exit: best-effort cost/token extraction via harness parser.
+  // Never throws; failure just means no cost data is recorded.
+  let extracted: ReturnType<typeof harnessExtract> = null
+  try {
+    extracted = harnessExtract({
+      cli: agent.cli,
+      workdir: agent.dir,
+      spawnedAt: agent.spawnedAt,
+    })
+    if (extracted === null && agent.cli === 'claude-code') {
+      appendInbox('WATCHDOG', `no session log for ${name}`)
+    }
+  } catch {
+    // Best-effort
+  }
+
+  // Archive the run (even if extraction returned null — we still want a record).
+  try {
+    archiveRun(
+      { name, cli: agent.cli, model: agent.model, dir: agent.dir, spawnedAt: agent.spawnedAt },
+      extracted,
+    )
+  } catch {}
 
   // Clean up worktree (skip if preserveWorktree — workflow steps need it for next agent)
   if (agent.worktreePath && agent.worktreeBranch && !args.preserveWorktree) {
@@ -84,11 +115,33 @@ export function killDirect(args: KillArgs): void {
     cleanupAgent(name)
   } catch {}
 
-  appendEvent({ type: 'kill', agent: name, detail: 'killed', at: new Date().toISOString() })
+  appendEvent({
+    type: 'kill',
+    agent: name,
+    detail: 'killed',
+    at: new Date().toISOString(),
+    cost_usd: extracted?.cost_usd ?? null,
+    tokens_in: extracted?.tokens_in ?? null,
+    tokens_out: extracted?.tokens_out ?? null,
+  })
 
   if (!process.env.FLT_TUI_ACTIVE) {
-    console.log(`Killed ${name}`)
+    const costLine = extracted
+      ? formatCostLine(extracted)
+      : ''
+    console.log(`Killed ${name}${costLine}`)
   }
+}
+
+function formatCostLine(r: { cost_usd: number | null, tokens_in: number | null, tokens_out: number | null }): string {
+  const parts: string[] = []
+  if (r.tokens_in != null || r.tokens_out != null) {
+    parts.push(`tokens=${r.tokens_in ?? '?'}/${r.tokens_out ?? '?'}`)
+  }
+  if (r.cost_usd != null) {
+    parts.push(`cost=$${r.cost_usd.toFixed(4)}`)
+  }
+  return parts.length > 0 ? `  (${parts.join(' ')})` : ''
 }
 
 function killProcessTree(pid: number): void {
