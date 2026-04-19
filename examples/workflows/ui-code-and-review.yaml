@@ -1,0 +1,48 @@
+name: ui-code-and-review
+steps:
+  - id: coder
+    preset: sonnet-coder
+    dir: /Users/twaldin/agentelo
+    task: |
+      UI refactor task. Read /tmp/ui-audit.md for the full spec — it contains 10 approved fixes with file:line citations and Tailwind class recommendations.
+
+      Before touching code, invoke the frontend-design skill for methodology. Then work through fixes #1-#10 in /tmp/ui-audit.md.
+
+      Rules:
+      - One PR, all 10 fixes. Don't open a PR until every item is implemented.
+      - Verify with playwright (browser_navigate + browser_take_screenshot) at http://localhost:3001 on each affected page before opening the PR. Every page must return 200 and render correctly.
+      - No behavior changes — purely visual/typographic.
+      - Stay mono-first, keep Tailwind, no new libs.
+      - Be precise with the type scale: apply the exact Tailwind classes specified in fix #2 of the audit. `tabular-nums` on every numeric cell.
+      - For the sparkline (fix #5), if the API's `hist` field isn't enough data, extend `bin/api` buildAgentEntry to return more snapshots. Create `frontend/components/Sparkline.tsx` as a reusable component.
+
+      Reviewer feedback, if any: {fail_reason}
+
+      When the PR is open and ready for review, include the PR URL in your final message.
+    on_complete: reviewer
+
+  - id: reviewer
+    preset: sonnet-coder
+    dir: "{steps.coder.worktree}"
+    worktree: false
+    task: |
+      UI review task. The coder implemented 10 fixes per the spec at /tmp/ui-audit.md. Your job: verify the PR against the acceptance criteria at the bottom of that spec, using playwright for visual inspection.
+
+      Invoke the frontend-design skill first for review methodology.
+
+      Steps:
+      1. Read /tmp/ui-audit.md in full — especially section "Acceptance criteria (reviewer checks)".
+      2. You are cd'd into the coder's worktree on branch {steps.coder.branch}. Run `git diff main...HEAD`, `git log -5`, or `gh pr diff` to see what changed.
+      3. For each of the 10 fixes, verify by playwright:
+         - Navigate to the affected page(s) at http://localhost:3001
+         - Take a screenshot with browser_take_screenshot
+         - Use browser_evaluate to check computed styles where precision matters (e.g. `window.getComputedStyle(el).fontSize`)
+         - Confirm the specific Tailwind classes from the audit are present
+      4. Smoke test EVERY page listed in acceptance criterion #1 returns HTTP 200. Check both /agents/swe-agent-glm-5 (ranked) and /agents/opencode-gpt-5.4-nano (placement) — they have different render paths per fix #9.
+      5. Verify no regressions: hover states, swap button, agent-picker autocomplete, PASS/FAIL badges.
+
+      If ALL 10 acceptance criteria pass and no regressions: `flt workflow pass`.
+
+      If anything fails, is sloppy, or was skipped: `flt workflow fail '<specific feedback: which fix, which file:line, what's wrong, what to do instead>'`. Be thorough — the coder will iterate. Cite specific screenshots and computed style values when rejecting.
+    on_complete: done
+    on_fail: coder

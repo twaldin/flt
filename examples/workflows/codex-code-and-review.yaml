@@ -1,0 +1,28 @@
+name: codex-code-and-review
+steps:
+  - id: coder
+    preset: codex-coder
+    task: "{task} {fail_reason}"
+    on_complete: reviewer
+
+  - id: reviewer
+    preset: evaluator
+    dir: "{steps.coder.worktree}"
+    worktree: false
+    task: |
+      Review the coder's work. You are cd'd into the coder's worktree on branch {steps.coder.branch}.
+      PR URL (may be empty if auto-PR-creation failed): {pr}
+
+      Commands that work from here:
+      - `git status`, `git log -5`, `git diff main...HEAD` to see all changes
+      - `gh pr view` if a PR exists; `gh pr diff` to view diff via GH
+      - Run the project's test suite before deciding
+
+      Check for bugs, logic errors, missing edge cases, security issues, and code quality.
+
+      If the code passes review: flt workflow pass
+      If problems that need fixing: flt workflow fail '<detailed specific feedback: file:line, what's wrong, what to do instead>'
+
+      Be thorough — the coder will iterate on your feedback.
+    on_complete: done
+    on_fail: coder
