@@ -14,3 +14,7 @@ docs/v0.3-spec.md
 docs/v1-spec.md
 demo/demo-script.md
 demo/demo.cast
+
+# flt-managed runtime files — per-agent instruction injections
+.flt-instructions.md
+
