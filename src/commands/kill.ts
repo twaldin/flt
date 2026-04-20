@@ -12,6 +12,11 @@ import { appendInbox } from './init'
 interface KillArgs {
   name: string
   preserveWorktree?: boolean
+  // Set by the workflow engine when it kills its own agents (step completion,
+  // retry, cancel). Suppresses the cancelWorkflow cascade so engine-initiated
+  // kills don't nuke the run they belong to. External `flt kill` leaves this
+  // false so user-triggered kills still cancel the workflow as intended.
+  fromWorkflow?: boolean
 }
 
 export async function kill(args: KillArgs): Promise<void> {
@@ -99,14 +104,18 @@ export function killDirect(args: KillArgs): void {
     // Best-effort
   }
 
-  // Cancel any workflow this agent belongs to
-  try {
-    const { getWorkflowForAgent, cancelWorkflow } = require('../workflow/engine') as typeof import('../workflow/engine')
-    const workflowId = getWorkflowForAgent(name)
-    if (workflowId) {
-      cancelWorkflow(workflowId).catch(() => {})
-    }
-  } catch {}
+  // Cancel any workflow this agent belongs to — but only if this kill came
+  // from outside the engine. Engine-initiated kills set fromWorkflow so they
+  // don't cancel the run they're actively advancing.
+  if (!args.fromWorkflow) {
+    try {
+      const { getWorkflowForAgent, cancelWorkflow } = require('../workflow/engine') as typeof import('../workflow/engine')
+      const workflowId = getWorkflowForAgent(name)
+      if (workflowId) {
+        cancelWorkflow(workflowId).catch(() => {})
+      }
+    } catch {}
+  }
 
   // Remove from state + clean up poller tracking
   removeAgent(name)
