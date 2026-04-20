@@ -206,7 +206,7 @@ export async function advanceWorkflow(runId: string): Promise<void> {
   // Kill the completed agent but preserve its worktree (next step may need it)
   try {
     const { killDirect } = await import('../commands/kill')
-    killDirect({ name: agentName, preserveWorktree: true })
+    killDirect({ name: agentName, preserveWorktree: true, fromWorkflow: true })
   } catch {}
 
   // If agent signaled fail, follow on_fail path
@@ -284,7 +284,7 @@ export async function handleStepFailure(runId: string): Promise<void> {
     const agentName = workflowAgentName(run.id, currentStepDef.id)
     try {
       const { killDirect } = await import('../commands/kill')
-      killDirect({ name: agentName })
+      killDirect({ name: agentName, fromWorkflow: true })
     } catch {}
 
     await executeStep(def, run, currentStepDef)
@@ -323,7 +323,7 @@ export async function cancelWorkflow(runId: string): Promise<void> {
   const agentName = workflowAgentName(run.id, run.currentStep)
   try {
     const { killDirect } = await import('../commands/kill')
-    killDirect({ name: agentName })
+    killDirect({ name: agentName, fromWorkflow: true })
   } catch {}
 
   run.status = 'cancelled'
