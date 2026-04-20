@@ -2,6 +2,7 @@ import type { CliAdapter, SpawnOpts, ReadyState, AgentStatus } from './types'
 import { stripAnsi } from '../utils/stripAnsi'
 import { existsSync, readFileSync } from 'fs'
 import { join } from 'path'
+import { getAdapter as getHarnessAdapter } from '@twaldin/harness-ts'
 
 const OAUTH_PROXY = 'http://127.0.0.1:10531/v1'
 
@@ -23,7 +24,7 @@ function loadOpenRouterKey(): string | undefined {
 export const sweAgentAdapter: CliAdapter = {
   name: 'swe-agent',
   cliCommand: 'mini',
-  instructionFile: '', // SWE-agent uses prompt injection, no instruction file
+  instructionFile: getHarnessAdapter('swe-agent').instructionsFilename,
   submitKeys: ['Escape', 'Enter'], // mini requires Esc then Enter to submit
 
   spawnArgs(opts: SpawnOpts): string[] {

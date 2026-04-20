@@ -2,6 +2,7 @@ import type { CliAdapter, SpawnOpts, ReadyState, AgentStatus } from './types'
 import { stripAnsi } from '../utils/stripAnsi'
 import { existsSync, readFileSync } from 'fs'
 import { join } from 'path'
+import { getAdapter as getHarnessAdapter } from '@twaldin/harness-ts'
 
 function loadGeminiKey(): string | undefined {
   for (const path of [
@@ -21,7 +22,7 @@ function loadGeminiKey(): string | undefined {
 export const geminiAdapter: CliAdapter = {
   name: 'gemini',
   cliCommand: 'gemini',
-  instructionFile: 'GEMINI.md',
+  instructionFile: getHarnessAdapter('gemini').instructionsFilename,
   submitKeys: ['Enter'],
 
   spawnArgs(opts: SpawnOpts): string[] {

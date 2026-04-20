@@ -1,10 +1,11 @@
 import type { CliAdapter, SpawnOpts, ReadyState, AgentStatus } from './types'
 import { stripAnsi } from '../utils/stripAnsi'
+import { getAdapter as getHarnessAdapter } from '@twaldin/harness-ts'
 
 export const codexAdapter: CliAdapter = {
   name: 'codex',
   cliCommand: 'codex',
-  instructionFile: 'AGENTS.md',
+  instructionFile: getHarnessAdapter('codex').instructionsFilename,
   submitKeys: ['Enter'],
 
   spawnArgs(opts: SpawnOpts): string[] {
