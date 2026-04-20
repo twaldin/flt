@@ -8,7 +8,7 @@ import { send } from '../commands/send'
 import { spawn } from '../commands/spawn'
 import { listPresets } from '../presets'
 import { allAgents, type AgentState } from '../state'
-import { capturePane, capturePaneVisible, flushBatchedKeys, hasSession, resizeWindow, sendKeysAsync, sendLiteralBatched } from '../tmux'
+import { capturePane, capturePaneVisible, flushBatchedKeys, hasSession, refreshCurrentTmuxWindow, resizeWindow, sendKeysAsync, sendLiteralBatched } from '../tmux'
 import { getInboxPath } from '../commands/init'
 import { parseCommand, enrichMessageWithFiles } from './command-parser'
 import { setupInput, type InputBindings, type TmuxInsertKey } from './input'
@@ -139,6 +139,18 @@ export class App {
 
     process.env.FLT_TUI_ACTIVE = '1'
 
+    // If running inside tmux, force the window to match the actual client
+    // size. Fixes "tmux locked small" where a prior smaller client or
+    // window-size=smallest pinned the window narrower than the terminal.
+    const actualCols = process.stdout.columns ?? this.screen.cols
+    const actualRows = process.stdout.rows ?? this.screen.rows
+    refreshCurrentTmuxWindow(actualCols, actualRows)
+    if (actualCols !== this.screen.cols || actualRows !== this.screen.rows) {
+      this.screen.resize(actualCols, actualRows)
+      this.state.termWidth = actualCols
+      this.state.termHeight = actualRows
+    }
+
     // Suppress all console output — TUI owns stdout exclusively
     const noop = () => {}
     console.log = noop
@@ -239,6 +251,11 @@ export class App {
   }
 
   resize(cols: number, rows: number): void {
+    // If we're inside tmux, re-assert the window size so the inner pane
+    // actually follows the outer terminal. Otherwise tmux can keep the
+    // window at a previously-smaller client size.
+    refreshCurrentTmuxWindow(cols, rows)
+
     this.screen.resize(cols, rows)
     this.state.termWidth = cols
     this.state.termHeight = rows

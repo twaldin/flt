@@ -124,6 +124,25 @@ export function resizeWindow(session: string, width: number, height: number): vo
   tmuxNoThrow('resize-window', '-t', session, '-x', String(width), '-y', String(height))
 }
 
+/**
+ * If flt is running inside tmux, force the current window to fit the attached
+ * client's actual dimensions. Fixes the "tmux locked small" case where tmux's
+ * window-size option (or a previous smaller client) pinned the window to
+ * something narrower than the current terminal. Parses TMUX env to find the
+ * current session, then issues an explicit resize-window matching cols/rows.
+ */
+export function refreshCurrentTmuxWindow(cols: number, rows: number): void {
+  const tmuxEnv = process.env.TMUX
+  if (!tmuxEnv) return
+  try {
+    const sessionId = tmuxNoThrow('display-message', '-p', '#{session_id}')
+    if (!sessionId) return
+    tmuxNoThrow('resize-window', '-t', sessionId, '-x', String(cols), '-y', String(rows))
+  } catch {
+    // Best-effort — not all tmux versions support all flags
+  }
+}
+
 /** Non-blocking paste via tmux buffer — handles semicolons and special chars */
 function sendViaPasteBuffer(session: string, text: string): void {
   const tmpFile = join(tmpdir(), `flt-paste-${randomUUID().slice(0, 8)}`)
