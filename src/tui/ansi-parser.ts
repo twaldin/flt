@@ -173,8 +173,45 @@ export function parseAnsi(
 
     if (ch === '\u001b') {
       const next = text[i + 1]
+
+      // Non-CSI escape sequences — consume them entirely so their tail bytes
+      // don't leak through as literal characters. Without this, OSC title-set
+      // ("\x1b]0;title\x07"), charset selection ("\x1b(B"), etc. scatter
+      // random chars all over the rendered output (visible when the shell
+      // pane emits lots of OSC sequences).
       if (next !== '[') {
-        i += 1
+        // OSC: \x1b]...\x07 or \x1b]...\x1b\
+        if (next === ']') {
+          let j = i + 2
+          while (j < text.length) {
+            const cc = text.charCodeAt(j)
+            if (cc === 0x07) { j += 1; break } // BEL terminator
+            if (cc === 0x1b && text[j + 1] === '\\') { j += 2; break } // ST terminator
+            j += 1
+          }
+          i = j
+          continue
+        }
+        // Charset designation: \x1b(X, \x1b)X, \x1b*X, \x1b+X (1 byte payload)
+        if (next === '(' || next === ')' || next === '*' || next === '+') {
+          i += 3
+          continue
+        }
+        // DCS/SOS/PM/APC: \x1bP...\x1b\, \x1bX...\x1b\, \x1b^...\x1b\, \x1b_...\x1b\
+        if (next === 'P' || next === 'X' || next === '^' || next === '_') {
+          let j = i + 2
+          while (j < text.length) {
+            const cc = text.charCodeAt(j)
+            if (cc === 0x1b && text[j + 1] === '\\') { j += 2; break }
+            if (cc === 0x07) { j += 1; break }
+            j += 1
+          }
+          i = j
+          continue
+        }
+        // Single-byte escapes (ESC =, ESC >, ESC D, ESC E, ESC H, ESC M,
+        // ESC N, ESC O, ESC Z, ESC c, ESC 7, ESC 8, etc.) — just skip both.
+        i += 2
         continue
       }
 
