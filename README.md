@@ -235,7 +235,7 @@ flt controller start|stop|status        # manage controller daemon
 
 ## Related
 
-- [`harness`](https://github.com/twaldin/harness) — sister project: unified Python interface for invoking AI coding-agent CLIs as one-shot subprocesses. flt and harness solve adjacent problems (interactive sessions vs one-shot calls) and share knowledge about per-CLI args / env / output parsing. flt may eventually shell out to `harness run --json` for one-shot operations like `quickTestAdapter`. See [harness/examples/flt-spawn](https://github.com/twaldin/harness/tree/main/examples/flt-spawn) for the design notes.
+- [`harness`](https://github.com/twaldin/harness) — sister project: unified Python interface for invoking AI coding-agent CLIs as one-shot subprocesses. flt and harness solve adjacent problems (interactive sessions vs one-shot calls) and share knowledge about per-CLI args / env / output parsing. Uses `@twaldin/harness-ts` for CLI command construction metadata; flt adds tmux lifecycle on top. flt may eventually shell out to `harness run --json` for one-shot operations like `quickTestAdapter`. See [harness/examples/flt-spawn](https://github.com/twaldin/harness/tree/main/examples/flt-spawn) for the design notes.
 - [`hone`](https://github.com/twaldin/hone) — prompt optimization tool. Useful inside flt agents when you need a mutator backend.
 - [`agentelo`](https://github.com/twaldin/agentelo) — benchmark for AI coding agents on real GitHub bugs. Many flt presets correspond to high-ranked agentelo entries.
 
