@@ -70,8 +70,8 @@ export async function sendDirect(args: SendArgs): Promise<void> {
           const adapter = resolveAdapter(parentAgent.cli)
           submitKeys = adapter.submitKeys
         } catch {}
-        const tagged = `[${senderName.toUpperCase()}]: ${message}`
-        if (tagged.length > 200 || tagged.includes('\n')) {
+        const tagged = flattenNewlines(`[${senderName.toUpperCase()}]: ${message}`)
+        if (tagged.length > 200) {
           tmux.pasteBuffer(parentAgent.tmuxSession, tagged)
         } else {
           tmux.sendLiteral(parentAgent.tmuxSession, tagged)
@@ -99,8 +99,8 @@ export async function sendDirect(args: SendArgs): Promise<void> {
       submitKeys = adapter.submitKeys
     } catch {}
 
-    const tagged = `[${senderName.toUpperCase()}]: ${message}`
-    if (tagged.length > 200 || tagged.includes('\n')) {
+    const tagged = flattenNewlines(`[${senderName.toUpperCase()}]: ${message}`)
+    if (tagged.length > 200) {
       tmux.pasteBuffer(agent.tmuxSession, tagged)
     } else {
       tmux.sendLiteral(agent.tmuxSession, tagged)
@@ -116,6 +116,13 @@ export async function sendDirect(args: SendArgs): Promise<void> {
 
 function sleep(ms: number): Promise<void> {
   return new Promise(r => setTimeout(r, ms))
+}
+
+// Flatten CR/LF so pasted multi-line messages never submit mid-delivery.
+// Target agents interpret any \n in a paste-buffer stream as Enter, which
+// prematurely submits the prompt. send() is one-shot → single spacebar join.
+function flattenNewlines(text: string): string {
+  return text.replace(/\r\n|\r|\n/g, ' ')
 }
 
 function detectUsername(): string {

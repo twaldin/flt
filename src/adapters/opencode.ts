@@ -5,7 +5,7 @@ import { join } from 'path'
 
 const OAUTH_PROXY = 'http://127.0.0.1:10531/v1'
 
-function loadOpenRouterKey(): string | undefined {
+function loadDotenvKey(name: string): string | undefined {
   for (const path of [
     join(process.env.HOME ?? '', '.agentelo', '.env'),
     join(process.env.HOME ?? '', '.env'),
@@ -13,11 +13,11 @@ function loadOpenRouterKey(): string | undefined {
     try {
       if (!existsSync(path)) continue
       const content = readFileSync(path, 'utf-8')
-      const match = content.match(/^OPENROUTER_API_KEY=(.+)$/m)
+      const match = content.match(new RegExp(`^${name}=(.+)$`, 'm'))
       if (match) return match[1].trim()
     } catch {}
   }
-  return process.env.OPENROUTER_API_KEY
+  return process.env[name]
 }
 
 export const opencodeAdapter: CliAdapter = {
@@ -33,13 +33,16 @@ export const opencodeAdapter: CliAdapter = {
   },
 
   env(): Record<string, string> {
-    // OAUTH_PROXY handles ChatGPT-sub models; OPENROUTER_API_KEY needed for openrouter-provider models.
+    // OAUTH_PROXY handles ChatGPT-sub models; provider keys come from ~/.env
+    // so opencode's custom provider configs (openrouter, zai, vertex) can auth.
     const env: Record<string, string> = {
       OPENAI_BASE_URL: OAUTH_PROXY,
       OPENAI_API_KEY: 'unused',
     }
-    const orKey = loadOpenRouterKey()
-    if (orKey) env.OPENROUTER_API_KEY = orKey
+    for (const key of ['OPENROUTER_API_KEY', 'Z_AI_API_KEY', 'VERTEX_API_KEY']) {
+      const v = loadDotenvKey(key)
+      if (v) env[key] = v
+    }
     return env
   },
 
