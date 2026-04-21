@@ -209,25 +209,37 @@ export async function advanceWorkflow(runId: string): Promise<void> {
     killDirect({ name: agentName, preserveWorktree: true, fromWorkflow: true })
   } catch {}
 
-  // If agent signaled fail, follow on_fail path
-  if (signalResult === 'fail' && currentStepDef.on_fail) {
+  // If agent signaled fail, follow on_fail path (or abort if none defined).
+  // Without this guard the fail would silently fall through to on_complete and
+  // the workflow would advance as if the step had passed — parent never notified.
+  if (signalResult === 'fail') {
     const failStepId = currentStepDef.on_fail
-    if (failStepId === 'abort') {
+    if (!failStepId || failStepId === 'abort') {
       run.status = 'failed'
+      run.stepFailReason = failReason
       run.completedAt = new Date().toISOString()
       saveWorkflowRun(run)
       appendEvent({ type: 'workflow', detail: `failed ${run.id}: ${failReason ?? 'agent signaled fail'}`, at: run.completedAt })
       cleanupWorkflowWorktrees(run)
-      await notifyWorkflowParent(run, `Workflow "${run.workflow}" failed: ${failReason ?? 'agent signaled fail'}`)
+      await notifyWorkflowParent(run, `Workflow "${run.workflow}" failed at step "${currentStepDef.id}": ${failReason ?? 'agent signaled fail'}`)
       return
     }
     const failStep = def.steps.find(s => s.id === failStepId)
     if (failStep) {
       run.currentStep = failStepId
       saveWorkflowRun(run)
+      appendEvent({ type: 'workflow', detail: `advanced ${run.id} step ${failStepId} (on_fail from ${currentStepDef.id})`, at: new Date().toISOString() })
       await executeStep(def, run, failStep)
       return
     }
+    // on_fail points to an unknown step — treat as abort with a clear reason.
+    run.status = 'failed'
+    run.completedAt = new Date().toISOString()
+    saveWorkflowRun(run)
+    appendEvent({ type: 'workflow', detail: `failed ${run.id}: on_fail target "${failStepId}" not found`, at: run.completedAt })
+    cleanupWorkflowWorktrees(run)
+    await notifyWorkflowParent(run, `Workflow "${run.workflow}" failed at step "${currentStepDef.id}": on_fail target "${failStepId}" not found`)
+    return
   }
 
   // Determine next step (pass path)
