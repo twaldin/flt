@@ -15,6 +15,10 @@ export interface CliAdapter {
   instructionFile: string
   /** Key sequences to submit input, e.g. ["Enter"] or ["Escape", "Enter"] */
   submitKeys: string[]
+  /** If true, flatten \n to spaces before paste — target CLI treats newlines
+   *  in a paste-buffer stream as submit events (one message per line).
+   *  opencode does this; claude-code and codex buffer multi-line pastes. */
+  flattenOnPaste?: boolean
 
   /** Build CLI args for the spawn command */
   spawnArgs(opts: SpawnOpts): string[]

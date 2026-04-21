@@ -25,6 +25,7 @@ export const opencodeAdapter: CliAdapter = {
   cliCommand: 'opencode',
   instructionFile: '.opencode/agents/flt.md',
   submitKeys: ['Enter'],
+  flattenOnPaste: true,
 
   spawnArgs(opts: SpawnOpts): string[] {
     const args = ['opencode', '--agent', 'flt']

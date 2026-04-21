@@ -276,11 +276,13 @@ async function sendBootstrap(
   adapter: ReturnType<typeof resolveAdapter>,
   message: string,
 ): Promise<void> {
-  // Use paste buffer for long messages, send-keys for short
-  if (message.length > 200 || message.includes('\n')) {
-    tmux.pasteBuffer(session, message)
+  // Adapters that submit-per-newline (opencode) need flat input so the whole
+  // brief arrives as one message, not one queued request per line.
+  const payload = adapter.flattenOnPaste ? message.replace(/\r\n|\r|\n/g, ' ') : message
+  if (payload.length > 200 || payload.includes('\n')) {
+    tmux.pasteBuffer(session, payload)
   } else {
-    tmux.sendLiteral(session, message)
+    tmux.sendLiteral(session, payload)
   }
   await sleep(300) // Let tmux process the paste
   tmux.sendKeys(session, adapter.submitKeys)
