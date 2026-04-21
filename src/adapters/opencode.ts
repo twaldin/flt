@@ -46,12 +46,20 @@ export const opencodeAdapter: CliAdapter = {
   detectReady(pane: string): ReadyState {
     pane = stripAnsi(pane)
     const lines = pane.split('\n')
-    // "Ask anything" appears in the input area; version in the bottom status bar.
-    // They can be 30+ lines apart in a tall terminal, so scan the full pane.
     const full = lines.join('\n')
     const last5 = lines.slice(-5).join('\n')
 
-    // OpenCode shows "Ask anything..." placeholder and version in status bar
+    // Update-prompt / version-banner modal: opencode shows this BEFORE the
+    // normal TUI. If we return 'ready' while this is visible, spawn.ts
+    // delivers the bootstrap task + Enter, which installs the update and
+    // kills the session. Always report 'dialog' here so the caller dismisses
+    // the modal (Escape) before treating the agent as ready.
+    if (/update available|a new version of opencode|upgrade now/i.test(full)) {
+      return 'dialog'
+    }
+
+    // "Ask anything" appears in the input area; version in the bottom status bar.
+    // They can be 30+ lines apart in a tall terminal, so scan the full pane.
     if (/Ask anything/i.test(full) && /\d+\.\d+\.\d+/.test(last5)) {
       return 'ready'
     }
@@ -59,7 +67,14 @@ export const opencodeAdapter: CliAdapter = {
     return 'loading'
   },
 
-  handleDialog(_pane: string): string[] | null {
+  handleDialog(pane: string): string[] | null {
+    const stripped = stripAnsi(pane)
+    // Dismiss opencode's update prompt without installing. Escape is the
+    // safe neutral — 'n' or similar answers vary by build and could still
+    // advance the dialog. Escape is consistently "cancel this modal".
+    if (/update available|a new version of opencode|upgrade now/i.test(stripped)) {
+      return ['Escape']
+    }
     return null
   },
 
