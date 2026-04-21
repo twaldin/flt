@@ -106,12 +106,41 @@ function validatePresetValue(name: string, value: unknown): Preset {
   }
 }
 
-// ${VAR} → process.env[VAR]; unknown vars stay literal (so missing secrets are obvious in logs).
+// Lazy-load ~/.env into a cached lookup map so daemons/crons that didn't
+// source .env themselves can still resolve ${VAR} placeholders. Reloaded
+// on each call to pick up edits between spawns.
+function loadDotenv(): Record<string, string> {
+  const path = join(home(), '.env')
+  try {
+    const raw = readFileSync(path, 'utf-8')
+    const out: Record<string, string> = {}
+    for (const line of raw.split('\n')) {
+      const m = line.match(/^\s*(?:export\s+)?([A-Z_][A-Z0-9_]*)\s*=\s*(.*)$/i)
+      if (!m) continue
+      let v = m[2].trim()
+      // Strip surrounding quotes if symmetric
+      if ((v.startsWith('"') && v.endsWith('"')) || (v.startsWith("'") && v.endsWith("'"))) {
+        v = v.slice(1, -1)
+      }
+      out[m[1]] = v
+    }
+    return out
+  } catch {
+    return {}
+  }
+}
+
+// ${VAR} → process.env[VAR] first, then ~/.env fallback, else literal.
+// Literal fallback surfaces missing secrets visibly instead of producing
+// empty strings that silently fail downstream auth.
 export function resolvePresetEnv(env: Record<string, string> | undefined): Record<string, string> {
   if (!env) return {}
+  const dotenv = loadDotenv()
   const out: Record<string, string> = {}
   for (const [k, v] of Object.entries(env)) {
-    out[k] = v.replace(/\$\{([A-Z_][A-Z0-9_]*)\}/gi, (_m, name) => process.env[name] ?? `\${${name}}`)
+    out[k] = v.replace(/\$\{([A-Z_][A-Z0-9_]*)\}/gi, (_m, name) => {
+      return process.env[name] ?? dotenv[name] ?? `\${${name}}`
+    })
   }
   return out
 }
