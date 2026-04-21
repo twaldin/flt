@@ -31,6 +31,8 @@ export function createSession(
     envArgs.push('-e', `${k}=${v}`)
   }
   tmux('new-session', '-d', '-s', name, '-c', cwd, ...envArgs, command)
+  // Ensure explicit resize-window calls are respected for this window.
+  tmuxNoThrow('set-window-option', '-t', `${name}:^`, 'window-size', 'manual')
 }
 
 export function killSession(name: string): void {

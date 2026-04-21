@@ -259,6 +259,7 @@ export class App {
     this.screen.resize(cols, rows)
     this.state.termWidth = cols
     this.state.termHeight = rows
+    this.resizeAgentPanes()
 
     if (this.state.autoFollow) {
       this.state.logScrollOffset = this.maxScroll(this.state.logContent)
@@ -267,6 +268,21 @@ export class App {
     }
 
     this.render()
+  }
+
+  private resizeAgentPanes(agents: Record<string, AgentState> = allAgents()): void {
+    const layout = calculateLayout(this.state.termWidth, this.state.termHeight, this.state.agents)
+    const paneWidth = Math.max(20, layout.logInnerWidth)
+    const paneHeight = Math.max(10, layout.logInnerHeight)
+
+    for (const ag of Object.values(agents)) {
+      if (!hasSession(ag.tmuxSession)) continue
+      const last = this.lastResizedDims[ag.tmuxSession]
+      if (!last || last.spawnedAt !== ag.spawnedAt || last.width !== paneWidth || last.height !== paneHeight) {
+        resizeWindow(ag.tmuxSession, paneWidth, paneHeight)
+        this.lastResizedDims[ag.tmuxSession] = { width: paneWidth, height: paneHeight, spawnedAt: ag.spawnedAt }
+      }
+    }
   }
 
   private get selectedAgent(): AgentView | undefined {
@@ -1088,17 +1104,12 @@ export class App {
     }
 
     // Pre-resize all agent panes so switching is instant (no wrong-size frame)
+    // and so sidebar width changes immediately propagate to tmux pane width.
+    this.resizeAgentPanes(agents)
+
     if (!isInsert) {
-      const layout = calculateLayout(this.state.termWidth, this.state.termHeight, this.state.agents)
-      const paneWidth = Math.max(20, layout.logInnerWidth)
-      const paneHeight = Math.max(10, layout.logInnerHeight)
       for (const [name, ag] of Object.entries(agents)) {
         if (!hasSession(ag.tmuxSession)) continue
-        const last = this.lastResizedDims[ag.tmuxSession]
-        if (!last || last.spawnedAt !== ag.spawnedAt || last.width !== paneWidth || last.height !== paneHeight) {
-          resizeWindow(ag.tmuxSession, paneWidth, paneHeight)
-          this.lastResizedDims[ag.tmuxSession] = { width: paneWidth, height: paneHeight, spawnedAt: ag.spawnedAt }
-        }
         // Background-cache non-selected agents so switching is instant
         if (!selected || name !== selected.name) {
           try {
