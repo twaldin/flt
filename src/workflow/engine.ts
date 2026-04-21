@@ -224,6 +224,28 @@ export async function advanceWorkflow(runId: string): Promise<void> {
       await notifyWorkflowParent(run, `Workflow "${run.workflow}" failed at step "${currentStepDef.id}": ${failReason ?? 'agent signaled fail'}`)
       return
     }
+    // Self-loop on_fail (step retries itself) — honor max_retries.
+    // Without this, an agent-signaled fail would respawn the same step forever.
+    if (failStepId === currentStepDef.id) {
+      const maxRetries = currentStepDef.max_retries ?? 0
+      const retryCount = run.retries[currentStepDef.id] ?? 0
+      if (retryCount >= maxRetries) {
+        run.status = 'failed'
+        run.stepFailReason = failReason
+        run.completedAt = new Date().toISOString()
+        saveWorkflowRun(run)
+        appendEvent({ type: 'workflow', detail: `failed ${run.id}: ${currentStepDef.id} exhausted retries (${maxRetries}) — ${failReason ?? 'agent signaled fail'}`, at: run.completedAt })
+        cleanupWorkflowWorktrees(run)
+        await notifyWorkflowParent(run, `Workflow "${run.workflow}" failed at step "${currentStepDef.id}" after ${maxRetries} retries: ${failReason ?? 'agent signaled fail'}`)
+        return
+      }
+      run.retries[currentStepDef.id] = retryCount + 1
+      run.stepFailReason = failReason  // made available to next spawn via {fail_reason} template var
+      saveWorkflowRun(run)
+      appendEvent({ type: 'workflow', detail: `retry ${run.id} step ${currentStepDef.id} (${retryCount + 1}/${maxRetries})`, at: new Date().toISOString() })
+      await executeStep(def, run, currentStepDef)
+      return
+    }
     const failStep = def.steps.find(s => s.id === failStepId)
     if (failStep) {
       run.currentStep = failStepId
