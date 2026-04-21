@@ -11,6 +11,7 @@ export interface Preset {
   parent?: string     // parent agent name
   worktree?: boolean  // false = --no-worktree
   persistent?: boolean
+  env?: Record<string, string>  // extra env vars merged into the spawn; ${VAR} expands from process.env at resolve time
 }
 
 export interface NamedPreset extends Preset {
@@ -77,6 +78,20 @@ function validatePresetValue(name: string, value: unknown): Preset {
   if (preset.persistent !== undefined && typeof preset.persistent !== 'boolean') {
     throw new Error(`Invalid preset "${name}": "persistent" must be a boolean.`)
   }
+  let envNormalized: Record<string, string> | undefined
+  if (preset.env !== undefined) {
+    if (typeof preset.env !== 'object' || preset.env === null || Array.isArray(preset.env)) {
+      throw new Error(`Invalid preset "${name}": "env" must be an object mapping string to string.`)
+    }
+    const entries: Record<string, string> = {}
+    for (const [k, v] of Object.entries(preset.env as Record<string, unknown>)) {
+      if (typeof v !== 'string') {
+        throw new Error(`Invalid preset "${name}": env["${k}"] must be a string.`)
+      }
+      entries[k] = v
+    }
+    envNormalized = Object.keys(entries).length > 0 ? entries : undefined
+  }
 
   return {
     cli: preset.cli,
@@ -87,7 +102,18 @@ function validatePresetValue(name: string, value: unknown): Preset {
     parent: typeof preset.parent === 'string' ? preset.parent.trim() || undefined : undefined,
     worktree: typeof preset.worktree === 'boolean' ? preset.worktree : undefined,
     persistent: typeof preset.persistent === 'boolean' ? preset.persistent : undefined,
+    env: envNormalized,
   }
+}
+
+// ${VAR} → process.env[VAR]; unknown vars stay literal (so missing secrets are obvious in logs).
+export function resolvePresetEnv(env: Record<string, string> | undefined): Record<string, string> {
+  if (!env) return {}
+  const out: Record<string, string> = {}
+  for (const [k, v] of Object.entries(env)) {
+    out[k] = v.replace(/\$\{([A-Z_][A-Z0-9_]*)\}/gi, (_m, name) => process.env[name] ?? `\${${name}}`)
+  }
+  return out
 }
 
 function sortPresetMap(presets: PresetMap): PresetMap {

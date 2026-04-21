@@ -3,7 +3,7 @@ import { projectInstructions } from '../instructions'
 import { projectSkills } from '../skills'
 import { createWorktree, isGitRepo } from '../worktree'
 import { loadState, setAgent, hasAgent } from '../state'
-import { getPreset } from '../presets'
+import { getPreset, resolvePresetEnv } from '../presets'
 import * as tmux from '../tmux'
 import { resolve } from 'path'
 import { appendEvent } from '../activity'
@@ -67,6 +67,7 @@ export async function spawnDirect(args: SpawnArgs): Promise<void> {
   let presetParent: string | undefined
   let presetWorktree: boolean | undefined
   let presetPersistent: boolean | undefined
+  let presetEnv: Record<string, string> = {}
   if (effectivePreset) {
     const presetConfig = getPreset(effectivePreset)
     if (!presetConfig) {
@@ -79,6 +80,7 @@ export async function spawnDirect(args: SpawnArgs): Promise<void> {
     presetParent = presetConfig.parent
     presetWorktree = presetConfig.worktree
     presetPersistent = presetConfig.persistent
+    presetEnv = resolvePresetEnv(presetConfig.env)
   }
 
   if (!cli) {
@@ -172,10 +174,12 @@ export async function spawnDirect(args: SpawnArgs): Promise<void> {
 
   const sessionName = `flt-${name}`
 
-  // Create tmux session with env vars
+  // Create tmux session with env vars. Preset env takes priority over adapter env
+  // because presets are user-level overrides (e.g. swapping claude-code to z.ai).
   const adapterEnv = adapter.env?.() ?? {}
   tmux.createSession(sessionName, workDir, command, {
     ...adapterEnv,
+    ...presetEnv,
     FLT_AGENT_NAME: name,
     FLT_PARENT_SESSION: parentSession,
     FLT_PARENT_NAME: parentName,
