@@ -24,6 +24,33 @@ interface SpawnArgs {
   _callerDepth?: number
 }
 
+const CLAUDE_CODE_TIER_ENV_KEYS = {
+  sonnet: 'ANTHROPIC_DEFAULT_SONNET_MODEL',
+  opus: 'ANTHROPIC_DEFAULT_OPUS_MODEL',
+  haiku: 'ANTHROPIC_DEFAULT_HAIKU_MODEL',
+} as const
+
+function resolveDisplayedModel(
+  cli: string,
+  resolvedModel: string | undefined,
+  presetModel: string | undefined,
+  presetEnv: Record<string, string>,
+): string {
+  const cliModel = resolvedModel ?? 'default'
+  if (cli !== 'claude-code' || !presetModel || !resolvedModel) return cliModel
+
+  const presetTier = presetModel.trim().toLowerCase() as keyof typeof CLAUDE_CODE_TIER_ENV_KEYS
+  const envKey = CLAUDE_CODE_TIER_ENV_KEYS[presetTier]
+  if (!envKey) return cliModel
+
+  // Only map to env override when we're actually using the preset's tier model,
+  // not when caller passed an explicit model override.
+  if (resolvedModel.trim().toLowerCase() !== presetTier) return cliModel
+
+  const envModel = presetEnv[envKey]?.trim()
+  return envModel || cliModel
+}
+
 export async function spawn(args: SpawnArgs): Promise<void> {
   if (process.env.FLT_CONTROLLER !== '1') {
     const { ensureController } = await import('./controller')
@@ -63,6 +90,7 @@ export async function spawnDirect(args: SpawnArgs): Promise<void> {
   const effectivePreset = preset ?? (getPreset(name) ? name : undefined)
 
   let presetSoul: string | undefined
+  let presetModel: string | undefined
   let presetDir: string | undefined
   let presetParent: string | undefined
   let presetWorktree: boolean | undefined
@@ -75,6 +103,7 @@ export async function spawnDirect(args: SpawnArgs): Promise<void> {
     }
     cli = cli ?? presetConfig.cli
     resolvedModel = resolvedModel ?? presetConfig.model
+    presetModel = presetConfig.model
     presetSoul = presetConfig.soul
     presetDir = presetConfig.dir
     presetParent = presetConfig.parent
@@ -196,9 +225,10 @@ export async function spawnDirect(args: SpawnArgs): Promise<void> {
   tmux.resizeWindow(sessionName, termWidth, termHeight)
 
   // Register in state before bootstrap — agent is live and discoverable immediately
+  const displayedModel = resolveDisplayedModel(adapter.name, resolvedModel, presetModel, presetEnv)
   setAgent(name, {
     cli: adapter.name,
-    model: resolvedModel ?? 'default',
+    model: displayedModel,
     tmuxSession: sessionName,
     parentName,
     dir: workDir,
