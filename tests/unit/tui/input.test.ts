@@ -2,12 +2,12 @@ import { describe, it, expect } from 'bun:test'
 import { RawKeyParser, handleInputEvent, getCompletionHint, type InputBindings, type ParsedInputEvent } from '../../../src/tui/input'
 import { createInitialState, type AgentView } from '../../../src/tui/types'
 
-function mockAgent(name: string): AgentView {
+function mockAgent(name: string, cli = 'claude-code'): AgentView {
   return {
     name,
     status: 'running',
     lastSeen: Date.now(),
-    cli: 'claude-code',
+    cli,
     model: 'sonnet',
     tmuxSession: `flt-${name}`,
     parentName: 'orchestrator',
@@ -81,6 +81,17 @@ describe('raw key parser', () => {
     expect(events[1]).toMatchObject({ type: 'text', text: 'hello' })
   })
 
+  it('parses SGR mouse wheel events', () => {
+    const events: ParsedInputEvent[] = []
+    const parser = new RawKeyParser((event) => events.push(event))
+
+    parser.feed(Buffer.from('\x1b[<64;42;10M'))
+    parser.feed(Buffer.from('\x1b[<65;42;10M'))
+
+    expect(events[0]).toMatchObject({ type: 'key', key: 'wheel-up' })
+    expect(events[1]).toMatchObject({ type: 'key', key: 'wheel-down' })
+  })
+
   it('distinguishes bare escape with timeout flush', () => {
     const events: ParsedInputEvent[] = []
     const parser = new RawKeyParser((event) => events.push(event))
@@ -119,6 +130,46 @@ describe('input dispatch', () => {
     const { bindings, calls } = createBindings('log-focus')
     handleInputEvent({ type: 'key', key: 'ctrl-d', raw: Buffer.from([0x04]) }, bindings)
     expect(calls).toContain('page-down')
+  })
+
+  it('passes log-focus j/k scroll through to opencode viewport', () => {
+    const { state, bindings, calls } = createBindings('log-focus')
+    state.agents = [mockAgent('alpha', 'opencode')]
+    state.selectedIndex = 0
+
+    handleInputEvent({ type: 'text', text: 'j', raw: Buffer.from('j') }, bindings)
+    handleInputEvent({ type: 'text', text: 'k', raw: Buffer.from('k') }, bindings)
+
+    expect(calls).toContain('insert-key:C-M-e')
+    expect(calls).toContain('insert-key:C-M-y')
+    expect(calls).not.toContain('down')
+    expect(calls).not.toContain('up')
+  })
+
+  it('passes log-focus ctrl-u/d through to opencode viewport', () => {
+    const { state, bindings, calls } = createBindings('log-focus')
+    state.agents = [mockAgent('alpha', 'opencode')]
+    state.selectedIndex = 0
+
+    handleInputEvent({ type: 'key', key: 'ctrl-d', raw: Buffer.from([0x04]) }, bindings)
+    handleInputEvent({ type: 'key', key: 'ctrl-u', raw: Buffer.from([0x15]) }, bindings)
+
+    expect(calls).toContain('insert-key:NPage')
+    expect(calls).toContain('insert-key:PPage')
+    expect(calls).not.toContain('page-down')
+    expect(calls).not.toContain('page-up')
+  })
+
+  it('passes mouse wheel in log-focus through to opencode viewport', () => {
+    const { state, bindings, calls } = createBindings('log-focus')
+    state.agents = [mockAgent('alpha', 'opencode')]
+    state.selectedIndex = 0
+
+    handleInputEvent({ type: 'key', key: 'wheel-down', raw: Buffer.from('') }, bindings)
+    handleInputEvent({ type: 'key', key: 'wheel-up', raw: Buffer.from('') }, bindings)
+
+    expect(calls).toContain('insert-key:C-M-e')
+    expect(calls).toContain('insert-key:C-M-y')
   })
 
   it('closes presets mode with escape', () => {

@@ -109,6 +109,7 @@ Each adapter handles the messy per-CLI differences so you don't have to:
 | Aider | `aider` | `--yes` flag, OpenRouter model routing |
 | OpenCode | `opencode` | Agent file injection, full-pane ready detection |
 | SWE-agent | `swe-agent` | Prompt template injection, no instruction file |
+| pi | `pi` | OpenAI subscription OAuth flow, slash-command prompt detection |
 
 Dialog auto-approval means agents spawned from cron never block on permission prompts. This is what makes unattended operation work.
 

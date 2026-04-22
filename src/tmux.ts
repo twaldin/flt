@@ -80,12 +80,12 @@ export function capturePane(session: string, lines = 100): string {
   // -e preserves ANSI escape sequences (colors) in the output
   try {
     return execFileSync('tmux', [
-      'capture-pane', '-t', paneTarget(session), '-p', '-e', '-S', `-${lines}`,
+      'capture-pane', '-t', paneTarget(session), '-p', '-e', '-N', '-S', `-${lines}`,
     ], {
       encoding: 'utf-8',
       timeout: 10_000,
       stdio: ['pipe', 'pipe', 'pipe'],
-    }).trim()
+    })
   } catch {
     return ''
   }
@@ -96,12 +96,12 @@ export function capturePane(session: string, lines = 100): string {
 export function capturePaneVisible(session: string): string {
   try {
     return execFileSync('tmux', [
-      'capture-pane', '-t', paneTarget(session), '-p', '-e',
+      'capture-pane', '-t', paneTarget(session), '-p', '-e', '-N',
     ], {
       encoding: 'utf-8',
       timeout: 10_000,
       stdio: ['pipe', 'pipe', 'pipe'],
-    }).trimStart()  // trim leading whitespace only — preserve trailing pane rows
+    })
   } catch {
     return ''
   }

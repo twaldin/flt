@@ -209,6 +209,7 @@ export async function spawnDirect(args: SpawnArgs): Promise<void> {
   // Create tmux session with env vars. Preset env takes priority over adapter env
   // because presets are user-level overrides (e.g. swapping claude-code to z.ai).
   const adapterEnv = adapter.env?.() ?? {}
+  const mergedPath = presetEnv.PATH ?? adapterEnv.PATH ?? `${process.env.PATH}`
   tmux.createSession(sessionName, workDir, command, {
     ...adapterEnv,
     ...presetEnv,
@@ -216,7 +217,7 @@ export async function spawnDirect(args: SpawnArgs): Promise<void> {
     FLT_PARENT_SESSION: parentSession,
     FLT_PARENT_NAME: parentName,
     FLT_DEPTH: String(callerDepth + 1),
-    PATH: `${process.env.PATH}`,
+    PATH: mergedPath,
   })
 
   // Poll for readiness (60s timeout — some CLIs have multiple sequential dialogs)

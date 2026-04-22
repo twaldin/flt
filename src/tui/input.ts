@@ -2,7 +2,23 @@ import { StringDecoder } from 'string_decoder'
 import { getKeybindAction, type ConfigurableMode, type KeybindAction } from './keybinds'
 import type { AgentView, AppState, InboxMessage, Mode } from './types'
 
-export type TmuxInsertKey = 'Enter' | 'BSpace' | 'Tab' | 'Up' | 'Down' | 'Left' | 'Right' | 'C-c' | 'M-BSpace' | 'C-u' | 'M-d'
+export type TmuxInsertKey =
+  | 'Enter'
+  | 'BSpace'
+  | 'Tab'
+  | 'Up'
+  | 'Down'
+  | 'Left'
+  | 'Right'
+  | 'PPage'
+  | 'NPage'
+  | 'C-c'
+  | 'M-BSpace'
+  | 'C-u'
+  | 'C-d'
+  | 'M-d'
+  | 'C-M-y'
+  | 'C-M-e'
 
 export type ParsedInputEvent =
   | { type: 'key'; key: string; raw: Buffer }
@@ -61,6 +77,7 @@ function loadModelSuggestions(): Record<string, string[]> {
     aider: ['sonnet', 'opus', 'gpt-4.1', 'o3'],
     opencode: ['gpt-5.3', 'gpt-5.4-mini', 'o3'],
     'swe-agent': ['sonnet', 'gpt-4.1'],
+    pi: ['gpt-5.4', 'gpt-5.4-mini'],
   }
   try {
     const { readFileSync } = require('fs')
@@ -424,6 +441,15 @@ export class RawKeyParser {
           else if (/^\x1b\[[0-9;]*B$/.test(seqText)) this.onEvent({ type: 'key', key: 'down', raw: seq })
           else if (/^\x1b\[[0-9;]*C$/.test(seqText)) this.onEvent({ type: 'key', key: 'right', raw: seq })
           else if (/^\x1b\[[0-9;]*D$/.test(seqText)) this.onEvent({ type: 'key', key: 'left', raw: seq })
+          else if (/^\x1b\[<\d+;\d+;\d+[mM]$/.test(seqText)) {
+            const m = seqText.match(/^\x1b\[<(\d+);\d+;\d+([mM])$/)
+            if (m) {
+              const btn = parseInt(m[1], 10)
+              const released = m[2] === 'm'
+              if (!released && btn === 64) this.onEvent({ type: 'key', key: 'wheel-up', raw: seq })
+              else if (!released && btn === 65) this.onEvent({ type: 'key', key: 'wheel-down', raw: seq })
+            }
+          }
           else if (/^\x1b\[[0-9;:]*u$/.test(seqText)) {
             // Kitty keyboard protocol / CSI u: \x1b[<codepoint>u or \x1b[<codepoint>;<modifiers>u
             // Ghostty and other modern terminals send keys in this format
@@ -538,6 +564,32 @@ function tabCompleteCommand(bindings: InputBindings): void {
 
 function executeKeybindAction(mode: ConfigurableMode, action: KeybindAction, bindings: InputBindings): void {
   const state = bindings.getState()
+  const selected = state.selectedAgent
+
+  // Opencode keeps its own in-app scroll viewport (separate from tmux scrollback).
+  // In log-focus mode, route common scroll actions to opencode itself so j/k and
+  // ctrl-u/ctrl-d move inside opencode's current view instead of only moving flt's
+  // capture offset.
+  if (mode === 'log-focus' && selected?.cli === 'opencode') {
+    if (action === 'scrollDown') {
+      bindings.sendInsertKey('C-M-e')
+      return
+    }
+    if (action === 'scrollUp') {
+      bindings.sendInsertKey('C-M-y')
+      return
+    }
+    if (action === 'pageDown') {
+      bindings.flushInsert()
+      bindings.sendInsertKey('NPage')
+      return
+    }
+    if (action === 'pageUp') {
+      bindings.flushInsert()
+      bindings.sendInsertKey('PPage')
+      return
+    }
+  }
 
   if (action === 'selectNext') bindings.selectNext()
   else if (action === 'selectPrev') bindings.selectPrev()
@@ -644,6 +696,9 @@ function handleSpecialKey(event: Extract<ParsedInputEvent, { type: 'key' }>, bin
     } else if (event.key === 'ctrl-u') {
       bindings.flushInsert()
       bindings.sendInsertKey('C-u')
+    } else if (event.key === 'ctrl-d') {
+      bindings.flushInsert()
+      bindings.sendInsertKey('C-d')
     } else if (event.key === 'ctrl-c') {
       // Send Escape to agent (interrupt generation) instead of SIGINT (kills process)
       bindings.flushInsert()
@@ -705,6 +760,17 @@ function handleSpecialKey(event: Extract<ParsedInputEvent, { type: 'key' }>, bin
   }
 
   if (state.mode === 'log-focus') {
+    const selected = state.selectedAgent
+    if (selected?.cli === 'opencode') {
+      if (event.key === 'wheel-up') {
+        bindings.sendInsertKey('C-M-y')
+        return
+      }
+      if (event.key === 'wheel-down') {
+        bindings.sendInsertKey('C-M-e')
+        return
+      }
+    }
     handleConfigurableKey('log-focus', event.key, bindings)
     return
   }

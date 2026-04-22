@@ -5,6 +5,7 @@ import { geminiAdapter } from './gemini'
 import { aiderAdapter } from './aider'
 import { opencodeAdapter } from './opencode'
 import { sweAgentAdapter } from './swe-agent'
+import { piAdapter } from './pi'
 
 const adapters: Record<string, CliAdapter> = {
   'claude-code': claudeCodeAdapter,
@@ -13,6 +14,7 @@ const adapters: Record<string, CliAdapter> = {
   'aider': aiderAdapter,
   'opencode': opencodeAdapter,
   'swe-agent': sweAgentAdapter,
+  'pi': piAdapter,
 }
 
 export function getAdapter(name: string): CliAdapter | undefined {

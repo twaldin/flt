@@ -10,7 +10,8 @@ describe('adapter registry', () => {
     expect(adapters).toContain('aider')
     expect(adapters).toContain('opencode')
     expect(adapters).toContain('swe-agent')
-    expect(adapters.length).toBe(6)
+    expect(adapters).toContain('pi')
+    expect(adapters.length).toBe(7)
   })
 
   it('gets adapter by name', () => {
