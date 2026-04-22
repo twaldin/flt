@@ -37,4 +37,31 @@ describe('ansi-parser', () => {
     expect(grid[0][0].fg).toBe('38;5;196')
     expect(grid[0][1].bg).toBe('48;2;1;2;3')
   })
+
+  it('advances column by display width for wide unicode chars', () => {
+    const grid = makeGrid(1, 4)
+    parseAnsi('A你B', grid, 0, 0, 4, 1)
+
+    expect(grid[0][0].char).toBe('A')
+    expect(grid[0][1].char).toBe('你')
+    expect(grid[0][2].char).toBe('')
+    expect(grid[0][3].char).toBe('B')
+  })
+
+  it('attaches combining marks to previous cell', () => {
+    const grid = makeGrid(1, 3)
+    parseAnsi('e\u0301X', grid, 0, 0, 3, 1)
+
+    expect(grid[0][0].char).toBe('e\u0301')
+    expect(grid[0][1].char).toBe('X')
+  })
+
+  it('uses current style for erase-in-line blanks', () => {
+    const grid = makeGrid(1, 4)
+    parseAnsi('\x1b[48;5;240mX\x1b[K', grid, 0, 0, 4, 1)
+
+    expect(grid[0][1].char).toBe(' ')
+    expect(grid[0][1].bg).toBe('48;5;240')
+    expect(grid[0][3].bg).toBe('48;5;240')
+  })
 })

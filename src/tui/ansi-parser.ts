@@ -13,6 +13,46 @@ interface StyleState {
   attrs: number
 }
 
+function isCombiningChar(char: string): boolean {
+  return /\p{Mark}/u.test(char) || char === '\u200d' || char === '\ufe0e' || char === '\ufe0f'
+}
+
+function isFullWidthCodePoint(codePoint: number): boolean {
+  return codePoint >= 0x1100 && (
+    codePoint <= 0x115f || // Hangul Jamo
+    codePoint === 0x2329 ||
+    codePoint === 0x232a ||
+    (codePoint >= 0x2e80 && codePoint <= 0x3247 && codePoint !== 0x303f) ||
+    (codePoint >= 0x3250 && codePoint <= 0x4dbf) ||
+    (codePoint >= 0x4e00 && codePoint <= 0xa4c6) ||
+    (codePoint >= 0xa960 && codePoint <= 0xa97c) ||
+    (codePoint >= 0xac00 && codePoint <= 0xd7a3) ||
+    (codePoint >= 0xf900 && codePoint <= 0xfaff) ||
+    (codePoint >= 0xfe10 && codePoint <= 0xfe19) ||
+    (codePoint >= 0xfe30 && codePoint <= 0xfe6b) ||
+    (codePoint >= 0xff01 && codePoint <= 0xff60) ||
+    (codePoint >= 0xffe0 && codePoint <= 0xffe6) ||
+    (codePoint >= 0x1b000 && codePoint <= 0x1b2ff) ||
+    (codePoint >= 0x1f200 && codePoint <= 0x1f2ff) ||
+    (codePoint >= 0x1f300 && codePoint <= 0x1faff) ||
+    (codePoint >= 0x20000 && codePoint <= 0x3fffd)
+  )
+}
+
+function wcwidth(char: string): number {
+  const codePoint = char.codePointAt(0)
+  if (codePoint === undefined) return 0
+
+  // C0/C1 control characters
+  if ((codePoint >= 0x0000 && codePoint <= 0x001f) || (codePoint >= 0x007f && codePoint <= 0x009f)) {
+    return 0
+  }
+
+  if (isCombiningChar(char)) return 0
+  if (isFullWidthCodePoint(codePoint)) return 2
+  return 1
+}
+
 function applySgr(style: StyleState, params: number[]): void {
   const values = params.length === 0 ? [0] : params
 
@@ -154,15 +194,28 @@ export function parseAnsi(
   const absCol = (c: number) => startCol + c
 
   const writeChar = (char: string): void => {
-    if (row < 0 || row > maxRow || col < 0 || col > maxCol) {
+    const width = wcwidth(char)
+
+    if (row < 0 || row > maxRow || col < 0 || col > maxCol || col + width - 1 > maxCol) {
       // Overflow: don't wrap to next row — just discard.
       // Wrapping is handled by the terminal (tmux), not us.
       // Each \n in the captured output already marks a new row.
       return
     }
 
+    if (width === 0) {
+      if (col > 0) {
+        const prev = grid[absRow(row)][absCol(col - 1)]
+        prev.char += char
+      }
+      return
+    }
+
     writeCell(grid, absRow(row), absCol(col), style, char)
-    col += 1
+    if (width === 2) {
+      writeCell(grid, absRow(row), absCol(col + 1), style, '')
+    }
+    col += width
   }
 
   let i = 0
@@ -271,7 +324,7 @@ export function parseAnsi(
           const start = mode === 1 ? 0 : mode === 2 ? 0 : col
           const end = mode === 1 ? col : mode === 2 ? maxCol : maxCol
           for (let c = start; c <= end; c += 1) {
-            writeCell(grid, absRow(row), absCol(c), { fg: '', bg: '', attrs: 0 }, ' ')
+            writeCell(grid, absRow(row), absCol(c), style, ' ')
           }
         }
       }
