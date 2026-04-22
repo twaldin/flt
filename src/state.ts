@@ -1,6 +1,7 @@
 import { readFileSync, writeFileSync, mkdirSync, renameSync, openSync, closeSync, unlinkSync } from 'fs'
 import { join } from 'path'
 import type { AgentStatus } from './adapters/types'
+import type { InstructionProjection } from './instructions'
 
 export interface OrchestratorState {
   tmuxSession: string
@@ -15,6 +16,7 @@ export interface AgentState {
   tmuxSession: string
   parentName: string
   dir: string
+  instructionProjection?: InstructionProjection
   worktreePath?: string
   worktreeBranch?: string
   spawnedAt: string

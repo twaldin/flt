@@ -1,5 +1,6 @@
 import { resolveAdapter } from '../adapters/registry'
 import { projectInstructions } from '../instructions'
+import type { InstructionProjection } from '../instructions'
 import { projectSkills } from '../skills'
 import { createWorktree, isGitRepo } from '../worktree'
 import { loadState, setAgent, hasAgent } from '../state'
@@ -180,8 +181,10 @@ export async function spawnDirect(args: SpawnArgs): Promise<void> {
     : orchSession
 
   // Project instructions into workspace
+  let instructionProjection: InstructionProjection | undefined
+
   if (adapter.instructionFile) {
-    projectInstructions(workDir, adapter.instructionFile, {
+    instructionProjection = projectInstructions(workDir, adapter.instructionFile, {
       agentName: name,
       parentName,
       cli: adapter.name,
@@ -232,6 +235,7 @@ export async function spawnDirect(args: SpawnArgs): Promise<void> {
     tmuxSession: sessionName,
     parentName,
     dir: workDir,
+    instructionProjection,
     worktreePath,
     worktreeBranch,
     spawnedAt: new Date().toISOString(),

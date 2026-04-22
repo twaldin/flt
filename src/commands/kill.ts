@@ -96,8 +96,8 @@ export function killDirect(args: KillArgs): void {
   // Restore instruction file backup
   try {
     const adapter = resolveAdapter(agent.cli)
-    if (adapter.instructionFile) {
-      restoreInstructions(agent.dir, adapter.instructionFile)
+    if (agent.instructionProjection) {
+      restoreInstructions(agent.instructionProjection)
     }
     cleanupSkills(agent.dir, adapter, name)
   } catch {

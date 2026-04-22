@@ -1,5 +1,10 @@
-import { readFileSync, writeFileSync, existsSync, copyFileSync, unlinkSync, mkdirSync } from 'fs'
-import { join, dirname } from 'path'
+import { readFileSync, existsSync } from 'fs'
+import { join } from 'path'
+import {
+  projectInstructions as harnessProjectInstructions,
+  restoreProjectedInstructions,
+  type InstructionProjection,
+} from '@twaldin/harness-ts'
 
 // Local override templates take precedence over bundled ones
 // This allows template updates without waiting for npm publish
@@ -30,6 +35,8 @@ interface InstructionOpts {
   presetSoul?: string
 }
 
+export type { InstructionProjection }
+
 export function buildSystemBlock(opts: InstructionOpts): string {
   const templatePath = opts.workflow ? WORKFLOW_TEMPLATE_PATH : TEMPLATE_PATH
   let template = readFileSync(templatePath, 'utf-8')
@@ -43,11 +50,9 @@ export function buildSystemBlock(opts: InstructionOpts): string {
 }
 
 export function loadSoulMd(agentName: string, presetSoul?: string): string | null {
-  // 1. Check agent-specific SOUL.md
   const soulPath = join(home(), '.flt', 'agents', agentName, 'SOUL.md')
   if (existsSync(soulPath)) return readFileSync(soulPath, 'utf-8')
 
-  // 2. Fall back to preset soul path
   if (presetSoul) {
     const resolved = presetSoul.startsWith('/')
       ? presetSoul
@@ -78,44 +83,18 @@ export function projectInstructions(
   workDir: string,
   instructionFile: string,
   opts: InstructionOpts,
-): void {
-  const filePath = join(workDir, instructionFile)
+): InstructionProjection {
   const fltBlock = buildFullInstructions(opts)
-
-  // Ensure parent directory exists (for nested paths like .opencode/agents/flt.md)
-  mkdirSync(dirname(filePath), { recursive: true })
-
-  if (existsSync(filePath)) {
-    const existing = readFileSync(filePath, 'utf-8')
-
-    // If already has flt block, replace it
-    if (existing.includes(FLT_MARKER_START)) {
-      const re = new RegExp(
-        `${escapeRegex(FLT_MARKER_START)}[\\s\\S]*?${escapeRegex(FLT_MARKER_END)}`,
-      )
-      writeFileSync(filePath, existing.replace(re, fltBlock))
-      return
-    }
-
-    // Backup existing file, prepend flt block
-    const backupPath = join(workDir, `.flt-backup-${instructionFile}`)
-    copyFileSync(filePath, backupPath)
-    writeFileSync(filePath, fltBlock + '\n\n' + existing)
-  } else {
-    writeFileSync(filePath, fltBlock + '\n')
-  }
+  return harnessProjectInstructions(workDir, instructionFile, fltBlock, {
+    mode: 'prepend',
+    backup: true,
+    replaceBetweenMarkers: {
+      start: FLT_MARKER_START,
+      end: FLT_MARKER_END,
+    },
+  })
 }
 
-export function restoreInstructions(workDir: string, instructionFile: string): void {
-  const backupPath = join(workDir, `.flt-backup-${instructionFile}`)
-  const filePath = join(workDir, instructionFile)
-
-  if (existsSync(backupPath)) {
-    copyFileSync(backupPath, filePath)
-    try { unlinkSync(backupPath) } catch {}
-  }
-}
-
-function escapeRegex(s: string): string {
-  return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+export function restoreInstructions(projection: InstructionProjection): void {
+  restoreProjectedInstructions(projection)
 }

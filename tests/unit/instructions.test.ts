@@ -82,8 +82,8 @@ describe('instructions', () => {
     expect(fltIdx).toBeLessThan(existIdx)
 
     // Backup should exist
-    expect(existsSync(join(workDir, '.flt-backup-CLAUDE.md'))).toBe(true)
-    const backup = readFileSync(join(workDir, '.flt-backup-CLAUDE.md'), 'utf-8')
+    expect(existsSync(join(workDir, '.harness-backup-CLAUDE.md'))).toBe(true)
+    const backup = readFileSync(join(workDir, '.harness-backup-CLAUDE.md'), 'utf-8')
     expect(backup).toBe('# Existing Project Rules\nDo stuff.')
 
     rmSync(workDir, { recursive: true, force: true })
@@ -108,14 +108,28 @@ describe('instructions', () => {
   it('restores instructions from backup', () => {
     const workDir = mkdtempSync(join(tmpdir(), 'flt-proj-'))
     writeFileSync(join(workDir, 'CLAUDE.md'), '# Original')
-    projectInstructions(workDir, 'CLAUDE.md', baseOpts)
+    const projection = projectInstructions(workDir, 'CLAUDE.md', baseOpts)
 
-    restoreInstructions(workDir, 'CLAUDE.md')
+    restoreInstructions(projection)
 
     const content = readFileSync(join(workDir, 'CLAUDE.md'), 'utf-8')
     expect(content).toBe('# Original')
-    expect(existsSync(join(workDir, '.flt-backup-CLAUDE.md'))).toBe(false)
+    expect(existsSync(join(workDir, '.harness-backup-CLAUDE.md'))).toBe(false)
 
     rmSync(workDir, { recursive: true, force: true })
   })
+
+  it('restore removes projected file when it did not exist pre-spawn', () => {
+    const workDir = mkdtempSync(join(tmpdir(), 'flt-proj-'))
+    const projection = projectInstructions(workDir, '.opencode/agents/flt.md', baseOpts)
+
+    restoreInstructions(projection)
+
+    expect(existsSync(join(workDir, '.opencode/agents/flt.md'))).toBe(false)
+    expect(existsSync(join(workDir, '.opencode/agents'))).toBe(false)
+    expect(existsSync(join(workDir, '.opencode'))).toBe(false)
+
+    rmSync(workDir, { recursive: true, force: true })
+  })
+
 })
