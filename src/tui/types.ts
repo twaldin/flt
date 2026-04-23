@@ -2,6 +2,32 @@ import type { AgentState } from '../state'
 
 export type Mode = 'normal' | 'log-focus' | 'insert' | 'command' | 'inbox' | 'presets' | 'kill-confirm' | 'shell'
 
+export type ModalType = 'spawn' | 'kill' | 'presets'
+
+export interface ModalField {
+  label: string
+  value: string
+  cursor: number
+  options?: string[]
+  required: boolean
+}
+
+export interface ModalListItem {
+  label: string
+  detail: string
+}
+
+export interface ModalState {
+  type: ModalType
+  title: string
+  fields: ModalField[]
+  activeField: number
+  listItems: ModalListItem[]
+  selectedIndex: number
+  error?: string
+  rawCommand?: string
+}
+
 export interface AgentView extends AgentState {
   name: string
   status: 'spawning' | 'ready' | 'running' | 'idle' | 'exited' | 'error' | 'rate-limited' | 'unknown'
@@ -13,6 +39,12 @@ export interface InboxMessage {
   timestamp: string
   from: string
   text: string
+}
+
+export interface CompletionItem {
+  value: string
+  label?: string
+  description?: string
 }
 
 export interface Banner {
@@ -40,6 +72,9 @@ export interface AppState {
   killConfirmAgent?: string
   sidebarScrollOffset: number
   collapsedAgents: string[]
+  modal: ModalState | null
+  completionItems: CompletionItem[]
+  completionSelectedIndex: number
 }
 
 export function createInitialState(width = 80, height = 24): AppState {
@@ -63,5 +98,8 @@ export function createInitialState(width = 80, height = 24): AppState {
     killConfirmAgent: undefined,
     sidebarScrollOffset: 0,
     collapsedAgents: [],
+    modal: null,
+    completionItems: [],
+    completionSelectedIndex: 0,
   }
 }

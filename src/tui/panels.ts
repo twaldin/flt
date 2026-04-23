@@ -1,8 +1,8 @@
-import { getCompletionHint } from './input'
+import { getCompletionHint, getCompletionItems } from './input'
 import { getKillConfirmPrompt, getModeHint } from './keybinds'
 import { ATTR_BOLD, ATTR_DIM, type Screen } from './screen'
 import { COLORS, fg, getTheme, modeColor, statusColor, statusSymbol } from './theme'
-import type { AgentView, AppState } from './types'
+import type { AgentView, AppState, ModalState } from './types'
 import { getAsciiLogo, getAsciiLogoWidth } from './ascii'
 
 export interface LayoutMetrics {
@@ -485,15 +485,23 @@ function renderCommandBar(screen: Screen, state: AppState, row: number, col: num
   screen.put(row, col, ':', t.commandPrefix, '', ATTR_BOLD)
 
   const available = Math.max(0, width - 2)
-  // Scroll input: show the tail when text exceeds available width
   const input = state.commandInput
   const inputLen = widthOf(input)
-  const inputVisible = inputLen <= available
-    ? input
-    : input.slice(inputLen - available)
-  screen.put(row, col + 1, inputVisible, t.commandInput)
+  const leftClipped = inputLen > available
 
-  const cursorCol = col + 1 + Math.min(widthOf(inputVisible), available)
+  let inputCol = col + 1
+  let inputText: string
+  if (leftClipped && available > 1) {
+    inputText = '‹' + input.slice(-(available - 1))
+  } else {
+    inputText = inputLen <= available ? input : input.slice(-available)
+  }
+  screen.put(row, inputCol, inputText, t.commandInput)
+  if (leftClipped && available > 1) {
+    screen.put(row, inputCol, '‹', t.commandHint, '', ATTR_DIM)
+  }
+
+  const cursorCol = inputCol + Math.min(widthOf(inputText), available)
   if (cursorCol < col + width) {
     screen.put(row, cursorCol, '█', t.commandPrefix)
   }
@@ -503,7 +511,11 @@ function renderCommandBar(screen: Screen, state: AppState, row: number, col: num
     const hintCol = cursorCol + 1
     const hintWidth = col + width - hintCol
     if (hintWidth > 0) {
-      screen.put(row, hintCol, truncate(hintText, hintWidth), t.commandHint)
+      const rightClipped = widthOf(hintText) > hintWidth
+      const displayHint = rightClipped
+        ? truncate(hintText, Math.max(0, hintWidth - 1)) + '›'
+        : truncate(hintText, hintWidth)
+      screen.put(row, hintCol, displayHint, t.commandHint)
     }
   }
 }
@@ -527,6 +539,92 @@ function renderStatusBar(screen: Screen, state: AppState, row: number, col: numb
   const summaryWidth = Math.max(0, width - (baseCol - col))
   if (summaryWidth > 0) {
     screen.put(row, baseCol, truncate(summary, summaryWidth), t.sidebarMuted)
+  }
+}
+
+function renderCompletionPopup(screen: Screen, state: AppState, commandRow: number, sidebarWidth: number, logWidth: number): void {
+  const items = state.completionItems
+  if (items.length <= 1 || state.mode !== 'command') return
+
+  const maxVisible = Math.min(8, items.length)
+  const popupHeight = maxVisible + 2
+  const popupBottom = commandRow - 1
+  const popupTop = Math.max(0, popupBottom - popupHeight + 1)
+  const actualHeight = popupBottom - popupTop + 1
+  if (actualHeight < 3) return
+
+  // Compute content width
+  let contentWidth = 0
+  for (const item of items) {
+    let w = widthOf(item.value)
+    if (item.label) w += 1 + widthOf(item.label)
+    if (item.description) w += 2 + Math.min(widthOf(item.description), 30)
+    contentWidth = Math.max(contentWidth, w)
+  }
+  const popupWidth = Math.min(contentWidth + 4, logWidth)
+  if (popupWidth < 4) return
+
+  const t = getTheme()
+
+  // Scrolling: keep selected item visible
+  const selIdx = state.completionSelectedIndex
+  let scrollOffset = Math.max(0, selIdx - maxVisible + 1)
+  scrollOffset = Math.min(scrollOffset, Math.max(0, items.length - maxVisible))
+
+  // Draw box background first (fill area)
+  const innerWidth = popupWidth - 2
+  const innerHeight = actualHeight - 2
+
+  // Render box border
+  screen.box(popupTop, sidebarWidth, popupWidth, actualHeight, 'round', t.sidebarBorder)
+
+  // Render items
+  for (let i = 0; i < maxVisible && i < items.length; i++) {
+    const itemIdx = scrollOffset + i
+    if (itemIdx >= items.length) break
+    const item = items[itemIdx]
+    const row = popupTop + 1 + i
+    if (row > popupBottom - 1) break
+
+    const isSelected = itemIdx === selIdx
+    const bg = isSelected ? t.sidebarSelectedBg : ''
+    const fgColor = isSelected ? t.sidebarSelected : t.commandInput
+
+    // Fill row background
+    screen.put(row, sidebarWidth + 1, ' '.repeat(innerWidth), fgColor, bg, isSelected ? ATTR_BOLD : 0)
+
+    // Build item text: value  label  description
+    let col = sidebarWidth + 1
+    const marker = isSelected ? '▸ ' : '  '
+    screen.put(row, col, marker, fgColor, bg, isSelected ? ATTR_BOLD : 0)
+    col += 2
+
+    const valueText = truncate(item.value, innerWidth - 2)
+    screen.put(row, col, valueText, fgColor, bg, isSelected ? ATTR_BOLD : 0)
+    col += widthOf(valueText)
+
+    if (item.label && col < sidebarWidth + popupWidth - 2) {
+      const labelText = truncate(` ${item.label}`, sidebarWidth + popupWidth - 2 - col)
+      if (widthOf(labelText) > 0) {
+        screen.put(row, col, labelText, t.sidebarMuted, bg, ATTR_DIM)
+        col += widthOf(labelText)
+      }
+    }
+
+    if (item.description && col < sidebarWidth + popupWidth - 2) {
+      const descAvail = sidebarWidth + popupWidth - 2 - col - 2
+      if (descAvail > 3) {
+        const descText = truncate(` ${item.description}`, descAvail + 1)
+        screen.put(row, col, descText, t.sidebarMuted, bg, ATTR_DIM)
+      }
+    }
+  }
+
+  // Scroll indicator
+  if (items.length > maxVisible) {
+    const indicator = `${scrollOffset + 1}-${Math.min(scrollOffset + maxVisible, items.length)}/${items.length}`
+    const indCol = sidebarWidth + popupWidth - 2 - widthOf(indicator)
+    screen.put(popupTop, indCol, indicator, t.sidebarMuted, '', ATTR_DIM)
   }
 }
 
@@ -582,6 +680,130 @@ export function calculateLayout(cols: number, rows: number, agents?: AgentView[]
   }
 }
 
+function renderModal(screen: Screen, modal: ModalState, cols: number, rows: number): void {
+  const t = getTheme()
+
+  const isForm = modal.fields.length > 0
+  const contentRows = isForm
+    ? modal.fields.reduce((acc, f) => acc + 1 + (f.options?.length ? 0 : 0), 0)
+    : Math.min(modal.listItems.length, 8)
+
+  const modalWidth = Math.min(56, Math.max(32, Math.floor(cols * 0.55)))
+  const modalHeight = Math.min(rows - 2, contentRows + 5) // title + blank + error + footer + padding
+
+  const left = Math.floor((cols - modalWidth) / 2)
+  const top = Math.floor((rows - modalHeight) / 2)
+
+  // Dim overlay border
+  screen.box(top, left, modalWidth, modalHeight, 'double', t.sidebarBorder)
+
+  // Title bar
+  const titleText = ` ${modal.title} `
+  const titlePad = Math.max(0, Math.floor((modalWidth - widthOf(titleText)) / 2))
+  screen.put(top, left + titlePad, titleText, t.sidebarBorder, '', ATTR_BOLD)
+
+  let row = top + 1
+
+  if (isForm) {
+    for (let i = 0; i < modal.fields.length; i++) {
+      if (row >= top + modalHeight - 2) break
+      const field = modal.fields[i]
+      const active = i === modal.activeField
+      const req = field.required ? '*' : ' '
+      const labelStr = `${req}${field.label}: `
+      const labelWidth = widthOf(labelStr)
+      const valueWidth = Math.max(0, modalWidth - labelWidth - 4)
+
+      const labelColor = active ? t.sidebarSelected : t.sidebarText
+      screen.put(row, left + 2, labelStr, labelColor, '', active ? ATTR_BOLD : 0)
+
+      const displayValue = truncate(field.value, valueWidth)
+      const paddedValue = padRight(displayValue, valueWidth)
+      const valueColor = field.value ? t.sidebarText : t.sidebarMuted
+      screen.put(row, left + 2 + labelWidth, paddedValue, valueColor, '', active ? ATTR_UNDERLINE : 0)
+
+      // Cursor
+      if (active) {
+        const cursorOffset = Math.min(field.cursor, valueWidth)
+        const cursorChar = displayValue[cursorOffset] || ' '
+        screen.put(row, left + 2 + labelWidth + cursorOffset, cursorChar, t.commandPrefix, '', ATTR_BOLD | ATTR_INVERSE)
+      }
+
+      // Options hint
+      if (active && field.options && field.options.length > 0) {
+        const hintCol = left + 2 + labelWidth + valueWidth + 1
+        const hintWidth = left + modalWidth - 2 - hintCol
+        if (hintWidth > 2) {
+          screen.put(row, hintCol, '↑↓', t.sidebarMuted, '', ATTR_DIM)
+        }
+      }
+
+      row += 1
+    }
+  } else {
+    const maxVisible = Math.min(modal.listItems.length, modalHeight - 5)
+    const scrollOff = clamp(
+      modal.selectedIndex - maxVisible + 1,
+      0,
+      Math.max(0, modal.listItems.length - maxVisible),
+    )
+    for (let i = 0; i < maxVisible; i++) {
+      if (row >= top + modalHeight - 2) break
+      const idx = scrollOff + i
+      if (idx >= modal.listItems.length) break
+
+      const item = modal.listItems[idx]
+      const selected = idx === modal.selectedIndex
+      const prefix = selected ? ' > ' : '   '
+      const color = selected ? t.sidebarSelected : t.sidebarText
+      const bg = selected ? t.sidebarSelectedBg : ''
+      const attrs = selected ? ATTR_BOLD : 0
+
+      const line = `${prefix}${item.label}`
+      screen.put(row, left + 1, padRight(line, modalWidth - 2), color, bg, attrs)
+
+      if (item.detail) {
+        const detailCol = left + 1 + widthOf(line) + 1
+        const detailWidth = modalWidth - 2 - widthOf(line) - 2
+        if (detailWidth > 0) {
+          screen.put(row, detailCol, truncate(item.detail, detailWidth), t.sidebarMuted, bg, ATTR_DIM)
+        }
+      }
+      row += 1
+    }
+    // Overflow indicator
+    const hidden = modal.listItems.length - (scrollOff + maxVisible)
+    if (hidden > 0 && row < top + modalHeight - 2) {
+      screen.put(row, left + 2, `+${hidden} more`, t.sidebarMuted, '', ATTR_DIM)
+      row += 1
+    }
+  }
+
+  // Error line
+  row = top + modalHeight - 3
+  if (row >= top + 1 && row < top + modalHeight - 1) {
+    if (modal.error) {
+      screen.put(row, left + 2, truncate(modal.error, modalWidth - 4), COLORS.red, '', ATTR_BOLD)
+    } else {
+      screen.put(row, left + 2, padRight('', modalWidth - 4), t.sidebarText, '')
+    }
+  }
+
+  // Footer
+  const footerRow = top + modalHeight - 2
+  if (footerRow >= top && footerRow < top + modalHeight) {
+    let footer: string
+    if (isForm) {
+      footer = 'Tab next │ Enter submit │ Esc cancel'
+    } else if (modal.type === 'presets') {
+      footer = '↑↓ select │ a add │ d remove │ Esc cancel'
+    } else {
+      footer = '↑↓ select │ Enter confirm │ Esc cancel'
+    }
+    screen.put(footerRow, left + 2, truncate(footer, modalWidth - 4), t.sidebarMuted, '', ATTR_DIM)
+  }
+}
+
 export function renderLayout(screen: Screen, state: AppState): void {
   const cols = screen.cols
   const rows = screen.rows
@@ -621,5 +843,10 @@ export function renderLayout(screen: Screen, state: AppState): void {
   }
 
   renderCommandBar(screen, state, layout.commandRow, 0, cols)
+  renderCompletionPopup(screen, state, layout.commandRow, layout.sidebarWidth, layout.logWidth)
   renderStatusBar(screen, state, layout.statusRow, 0, cols)
+
+  if (state.modal) {
+    renderModal(screen, state.modal, cols, rows)
+  }
 }

@@ -1,6 +1,6 @@
 import { StringDecoder } from 'string_decoder'
 import { getKeybindAction, type ConfigurableMode, type KeybindAction } from './keybinds'
-import type { AgentView, AppState, InboxMessage, Mode } from './types'
+import type { AgentView, AppState, CompletionItem, InboxMessage, Mode, ModalState } from './types'
 
 export type TmuxInsertKey =
   | 'Enter'
@@ -61,12 +61,51 @@ export interface InputBindings {
   flushShell: () => void
   quit: () => void
   onResize?: () => void
+  openSpawnModal: () => void
+  setModalField: (fieldIndex: number, value: string, cursor: number) => void
+  modalNextField: () => void
+  modalPrevField: () => void
+  modalSelectUp: () => void
+  modalSelectDown: () => void
+  submitModal: () => void
+  cancelModal: () => void
+  setCompletionPopup: (items: CompletionItem[], selectedIndex: number) => void
+  setCompletionSelectedIndex: (index: number) => void
+  closeCompletionPopup: () => void
 }
 
 const COMMANDS = ['send', 'logs', 'spawn', 'presets', 'kill', 'theme', 'ascii', 'keybinds', 'help']
 const SPAWN_FLAGS = ['--cli', '--model', '--dir', '--preset', '--persistent', '--no-worktree', '--parent']
 const PRESETS_ACTIONS = ['list', 'add', 'remove']
 const PRESETS_ADD_FLAGS = ['--cli', '--model', '--description']
+
+const COMMAND_DESCRIPTIONS: Record<string, string> = {
+  send: 'Send message to agent',
+  logs: 'View agent logs',
+  spawn: 'Spawn a new agent',
+  presets: 'Manage agent presets',
+  kill: 'Kill an agent',
+  theme: 'Change UI theme',
+  ascii: 'Customize ASCII logo',
+  keybinds: 'Show keybindings',
+  help: 'Show help',
+}
+
+const FLAG_DESCRIPTIONS: Record<string, string> = {
+  '--cli': 'CLI adapter',
+  '--model': 'Model name',
+  '--dir': 'Working directory',
+  '--preset': 'Preset name',
+  '--persistent': 'Keep alive',
+  '--no-worktree': 'Skip worktree',
+  '--parent': 'Parent agent',
+}
+
+const PRESET_ACTION_DESCRIPTIONS: Record<string, string> = {
+  list: 'List all presets',
+  add: 'Add new preset',
+  remove: 'Remove preset',
+}
 
 // Load model suggestions from ~/.flt/models.json (user-configurable)
 function loadModelSuggestions(): Record<string, string[]> {
@@ -92,8 +131,45 @@ function loadModelSuggestions(): Record<string, string[]> {
 
 const MODEL_SUGGESTIONS = loadModelSuggestions()
 
+function fuzzyMatch(text: string, query: string): boolean {
+  let ti = 0
+  const tl = text.toLowerCase()
+  const ql = query.toLowerCase()
+  for (let qi = 0; qi < ql.length; qi++) {
+    const idx = tl.indexOf(ql[qi], ti)
+    if (idx === -1) return false
+    ti = idx + 1
+  }
+  return true
+}
+
+function matchCandidates(candidates: string[], prefix: string): string[] {
+  if (!prefix) return candidates.filter(c => c !== prefix)
+  const exact = candidates.filter(c => c.startsWith(prefix) && c !== prefix)
+  const fuzzy = candidates.filter(c => !c.startsWith(prefix) && c !== prefix && fuzzyMatch(c, prefix))
+  return [...exact, ...fuzzy]
+}
+
+const completionRecency = new Map<string, number>()
+
+function sortCompletionItems(items: CompletionItem[], prefix: string): void {
+  items.sort((a, b) => {
+    const ra = a.value.toLowerCase().startsWith(prefix.toLowerCase()) ? 0 : 1
+    const rb = b.value.toLowerCase().startsWith(prefix.toLowerCase()) ? 0 : 1
+    if (ra !== rb) return ra - rb
+    const ta = completionRecency.get(a.value) ?? 0
+    const tb = completionRecency.get(b.value) ?? 0
+    if (ta !== tb) return tb - ta
+    return a.value.localeCompare(b.value)
+  })
+}
+
+function toItems(values: string[], label?: string, descriptions?: Record<string, string>): CompletionItem[] {
+  return values.map(v => ({ value: v, label, description: descriptions?.[v] }))
+}
+
 interface CompletionResult {
-  completions: string[]
+  items: CompletionItem[]
   currentToken: string
 }
 
@@ -121,12 +197,13 @@ function getCompletions(
   presetNames: string[],
 ): CompletionResult {
   const parts = input.split(/\s+/)
-  const empty: CompletionResult = { completions: [], currentToken: '' }
+  const empty: CompletionResult = { items: [], currentToken: '' }
 
   if (parts.length <= 1) {
     const prefix = parts[0] || ''
+    const matched = matchCandidates(COMMANDS, prefix)
     return {
-      completions: COMMANDS.filter((c) => c.startsWith(prefix) && c !== prefix),
+      items: toItems(matched, 'cmd', COMMAND_DESCRIPTIONS),
       currentToken: prefix,
     }
   }
@@ -135,8 +212,9 @@ function getCompletions(
 
   if (['send', 'logs', 'kill'].includes(cmd) && parts.length === 2) {
     const prefix = parts[1] || ''
+    const matched = matchCandidates(agentNames, prefix)
     return {
-      completions: agentNames.filter((n) => n.startsWith(prefix) && n !== prefix),
+      items: toItems(matched, 'agent'),
       currentToken: prefix,
     }
   }
@@ -145,8 +223,9 @@ function getCompletions(
     const { getThemeNames } = require('./theme')
     const names: string[] = getThemeNames()
     const prefix = parts[1] || ''
+    const matched = matchCandidates(names, prefix)
     return {
-      completions: names.filter((n: string) => n.startsWith(prefix) && n !== prefix),
+      items: toItems(matched, 'theme'),
       currentToken: prefix,
     }
   }
@@ -158,10 +237,8 @@ function getCompletions(
     if (parts.length === 2) return empty
 
     if (prevPart === '--cli' || prevPart === '-c') {
-      return {
-        completions: cliAdapters.filter((a) => a.startsWith(lastPart) && a !== lastPart),
-        currentToken: lastPart,
-      }
+      const matched = matchCandidates(cliAdapters, lastPart)
+      return { items: toItems(matched, 'cli'), currentToken: lastPart }
     }
 
     if (prevPart === '--model' || prevPart === '-m') {
@@ -169,31 +246,27 @@ function getCompletions(
       const selectedCli = cliIdx !== -1 && cliIdx + 1 < parts.length ? parts[cliIdx + 1] : ''
       const models = MODEL_SUGGESTIONS[selectedCli]
         ?? Array.from(new Set(Object.values(MODEL_SUGGESTIONS).flat()))
-
-      return {
-        completions: models.filter((m) => m.startsWith(lastPart) && m !== lastPart),
-        currentToken: lastPart,
-      }
+      const matched = matchCandidates(models, lastPart)
+      return { items: toItems(matched, 'model'), currentToken: lastPart }
     }
 
     if (prevPart === '--preset' || prevPart === '-p') {
-      return {
-        completions: presetNames.filter((name) => name.startsWith(lastPart) && name !== lastPart),
-        currentToken: lastPart,
-      }
+      const matched = matchCandidates(presetNames, lastPart)
+      return { items: toItems(matched, 'preset'), currentToken: lastPart }
     }
 
     if (lastPart.startsWith('-')) {
       const usedFlags = parts.filter((p) => p.startsWith('--'))
-      const available = SPAWN_FLAGS.filter((f) => !usedFlags.includes(f) && f.startsWith(lastPart) && f !== lastPart)
-      return { completions: available, currentToken: lastPart }
+      const available = SPAWN_FLAGS.filter((f) => !usedFlags.includes(f))
+      const matched = matchCandidates(available, lastPart)
+      return { items: toItems(matched, 'flag', FLAG_DESCRIPTIONS), currentToken: lastPart }
     }
 
     if (prevPart !== '--dir') {
       const usedFlags = parts.filter((p) => p.startsWith('--'))
       const available = SPAWN_FLAGS.filter((f) => !usedFlags.includes(f))
       if (available.length > 0 && lastPart === '') {
-        return { completions: available, currentToken: '' }
+        return { items: toItems(available, 'flag', FLAG_DESCRIPTIONS), currentToken: '' }
       }
     }
   }
@@ -204,26 +277,23 @@ function getCompletions(
 
     if (parts.length === 2) {
       const prefix = parts[1] || ''
+      const matched = matchCandidates(PRESETS_ACTIONS, prefix)
       return {
-        completions: PRESETS_ACTIONS.filter((action) => action.startsWith(prefix) && action !== prefix),
+        items: toItems(matched, 'action', PRESET_ACTION_DESCRIPTIONS),
         currentToken: prefix,
       }
     }
 
     const action = parts[1]
     if (action === 'remove' && parts.length === 3) {
-      return {
-        completions: presetNames.filter((name) => name.startsWith(lastPart) && name !== lastPart),
-        currentToken: lastPart,
-      }
+      const matched = matchCandidates(presetNames, lastPart)
+      return { items: toItems(matched, 'preset'), currentToken: lastPart }
     }
 
     if (action === 'add') {
       if (prevPart === '--cli' || prevPart === '-c') {
-        return {
-          completions: cliAdapters.filter((adapter) => adapter.startsWith(lastPart) && adapter !== lastPart),
-          currentToken: lastPart,
-        }
+        const matched = matchCandidates(cliAdapters, lastPart)
+        return { items: toItems(matched, 'cli'), currentToken: lastPart }
       }
 
       if (prevPart === '--model') {
@@ -231,17 +301,15 @@ function getCompletions(
         const selectedCli = cliIdx !== -1 && cliIdx + 1 < parts.length ? parts[cliIdx + 1] : ''
         const models = MODEL_SUGGESTIONS[selectedCli]
           ?? Array.from(new Set(Object.values(MODEL_SUGGESTIONS).flat()))
-
-        return {
-          completions: models.filter((m) => m.startsWith(lastPart) && m !== lastPart),
-          currentToken: lastPart,
-        }
+        const matched = matchCandidates(models, lastPart)
+        return { items: toItems(matched, 'model'), currentToken: lastPart }
       }
 
       if (lastPart.startsWith('-')) {
         const usedFlags = parts.filter((p) => p.startsWith('--'))
-        const available = PRESETS_ADD_FLAGS.filter((f) => !usedFlags.includes(f) && f.startsWith(lastPart) && f !== lastPart)
-        return { completions: available, currentToken: lastPart }
+        const available = PRESETS_ADD_FLAGS.filter((f) => !usedFlags.includes(f))
+        const matched = matchCandidates(available, lastPart)
+        return { items: toItems(matched, 'flag', FLAG_DESCRIPTIONS), currentToken: lastPart }
       }
     }
   }
@@ -262,14 +330,25 @@ export function getCompletionHint(
   cliAdapters: string[],
   presetNames: string[] = [],
 ): { hint: string; multiHint: string } {
-  const { completions, currentToken } = getCompletions(input, agentNames, cliAdapters, presetNames)
-  if (completions.length === 1) {
-    return { hint: completions[0].slice(currentToken.length), multiHint: '' }
+  const { items, currentToken } = getCompletions(input, agentNames, cliAdapters, presetNames)
+  if (items.length === 1) {
+    return { hint: items[0].value.slice(currentToken.length), multiHint: '' }
   }
-  if (completions.length > 1 && completions.length <= 6) {
-    return { hint: '', multiHint: completions.join(' | ') }
+  if (items.length > 1 && items.length <= 6) {
+    return { hint: '', multiHint: items.map(i => i.value).join(' | ') }
   }
   return { hint: '', multiHint: '' }
+}
+
+export function getCompletionItems(
+  input: string,
+  agentNames: string[],
+  cliAdapters: string[],
+  presetNames: string[],
+): CompletionItem[] {
+  const { items, currentToken } = getCompletions(input, agentNames, cliAdapters, presetNames)
+  sortCompletionItems(items, currentToken)
+  return items
 }
 
 function isControlByte(byte: number): boolean {
@@ -536,29 +615,35 @@ function backspaceCommand(bindings: InputBindings): void {
   bindings.setCommand(next, next.length)
 }
 
-function tabCompleteCommand(bindings: InputBindings): void {
+function tabCompleteCommand(bindings: InputBindings, reverse: boolean): void {
   const state = bindings.getState()
-  const { completions, currentToken } = getCompletions(
+
+  if (state.completionItems.length > 1) {
+    const len = state.completionItems.length
+    const dir = reverse ? -1 : 1
+    const next = (state.completionSelectedIndex + dir + len) % len
+    bindings.setCompletionSelectedIndex(next)
+    return
+  }
+
+  const items = getCompletionItems(
     state.commandInput,
     bindings.getAgentNames(),
     bindings.getCliAdapters(),
     bindings.getPresetNames(),
   )
 
-  if (completions.length === 1) {
-    const next = applySingleCompletion(state.commandInput, completions[0])
+  if (items.length === 1) {
+    const next = applySingleCompletion(state.commandInput, items[0].value)
+    completionRecency.set(items[0].value, Date.now())
+    bindings.closeCompletionPopup()
     bindings.setCommand(next, next.length)
     return
   }
 
-  if (completions.length > 1) {
-    const prefix = commonPrefix(completions)
-    if (prefix.length > currentToken.length) {
-      const parts = state.commandInput.split(/\s+/)
-      parts[parts.length - 1] = prefix
-      const next = parts.join(' ')
-      bindings.setCommand(next, next.length)
-    }
+  if (items.length > 1) {
+    const idx = reverse ? items.length - 1 : 0
+    bindings.setCompletionPopup(items, idx)
   }
 }
 
@@ -594,7 +679,7 @@ function executeKeybindAction(mode: ConfigurableMode, action: KeybindAction, bin
   if (action === 'selectNext') bindings.selectNext()
   else if (action === 'selectPrev') bindings.selectPrev()
   else if (action === 'openCommand') bindings.openCommand('')
-  else if (action === 'openSpawn') bindings.openCommand('spawn ')
+  else if (action === 'openSpawn') bindings.openSpawnModal()
   else if (action === 'killConfirm' && state.selectedAgent) bindings.setKillConfirm(state.selectedAgent.name)
   else if (action === 'openInbox') bindings.setMode('inbox')
   else if (action === 'reply') {
@@ -623,21 +708,120 @@ function executeKeybindAction(mode: ConfigurableMode, action: KeybindAction, bin
   else if (action === 'delete') bindings.inboxDeleteCard()
   else if (action === 'clearAll') bindings.inboxClearAll()
   else if (action === 'execute') {
-    const command = state.commandInput
-    bindings.setCommand('', 0)
-    bindings.submitCommand(command)
-  } else if (action === 'complete') tabCompleteCommand(bindings)
-  else if (action === 'cancel') {
+    if (mode === 'command' && state.completionItems.length > 0) {
+      const item = state.completionItems[state.completionSelectedIndex]
+      const next = applySingleCompletion(state.commandInput, item.value)
+      completionRecency.set(item.value, Date.now())
+      bindings.closeCompletionPopup()
+      bindings.setCommand(next, next.length)
+    } else {
+      const command = state.commandInput
+      bindings.setCommand('', 0)
+      bindings.submitCommand(command)
+    }
+  } else if (action === 'complete') tabCompleteCommand(bindings, false)
+  else if (action === 'completeReverse') tabCompleteCommand(bindings, true)
+  else if (action === 'completionUp') {
+    if (state.completionItems.length > 1) {
+      const next = Math.max(0, state.completionSelectedIndex - 1)
+      bindings.setCompletionSelectedIndex(next)
+    }
+  } else if (action === 'completionDown') {
+    if (state.completionItems.length > 1) {
+      const next = Math.min(state.completionItems.length - 1, state.completionSelectedIndex + 1)
+      bindings.setCompletionSelectedIndex(next)
+    }
+  } else if (action === 'cancel') {
     if (mode === 'kill-confirm') {
       bindings.cancelKill()
     } else if (mode === 'command') {
-      bindings.setCommand('', 0)
-      bindings.setMode('normal')
+      if (state.completionItems.length > 0) {
+        bindings.closeCompletionPopup()
+      } else {
+        bindings.setCommand('', 0)
+        bindings.setMode('normal')
+      }
     } else {
       bindings.setMode('normal')
     }
   } else if (action === 'confirm') bindings.confirmKill()
   else if (action === 'backspace') backspaceCommand(bindings)
+}
+
+function handleModalKey(event: Extract<ParsedInputEvent, { type: 'key' }>, bindings: InputBindings): void {
+  const state = bindings.getState()
+  const modal = state.modal
+  if (!modal) return
+
+  if (event.key === 'escape') {
+    bindings.cancelModal()
+    return
+  }
+  if (event.key === 'enter') {
+    bindings.submitModal()
+    return
+  }
+
+  // List mode (kill/presets)
+  if (modal.listItems.length > 0 && modal.fields.length === 0) {
+    if (event.key === 'up') { bindings.modalSelectUp(); return }
+    if (event.key === 'down') { bindings.modalSelectDown(); return }
+    if (modal.type === 'presets' && event.key === 'a') {
+      bindings.cancelModal()
+      bindings.openCommand('presets add ')
+      return
+    }
+    if (modal.type === 'presets' && event.key === 'd') {
+      bindings.submitModal()
+      return
+    }
+    return
+  }
+
+  // Form mode (spawn)
+  if (event.key === 'tab') { bindings.modalNextField(); return }
+  if (event.key === 'shift-tab') { bindings.modalPrevField(); return }
+  if (event.key === 'up') {
+    const field = modal.fields[modal.activeField]
+    if (field?.options?.length) { bindings.modalSelectUp(); return }
+    bindings.modalPrevField(); return
+  }
+  if (event.key === 'down') {
+    const field = modal.fields[modal.activeField]
+    if (field?.options?.length) { bindings.modalSelectDown(); return }
+    bindings.modalNextField(); return
+  }
+  if (event.key === 'backspace') {
+    const field = modal.fields[modal.activeField]
+    if (field && field.cursor > 0) {
+      const before = field.value.slice(0, field.cursor - 1)
+      const after = field.value.slice(field.cursor)
+      const next = before + after
+      bindings.setModalField(modal.activeField, next, field.cursor - 1)
+    }
+    return
+  }
+  if (event.key === 'ctrl-u') {
+    const field = modal.fields[modal.activeField]
+    if (field) {
+      const after = field.value.slice(field.cursor)
+      bindings.setModalField(modal.activeField, after, 0)
+    }
+    return
+  }
+}
+
+function handleModalText(event: Extract<ParsedInputEvent, { type: 'text' }>, bindings: InputBindings): void {
+  const modal = bindings.getState().modal
+  if (!modal || modal.fields.length === 0) return
+
+  const field = modal.fields[modal.activeField]
+  if (!field) return
+
+  const before = field.value.slice(0, field.cursor)
+  const after = field.value.slice(field.cursor)
+  const next = before + event.text + after
+  bindings.setModalField(modal.activeField, next, field.cursor + event.text.length)
 }
 
 function handleConfigurableKey(mode: ConfigurableMode, key: string, bindings: InputBindings): void {
@@ -836,6 +1020,12 @@ function handleText(event: Extract<ParsedInputEvent, { type: 'text' }>, bindings
 }
 
 export function handleInputEvent(event: ParsedInputEvent, bindings: InputBindings): void {
+  const state = bindings.getState()
+  if (state.modal) {
+    if (event.type === 'key') handleModalKey(event, bindings)
+    else handleModalText(event, bindings)
+    return
+  }
   if (event.type === 'key') handleSpecialKey(event, bindings)
   else handleText(event, bindings)
 }
