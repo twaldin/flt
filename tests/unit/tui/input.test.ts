@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'bun:test'
-import { RawKeyParser, handleInputEvent, getCompletionHint, type InputBindings, type ParsedInputEvent } from '../../../src/tui/input'
+import { RawKeyParser, handleInputEvent, getCompletionHint, getCompletionItems, type InputBindings, type ParsedInputEvent } from '../../../src/tui/input'
 import { createInitialState, type AgentView } from '../../../src/tui/types'
 
 function mockAgent(name: string, cli = 'claude-code'): AgentView {
@@ -64,6 +64,20 @@ function createBindings(mode: 'normal' | 'log-focus' | 'insert' | 'command' | 'i
     flushInsert: () => calls.push('flush'),
     toggleCollapse: () => calls.push('toggle-collapse'),
     quit: () => calls.push('quit'),
+    setCompletionPopup: (items, selectedIndex) => {
+      state.completionItems = items
+      state.completionSelectedIndex = selectedIndex
+      calls.push(`popup:${items.length}:${selectedIndex}`)
+    },
+    setCompletionSelectedIndex: (index) => {
+      state.completionSelectedIndex = index
+      calls.push(`sel:${index}`)
+    },
+    closeCompletionPopup: () => {
+      state.completionItems = []
+      state.completionSelectedIndex = 0
+      calls.push('popup-close')
+    },
   }
 
   return { state, bindings, calls }
@@ -198,5 +212,150 @@ describe('input dispatch', () => {
 
     handleInputEvent({ type: 'key', key: 'tab', raw: Buffer.from('\t') }, bindings)
     expect(state.commandInput).toBe('spawn worker --preset coder ')
+  })
+
+  it('opens popup with multiple completions on Tab', () => {
+    const { state, bindings, calls } = createBindings('command')
+    state.commandInput = 'se'
+    state.commandCursor = 2
+
+    handleInputEvent({ type: 'key', key: 'tab', raw: Buffer.from('\t') }, bindings)
+    expect(state.completionItems.length).toBeGreaterThan(0)
+    expect(state.completionSelectedIndex).toBe(0)
+    expect(calls.some(c => c.startsWith('popup:'))).toBe(true)
+  })
+
+  it('opens popup selecting last item on Shift-Tab', () => {
+    const { state, bindings, calls } = createBindings('command')
+    state.commandInput = 'se'
+    state.commandCursor = 2
+
+    handleInputEvent({ type: 'key', key: 'shift-tab', raw: Buffer.from('\x1b[Z') }, bindings)
+    const lastIdx = state.completionItems.length - 1
+    expect(state.completionSelectedIndex).toBe(lastIdx)
+  })
+
+  it('cycles forward through popup with Tab', () => {
+    const { state, bindings, calls } = createBindings('command')
+    state.commandInput = 'se'
+    state.completionItems = getCompletionItems('se', [], ['claude-code'], [])
+    state.completionSelectedIndex = 0
+    const len = state.completionItems.length
+
+    handleInputEvent({ type: 'key', key: 'tab', raw: Buffer.from('\t') }, bindings)
+    expect(calls).toContain(`sel:${(0 + 1) % len}`)
+  })
+
+  it('cycles backward through popup with Shift-Tab', () => {
+    const { state, bindings, calls } = createBindings('command')
+    state.commandInput = 'se'
+    state.completionItems = getCompletionItems('se', [], ['claude-code'], [])
+    state.completionSelectedIndex = 0
+    const len = state.completionItems.length
+
+    handleInputEvent({ type: 'key', key: 'shift-tab', raw: Buffer.from('\x1b[Z') }, bindings)
+    expect(calls).toContain(`sel:${(0 - 1 + len) % len}`)
+  })
+
+  it('navigates popup with up/down arrows', () => {
+    const { state, bindings, calls } = createBindings('command')
+    state.commandInput = 'se'
+    state.completionItems = getCompletionItems('se', [], ['claude-code'], [])
+    state.completionSelectedIndex = 1
+
+    handleInputEvent({ type: 'key', key: 'up', raw: Buffer.from('\x1b[A') }, bindings)
+    expect(calls).toContain('sel:0')
+
+    calls.length = 0
+    handleInputEvent({ type: 'key', key: 'down', raw: Buffer.from('\x1b[B') }, bindings)
+    expect(calls).toContain('sel:1')
+  })
+
+  it('applies selected completion on Enter when popup visible', () => {
+    const { state, bindings, calls } = createBindings('command')
+    state.commandInput = 'se'
+    state.completionItems = getCompletionItems('se', [], ['claude-code'], [])
+    state.completionSelectedIndex = 0
+    const selectedItem = state.completionItems[0]
+
+    handleInputEvent({ type: 'key', key: 'enter', raw: Buffer.from('\r') }, bindings)
+    expect(state.commandInput).toBe(`${selectedItem.value} `)
+    expect(state.completionItems.length).toBe(0)
+  })
+
+  it('closes popup on Escape without leaving command mode', () => {
+    const { state, bindings, calls } = createBindings('command')
+    state.commandInput = 's'
+    state.completionItems = [{ value: 'send', label: 'cmd' }, { value: 'spawn', label: 'cmd' }]
+    state.completionSelectedIndex = 0
+
+    handleInputEvent({ type: 'key', key: 'escape', raw: Buffer.from([0x1b]) }, bindings)
+    expect(state.completionItems.length).toBe(0)
+    expect(state.mode).toBe('command')
+  })
+
+  it('cancels command mode on second Escape after popup closed', () => {
+    const { state, bindings } = createBindings('command')
+    state.commandInput = 's'
+
+    handleInputEvent({ type: 'key', key: 'escape', raw: Buffer.from([0x1b]) }, bindings)
+    expect(state.mode).toBe('normal')
+  })
+})
+
+describe('completion ranking and metadata', () => {
+  it('ranks exact prefix matches before fuzzy matches', () => {
+    const items = getCompletionItems('sp', [], ['claude-code'], [])
+    // 'spawn' starts with 'sp' → rank 0
+    // Other fuzzy matches if any → rank 1
+    const spawnIdx = items.findIndex(i => i.value === 'spawn')
+    expect(spawnIdx).toBe(0)
+  })
+
+  it('includes fuzzy matches after prefix matches', () => {
+    const items = getCompletionItems('pn', [], ['claude-code'], [])
+    // 'spawn' contains 'p' then 'n' → fuzzy match
+    const spawnItem = items.find(i => i.value === 'spawn')
+    expect(spawnItem).toBeDefined()
+  })
+
+  it('provides labels for command completions', () => {
+    const items = getCompletionItems('sen', [], ['claude-code'], [])
+    const sendItem = items.find(i => i.value === 'send')
+    expect(sendItem?.label).toBe('cmd')
+    expect(sendItem?.description).toBe('Send message to agent')
+  })
+
+  it('provides labels for agent name completions', () => {
+    const items = getCompletionItems('send al', ['alpha', 'beta'], ['claude-code'], [])
+    const alphaItem = items.find(i => i.value === 'alpha')
+    expect(alphaItem?.label).toBe('agent')
+  })
+
+  it('provides labels for flag completions', () => {
+    const items = getCompletionItems('spawn x --', [], ['claude-code'], [])
+    const cliItem = items.find(i => i.value === '--cli')
+    expect(cliItem?.label).toBe('flag')
+    expect(cliItem?.description).toBe('CLI adapter')
+  })
+
+  it('provides labels for theme completions', () => {
+    const items = getCompletionItems('theme d', [], ['claude-code'], [])
+    const darkItem = items.find(i => i.value === 'dark')
+    expect(darkItem?.label).toBe('theme')
+  })
+
+  it('provides labels for preset completions', () => {
+    const items = getCompletionItems('spawn x --preset c', [], ['claude-code'], ['coder', 'reviewer'])
+    const coderItem = items.find(i => i.value === 'coder')
+    expect(coderItem?.label).toBe('preset')
+  })
+
+  it('provides description for all commands', () => {
+    const items = getCompletionItems('', [], ['claude-code'], [])
+    for (const cmd of ['send', 'logs', 'spawn', 'presets', 'kill', 'theme', 'ascii', 'keybinds', 'help']) {
+      const item = items.find(i => i.value === cmd)
+      expect(item?.description).toBeTruthy()
+    }
   })
 })

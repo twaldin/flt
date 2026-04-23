@@ -35,6 +35,9 @@ export type KeybindAction =
   | 'cancel'
   | 'confirm'
   | 'backspace'
+  | 'completionUp'
+  | 'completionDown'
+  | 'completeReverse'
 
 export type ModeKeybinds = Record<string, KeybindAction>
 export type KeybindConfig = Record<ConfigurableMode, ModeKeybinds>
@@ -84,6 +87,9 @@ const ACTION_LABELS: Record<KeybindAction, string> = {
   cancel: 'cancel',
   confirm: 'confirm',
   backspace: 'backspace',
+  completionUp: 'up',
+  completionDown: 'down',
+  completeReverse: 'prev',
 }
 
 const PAIR_GROUPS: Array<{ a: KeybindAction; b: KeybindAction; label: string }> = [
@@ -147,6 +153,9 @@ const KEYBIND_ACTION_SET: ReadonlySet<string> = new Set<string>([
   'cancel',
   'confirm',
   'backspace',
+  'completionUp',
+  'completionDown',
+  'completeReverse',
 ])
 
 const MODE_ACTION_SET: Record<ConfigurableMode, ReadonlySet<KeybindAction>> = {
@@ -187,6 +196,9 @@ const MODE_ACTION_SET: Record<ConfigurableMode, ReadonlySet<KeybindAction>> = {
   command: new Set<KeybindAction>([
     'execute',
     'complete',
+    'completeReverse',
+    'completionUp',
+    'completionDown',
     'cancel',
     'backspace',
   ]),
@@ -238,9 +250,11 @@ export const DEFAULT_KEYBINDS: KeybindConfig = {
   command: {
     Enter: 'execute',
     Tab: 'complete',
-    'Shift-Tab': 'complete',
+    'Shift-Tab': 'completeReverse',
     Escape: 'cancel',
     Backspace: 'backspace',
+    up: 'completionUp',
+    down: 'completionDown',
   },
   'kill-confirm': {
     y: 'confirm',

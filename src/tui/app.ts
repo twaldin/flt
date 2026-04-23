@@ -11,13 +11,13 @@ import { allAgents, type AgentState } from '../state'
 import { capturePane, capturePaneVisible, flushBatchedKeys, hasSession, refreshCurrentTmuxWindow, resizeWindow, sendKeysAsync, sendLiteralBatched } from '../tmux'
 import { getInboxPath } from '../commands/init'
 import { parseCommand, enrichMessageWithFiles } from './command-parser'
-import { setupInput, type InputBindings, type TmuxInsertKey } from './input'
+import { setupInput, getCompletionItems, type InputBindings, type TmuxInsertKey } from './input'
 import { getKeybindsBanner } from './keybinds'
 import { calculateLayout, renderLayout } from './panels'
 import { Screen } from './screen'
 import { getCurrentThemeName, getThemeBackground, getThemeNames, setTheme } from './theme'
 import { getAsciiLogo } from './ascii'
-import { createInitialState, type AgentView, type AppState, type InboxMessage, type Mode } from './types'
+import { createInitialState, type AgentView, type AppState, type InboxMessage, type Mode, type ModalState, type ModalListItem } from './types'
 
 /** Strip OSC 8 hyperlink sequences, keeping the display text */
 function stripOsc8(s: string): string {
@@ -125,6 +125,14 @@ export class App {
   private insertCaptureTimer: ReturnType<typeof setTimeout> | null = null
   private running = false
 
+  // Frame scheduler
+  private renderPending = false
+  private renderFlushId: ReturnType<typeof setImmediate> | null = null
+
+  // Burst detection
+  private lastActivity = 0
+  private burstTimeout: ReturnType<typeof setTimeout> | null = null
+
   constructor() {
     const cols = process.stdout.columns ?? 80
     const rows = process.stdout.rows ?? 24
@@ -211,16 +219,38 @@ export class App {
       },
       flushShell: () => flushBatchedKeys(this.shellSession),
       toggleCollapse: () => this.toggleCollapse(),
+      setCompletionPopup: (items, selectedIndex) => {
+        this.state.completionItems = items
+        this.state.completionSelectedIndex = selectedIndex
+        this.requestRender()
+      },
+      setCompletionSelectedIndex: (index) => {
+        this.state.completionSelectedIndex = index
+        this.requestRender()
+      },
+      closeCompletionPopup: () => {
+        this.state.completionItems = []
+        this.state.completionSelectedIndex = 0
+        this.requestRender()
+      },
       quit: () => {
         this.stop()
         process.exit(0)
       },
       onResize: () => this.resize(process.stdout.columns ?? this.screen.cols, process.stdout.rows ?? this.screen.rows),
+      openSpawnModal: () => this.openSpawnModal(),
+      setModalField: (fieldIndex, value, cursor) => this.setModalField(fieldIndex, value, cursor),
+      modalNextField: () => this.modalNextField(),
+      modalPrevField: () => this.modalPrevField(),
+      modalSelectUp: () => this.modalSelectUp(),
+      modalSelectDown: () => this.modalSelectDown(),
+      submitModal: () => this.submitModal(),
+      cancelModal: () => this.cancelModal(),
     }
 
     this.cleanupInput = setupInput(bindings)
 
-    this.render()
+    this.doRender()
     this.startPolling()
     this.poll()
   }
@@ -239,6 +269,16 @@ export class App {
       this.bannerTimer = null
     }
 
+    if (this.burstTimeout) {
+      clearTimeout(this.burstTimeout)
+      this.burstTimeout = null
+    }
+
+    if (this.renderFlushId) {
+      clearImmediate(this.renderFlushId)
+      this.renderFlushId = null
+    }
+
     if (this.cleanupInput) {
       this.cleanupInput()
       this.cleanupInput = null
@@ -251,6 +291,7 @@ export class App {
   }
 
   resize(cols: number, rows: number): void {
+    this.markActivity()
     // If we're inside tmux, re-assert the window size so the inner pane
     // actually follows the outer terminal. Otherwise tmux can keep the
     // window at a previously-smaller client size.
@@ -267,7 +308,7 @@ export class App {
       this.state.logScrollOffset = Math.min(this.state.logScrollOffset, this.maxScroll(this.state.logContent))
     }
 
-    this.render()
+    this.requestRender()
   }
 
   private resizeAgentPanes(agents: Record<string, AgentState> = allAgents()): void {
@@ -314,7 +355,7 @@ export class App {
     if (mode === 'log-focus' || mode === 'insert' || (mode === 'normal' && previousMode === 'presets')) {
       this.captureSelectedPane()
     }
-    this.render()
+    this.requestRender()
   }
 
   private openShell(): void {
@@ -328,7 +369,7 @@ export class App {
     this.state.mode = 'shell'
     this.captureShell() // immediate capture so content shows right away
     this.restartPolling()
-    this.render()
+    this.requestRender()
   }
 
   private closeShell(): void {
@@ -336,7 +377,7 @@ export class App {
     this.lastLogContent = '' // force re-capture of agent content
     this.restartPolling()
     this.poll() // immediate refresh
-    this.render()
+    this.requestRender()
   }
 
   private scheduleShellCapture(): void {
@@ -356,7 +397,7 @@ export class App {
         this.shellContent = content
         this.state.logContent = content
         this.state.logScrollOffset = 0
-        this.render()
+        this.requestRender()
       }
     } catch {}
   }
@@ -364,7 +405,7 @@ export class App {
   private setKillConfirm(agentName: string): void {
     this.state.mode = 'kill-confirm'
     this.state.killConfirmAgent = agentName
-    this.render()
+    this.requestRender()
   }
 
   private confirmKill(): void {
@@ -376,33 +417,58 @@ export class App {
       .then(() => {
         this.setBanner(`Killed ${agentName}`, 'green', 3000)
         this.poll()
-        this.render()
+        this.requestRender()
       })
       .catch((e: unknown) => {
         const msg = e instanceof Error ? e.message : String(e)
         this.setBanner(`Kill failed: ${msg}`, 'red', 5000)
-        this.render()
+        this.requestRender()
       })
   }
 
   private cancelKill(): void {
     this.state.mode = 'normal'
     this.state.killConfirmAgent = undefined
-    this.render()
+    this.requestRender()
   }
 
   private openCommand(initial: string): void {
     this.state.mode = 'command'
     this.state.commandInput = initial
     this.state.commandCursor = initial.length
+    this.updateCompletionPopup()
     this.restartPolling()
-    this.render()
+    this.requestRender()
   }
 
   private setCommand(input: string, cursor: number): void {
+    this.markActivity()
     this.state.commandInput = input
     this.state.commandCursor = cursor
-    this.render()
+    this.updateCompletionPopup()
+    this.requestRender()
+  }
+
+  private updateCompletionPopup(): void {
+    if (this.state.mode !== 'command') {
+      this.state.completionItems = []
+      return
+    }
+    try {
+      const items = getCompletionItems(
+        this.state.commandInput,
+        this.state.agents.map(a => a.name),
+        listAdapters(),
+        listPresets().map(p => p.name),
+      )
+      this.state.completionItems = items
+      if (this.state.completionSelectedIndex >= items.length) {
+        this.state.completionSelectedIndex = 0
+      }
+    } catch {
+      this.state.completionItems = []
+      this.state.completionSelectedIndex = 0
+    }
   }
 
   private showCachedPane(): void {
@@ -424,7 +490,7 @@ export class App {
     const selected = this.selectedAgent
     if (selected) delete this.state.notifications[selected.name]
     this.sidebarScrollSync()
-    this.render()
+    this.requestRender()
   }
 
   private selectNext(): void {
@@ -434,7 +500,7 @@ export class App {
     const selected = this.selectedAgent
     if (selected) delete this.state.notifications[selected.name]
     this.sidebarScrollSync()
-    this.render()
+    this.requestRender()
   }
 
   private sidebarVisibleCount(): number {
@@ -470,7 +536,7 @@ export class App {
     }
     // Re-sort with new collapsed set
     this.applyCurrentCollapse()
-    this.render()
+    this.requestRender()
   }
 
   private applyCurrentCollapse(): void {
@@ -526,14 +592,14 @@ export class App {
     }
     this.state.logScrollOffset = Math.max(0, this.state.logScrollOffset - 1)
     this.state.autoFollow = false
-    this.render()
+    this.requestRender()
   }
 
   private scrollLogDown(): void {
     const max = this.maxScroll(this.state.logContent)
     this.state.logScrollOffset = Math.min(max, this.state.logScrollOffset + 1)
     this.state.autoFollow = this.state.logScrollOffset >= max
-    this.render()
+    this.requestRender()
   }
 
   private scrollLogPageUp(): void {
@@ -551,7 +617,7 @@ export class App {
     const page = Math.max(1, Math.floor(this.logViewHeight() / 2))
     this.state.logScrollOffset = Math.max(0, this.state.logScrollOffset - page)
     this.state.autoFollow = false
-    this.render()
+    this.requestRender()
   }
 
   private scrollLogPageDown(): void {
@@ -559,30 +625,30 @@ export class App {
     const page = Math.max(1, Math.floor(this.logViewHeight() / 2))
     this.state.logScrollOffset = Math.min(max, this.state.logScrollOffset + page)
     this.state.autoFollow = this.state.logScrollOffset >= max
-    this.render()
+    this.requestRender()
   }
 
   private jumpLogTop(): void {
     this.state.logScrollOffset = 0
     this.state.autoFollow = false
-    this.render()
+    this.requestRender()
   }
 
   private jumpLogBottom(): void {
     this.state.logScrollOffset = this.maxScroll(this.state.logContent)
     this.state.autoFollow = true
-    this.render()
+    this.requestRender()
   }
 
   private inboxMsgDown(): void {
     const max = Math.max(0, this.state.inboxMessages.length - 1)
     this.state.inboxSelectedMsg = Math.min(max, this.state.inboxSelectedMsg + 1)
-    this.render()
+    this.requestRender()
   }
 
   private inboxMsgUp(): void {
     this.state.inboxSelectedMsg = Math.max(0, this.state.inboxSelectedMsg - 1)
-    this.render()
+    this.requestRender()
   }
 
   private inboxDeleteCard(): void {
@@ -591,14 +657,14 @@ export class App {
     this.state.inboxMessages = this.state.inboxMessages.filter((_, i) => i !== idx)
     this.rewriteInbox()
     this.state.inboxSelectedMsg = Math.min(idx, Math.max(0, this.state.inboxMessages.length - 1))
-    this.render()
+    this.requestRender()
   }
 
   private inboxClearAll(): void {
     this.state.inboxMessages = []
     this.rewriteInbox()
     this.state.inboxSelectedMsg = 0
-    this.render()
+    this.requestRender()
   }
 
   private rewriteInbox(): void {
@@ -617,7 +683,7 @@ export class App {
 
   private setSearchQuery(query: string): void {
     this.state.searchQuery = query
-    this.render()
+    this.requestRender()
   }
 
   private setBanner(text: string, color: string, clearAfterMs?: number): void {
@@ -627,12 +693,12 @@ export class App {
     }
 
     this.state.banner = { text, color }
-    this.render()
+    this.requestRender()
 
     if (clearAfterMs) {
       this.bannerTimer = setTimeout(() => {
         this.state.banner = null
-        this.render()
+        this.requestRender()
       }, clearAfterMs)
     }
   }
@@ -643,16 +709,33 @@ export class App {
       this.bannerTimer = null
     }
     this.state.banner = null
-    this.render()
+    this.requestRender()
   }
 
   private submitCommand(input: string): void {
     const command = input.trim()
     this.state.mode = 'normal'
     this.restartPolling()
-    this.render()
+    this.requestRender()
 
     if (!command) return
+
+    // Detect incomplete commands → open modal
+    const parsed = parseCommand(`:${command}`)
+    if (parsed) {
+      if (parsed.cmd === 'spawn' && parsed.args.length === 0) {
+        this.openSpawnModal(command)
+        return
+      }
+      if (parsed.cmd === 'kill' && parsed.args.length === 0) {
+        this.openKillModal(command)
+        return
+      }
+      if (parsed.cmd === 'presets' && parsed.args.length <= 1 && !['add', 'remove'].includes(parsed.args[0] ?? '')) {
+        this.openPresetsModal(command)
+        return
+      }
+    }
 
     void this.executeCommand(command)
   }
@@ -761,7 +844,7 @@ export class App {
       if (idx !== -1) {
         this.state.selectedIndex = idx
         this.lastLogContent = ''
-        this.render()
+        this.requestRender()
       }
       return
     }
@@ -943,6 +1026,7 @@ export class App {
   }
 
   private sendInsertText(text: string): void {
+    this.markActivity()
     const selected = this.selectedAgent
     if (!selected || !text) return
     sendLiteralBatched(selected.tmuxSession, text)
@@ -950,6 +1034,7 @@ export class App {
   }
 
   private sendInsertKey(key: TmuxInsertKey): void {
+    this.markActivity()
     const selected = this.selectedAgent
     if (!selected) return
     sendKeysAsync(selected.tmuxSession, [key])
@@ -990,7 +1075,7 @@ export class App {
         if (this.state.autoFollow) {
           this.state.logScrollOffset = this.maxScroll(content)
         }
-        this.render()
+        this.requestRender()
       }
     } catch {}
   }
@@ -1004,7 +1089,9 @@ export class App {
   }
 
   private startPolling(): void {
-    const pollMs = this.state.mode === 'insert' ? 500 : 1000
+    const burst = this.burstTimeout !== null
+    const baseMs = this.state.mode === 'insert' ? 500 : 1000
+    const pollMs = burst ? 200 : baseMs
     this.pollTimer = setInterval(() => this.poll(), pollMs)
   }
 
@@ -1093,13 +1180,13 @@ export class App {
     // In shell mode, capture shell pane instead of agent pane
     if (this.state.mode === 'shell') {
       this.captureShell()
-      if (changed) this.render()
+      if (changed) this.requestRender()
       return
     }
 
     // Keep :presets list visible until user exits the presets view.
     if (this.state.mode === 'presets') {
-      if (changed) this.render()
+      if (changed) this.requestRender()
       return
     }
 
@@ -1167,14 +1254,223 @@ export class App {
     }
 
     if (changed) {
-      this.render()
+      this.requestRender()
     }
   }
 
-  render(): void {
+  private openSpawnModal(rawCommand?: string): void {
+    const adapters = listAdapters()
+    this.state.modal = {
+      type: 'spawn',
+      title: 'Spawn Agent',
+      fields: [
+        { label: 'Name', value: '', cursor: 0, required: true },
+        { label: 'CLI', value: '', cursor: 0, options: adapters, required: false },
+        { label: 'Model', value: '', cursor: 0, required: false },
+        { label: 'Preset', value: '', cursor: 0, options: this.presetNames(), required: false },
+      ],
+      activeField: 0,
+      listItems: [],
+      selectedIndex: 0,
+      rawCommand,
+    }
+    this.requestRender()
+  }
+
+  private openKillModal(rawCommand?: string): void {
+    const items: ModalListItem[] = this.state.agents.map(a => ({
+      label: a.name,
+      detail: `${a.cli}/${a.model} ${a.status}`,
+    }))
+    this.state.modal = {
+      type: 'kill',
+      title: 'Kill Agent',
+      fields: [],
+      activeField: 0,
+      listItems: items,
+      selectedIndex: 0,
+      rawCommand,
+    }
+    this.requestRender()
+  }
+
+  private openPresetsModal(rawCommand?: string): void {
+    const items: ModalListItem[] = this.presetItems()
+    this.state.modal = {
+      type: 'presets',
+      title: 'Presets',
+      fields: [],
+      activeField: 0,
+      listItems: items,
+      selectedIndex: 0,
+      rawCommand,
+    }
+    this.requestRender()
+  }
+
+  private presetNames(): string[] {
+    try { return listPresets().map(p => p.name) } catch { return [] }
+  }
+
+  private presetItems(): ModalListItem[] {
+    try {
+      return listPresets().map(p => ({
+        label: p.name,
+        detail: `${p.cli}/${p.model}`,
+      }))
+    } catch { return [] }
+  }
+
+  private setModalField(fieldIndex: number, value: string, cursor: number): void {
+    const modal = this.state.modal
+    if (!modal || fieldIndex >= modal.fields.length) return
+    modal.fields[fieldIndex].value = value
+    modal.fields[fieldIndex].cursor = cursor
+    modal.error = undefined
+    this.requestRender()
+  }
+
+  private modalNextField(): void {
+    const modal = this.state.modal
+    if (!modal || modal.fields.length === 0) return
+    modal.activeField = (modal.activeField + 1) % modal.fields.length
+    this.requestRender()
+  }
+
+  private modalPrevField(): void {
+    const modal = this.state.modal
+    if (!modal || modal.fields.length === 0) return
+    modal.activeField = (modal.activeField - 1 + modal.fields.length) % modal.fields.length
+    this.requestRender()
+  }
+
+  private modalSelectUp(): void {
+    const modal = this.state.modal
+    if (!modal) return
+
+    if (modal.listItems.length > 0) {
+      modal.selectedIndex = Math.max(0, modal.selectedIndex - 1)
+      this.requestRender()
+      return
+    }
+
+    const field = modal.fields[modal.activeField]
+    if (field?.options?.length) {
+      const idx = field.options.indexOf(field.value)
+      const prevIdx = idx <= 0 ? field.options.length - 1 : idx - 1
+      field.value = field.options[prevIdx]
+      field.cursor = field.value.length
+      this.requestRender()
+    }
+  }
+
+  private modalSelectDown(): void {
+    const modal = this.state.modal
+    if (!modal) return
+
+    if (modal.listItems.length > 0) {
+      modal.selectedIndex = Math.min(modal.listItems.length - 1, modal.selectedIndex + 1)
+      this.requestRender()
+      return
+    }
+
+    const field = modal.fields[modal.activeField]
+    if (field?.options?.length) {
+      const idx = field.options.indexOf(field.value)
+      const nextIdx = idx < 0 || idx >= field.options.length - 1 ? 0 : idx + 1
+      field.value = field.options[nextIdx]
+      field.cursor = field.value.length
+      this.requestRender()
+    }
+  }
+
+  private submitModal(): void {
+    const modal = this.state.modal
+    if (!modal) return
+
+    if (modal.type === 'spawn') {
+      const name = modal.fields[0].value.trim()
+      if (!name) {
+        modal.error = 'Name is required'
+        this.requestRender()
+        return
+      }
+      const cli = modal.fields[1].value.trim() || undefined
+      const model = modal.fields[2].value.trim() || undefined
+      const preset = modal.fields[3].value.trim() || undefined
+      this.state.modal = null
+      void this.executeCommand(`spawn ${name}${cli ? ` --cli ${cli}` : ''}${model ? ` --model ${model}` : ''}${preset ? ` --preset ${preset}` : ''}`)
+      return
+    }
+
+    if (modal.type === 'kill') {
+      const agent = modal.listItems[modal.selectedIndex]
+      if (!agent) return
+      const name = agent.label
+      this.state.modal = null
+      void this.executeCommand(`kill ${name}`)
+      return
+    }
+
+    if (modal.type === 'presets') {
+      const preset = modal.listItems[modal.selectedIndex]
+      if (!preset) return
+      const name = preset.label
+      this.state.modal = null
+      this.openSpawnModal()
+      if (this.state.modal) {
+        const presetField = this.state.modal.fields.find(f => f.label === 'Preset')
+        if (presetField) {
+          presetField.value = name
+          presetField.cursor = name.length
+        }
+        this.requestRender()
+      }
+      return
+    }
+  }
+
+  private cancelModal(): void {
+    const modal = this.state.modal
+    if (!modal) return
+    const raw = modal.rawCommand
+    this.state.modal = null
+    if (raw) {
+      this.openCommand(raw)
+    } else {
+      this.requestRender()
+    }
+  }
+
+  private doRender(): void {
     this.state.termWidth = this.screen.cols
     this.state.termHeight = this.screen.rows
     renderLayout(this.screen, this.state)
     this.screen.flush()
+  }
+
+  private requestRender(): void {
+    this.renderPending = true
+    if (!this.renderFlushId) {
+      this.renderFlushId = setImmediate(() => {
+        this.renderFlushId = null
+        if (this.renderPending) {
+          this.renderPending = false
+          this.doRender()
+        }
+      })
+    }
+  }
+
+  private markActivity(): void {
+    this.lastActivity = Date.now()
+    if (!this.burstTimeout) {
+      this.restartPolling()
+    }
+    if (this.burstTimeout) clearTimeout(this.burstTimeout)
+    this.burstTimeout = setTimeout(() => {
+      this.burstTimeout = null
+      this.restartPolling()
+    }, 2000)
   }
 }
