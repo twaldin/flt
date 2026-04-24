@@ -658,10 +658,46 @@ const KANAGAWA: ThemeColors = {
   },
 }
 
+// Uses the terminal's own 16 ANSI color slots — follows whatever terminal theme is active.
+const BASE16: ThemeColors = {
+  background: 'transparent',
+  sidebarBorder: ANSI_COLORS.cyan,
+  sidebarTitle: ANSI_COLORS.brightWhite,
+  sidebarText: ANSI_COLORS.cyan,
+  sidebarSelected: ANSI_COLORS.black,
+  sidebarSelectedBg: '46',
+  sidebarMuted: ANSI_COLORS.gray,
+  bannerBorder: ANSI_COLORS.red,
+  bannerText: ANSI_COLORS.red,
+  logBorder: ANSI_COLORS.gray,
+  logBorderInsert: ANSI_COLORS.yellow,
+  logBorderFocus: ANSI_COLORS.brightGreen,
+  commandPrefix: ANSI_COLORS.brightCyan,
+  commandInput: ANSI_COLORS.brightWhite,
+  commandHint: ANSI_COLORS.gray,
+  statusBg: ANSI_COLORS.gray,
+  statusText: ANSI_COLORS.brightWhite,
+  statusIdle: ANSI_COLORS.brightGreen,
+  statusRunning: ANSI_COLORS.brightYellow,
+  statusError: ANSI_COLORS.red,
+  statusSpawning: ANSI_COLORS.yellow,
+  statusMode: {
+    normal: ANSI_COLORS.brightGreen,
+    'log-focus': ANSI_COLORS.cyan,
+    insert: ANSI_COLORS.brightGreen,
+    command: ANSI_COLORS.magenta,
+    inbox: ANSI_COLORS.blue,
+    presets: ANSI_COLORS.blue,
+    'kill-confirm': ANSI_COLORS.red,
+    shell: ANSI_COLORS.brightCyan,
+  },
+}
+
 const BUILT_IN_THEMES: Record<string, ThemeColors> = {
   dark: DARK_THEME,
   light: LIGHT_THEME,
   minimal: MINIMAL_THEME,
+  'base16': BASE16,
   catppuccin: CATPPUCCIN_MOCHA,
   gruvbox: GRUVBOX_DARK,
   'tokyo-night': TOKYO_NIGHT,
