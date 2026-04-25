@@ -9,7 +9,7 @@ const ALIAS_TABLE: Record<string, Record<string, string>> = {
   'cc-opus': {
     'claude-code': 'opus[1m]',
     'codex': 'gpt-5.4',
-    'openclaude': 'opus',
+    'openclaude': 'opus[1m]',
   },
   'cc-sonnet': {
     'claude-code': 'sonnet',
@@ -118,41 +118,46 @@ function ensureProviderPrefix(model: string, defaultProvider = 'openai'): string
   return `${provider}/${normalized}`
 }
 
+// flt rule: no non-1m Opus anywhere. Plain 'opus' → 'opus[1m]' for any
+// claude-API-compatible CLI (claude-code, openclaude). Other CLIs still
+// normalize per their own dialect (aider keeps `anthropic/opus`, etc.).
+const OPUS_ONE_M_CLIS = new Set(['claude-code', 'openclaude'])
+
+function force1mOpus(cli: string, model: string): string {
+  if (model === 'opus' && OPUS_ONE_M_CLIS.has(cli)) return 'opus[1m]'
+  return model
+}
+
 export function resolveModelForCli(cli: string, model: string | undefined, noResolve = false): string | undefined {
   if (model === undefined) return undefined
   const normalized = model.trim()
   if (!normalized || noResolve) return normalized
 
   const aliased = resolveAlias(cli, normalized)
-  if (aliased !== null) return aliased
+  if (aliased !== null) return force1mOpus(cli, aliased)
+
+  let resolved: string
 
   if (cli === 'pi') {
     if (normalized.includes('/')) {
-      return ensureProviderPrefix(normalized, 'openai-codex')
+      resolved = ensureProviderPrefix(normalized, 'openai-codex')
+    } else if (normalized.toLowerCase().startsWith('gpt-5')) {
+      resolved = ensureProviderPrefix(normalized, 'openai-codex')
+    } else {
+      resolved = normalized
     }
-    if (normalized.toLowerCase().startsWith('gpt-5')) {
-      return ensureProviderPrefix(normalized, 'openai-codex')
-    }
-    return normalized
-  }
-
-  if (cli === 'factory-droid') {
+  } else if (cli === 'factory-droid') {
     const bare = stripKnownProviderPrefixes(normalized)
-    if (bare.startsWith('custom:')) return bare
-    return `custom:${bare}`
+    resolved = bare.startsWith('custom:') ? bare : `custom:${bare}`
+  } else if (PROVIDER_MODEL_HARNESSES.has(cli)) {
+    resolved = ensureProviderPrefix(normalized)
+  } else if (PRESERVE_EXPLICIT_PROVIDER_HARNESSES.has(cli) && normalized.includes('/')) {
+    resolved = normalized
+  } else if (BARE_MODEL_HARNESSES.has(cli)) {
+    resolved = stripKnownProviderPrefixes(normalized)
+  } else {
+    resolved = normalized
   }
 
-  if (PROVIDER_MODEL_HARNESSES.has(cli)) {
-    return ensureProviderPrefix(normalized)
-  }
-
-  if (PRESERVE_EXPLICIT_PROVIDER_HARNESSES.has(cli) && normalized.includes('/')) {
-    return normalized
-  }
-
-  if (BARE_MODEL_HARNESSES.has(cli)) {
-    return stripKnownProviderPrefixes(normalized)
-  }
-
-  return normalized
+  return force1mOpus(cli, resolved)
 }

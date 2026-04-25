@@ -4,12 +4,14 @@ import { join } from 'path'
 import { homedir } from 'os'
 
 const SEED_PRESETS = {
-  'cc-architect': { cli: 'claude-code', model: 'opus', description: 'Architect via claude-code', soul: 'roles/architect.md' },
+  'cc-architect': { cli: 'claude-code', model: 'opus[1m]', description: 'Architect via claude-code', soul: 'roles/architect.md' },
   'cc-coder': { cli: 'claude-code', model: 'sonnet', description: 'Coder via claude-code', soul: 'roles/coder.md' },
-  'cc-evaluator': { cli: 'claude-code', model: 'opus', description: 'Evaluator via claude-code', soul: 'roles/evaluator.md' },
-  'cc-mutator': { cli: 'claude-code', model: 'opus', description: 'Trace-driven artifact mutator', soul: 'roles/mutator.md' },
+  'cc-evaluator': { cli: 'claude-code', model: 'opus[1m]', description: 'Evaluator via claude-code', soul: 'roles/evaluator.md' },
+  'cc-mutator': { cli: 'claude-code', model: 'opus[1m]', description: 'Trace-driven artifact mutator', soul: 'roles/mutator.md' },
+  'cc-opus': { cli: 'claude-code', model: 'opus[1m]', description: 'Routing bundle: claude-code + opus[1m] (judgment tier; soul injected by spawn --role)', soul: 'roles/architect.md' },
   'cc-oracle': { cli: 'claude-code', model: 'sonnet', description: 'Ephemeral oracle (spawn-on-message)', soul: 'roles/oracle.md' },
   'cc-reviewer': { cli: 'claude-code', model: 'sonnet', description: 'Reviewer via claude-code', soul: 'roles/reviewer.md' },
+  'cc-sonnet': { cli: 'claude-code', model: 'sonnet', description: 'Routing bundle: claude-code + sonnet (execution-judgment tier; soul injected by spawn --role)', soul: 'roles/reviewer.md' },
   'cc-spec-writer': { cli: 'claude-code', model: 'sonnet', description: 'Spec writer via claude-code', soul: 'roles/spec_writer.md' },
   'cc-tester': { cli: 'claude-code', model: 'sonnet', description: 'Tester via claude-code', soul: 'roles/tester.md' },
   'cc-trace-classifier': { cli: 'claude-code', model: 'haiku', description: 'Failure classifier', soul: 'roles/trace_classifier.md' },
@@ -19,7 +21,7 @@ const SEED_PRESETS = {
   'gemini-coder': { cli: 'gemini', model: 'gemini-2.5-pro', description: 'Long-context coder via gemini', soul: 'roles/coder.md' },
   'glm-coder': { cli: 'claude-code', model: 'sonnet', description: 'claude-code via z.ai → GLM-5.1', soul: 'roles/coder.md', env: { ANTHROPIC_BASE_URL: 'https://api.z.ai/api/anthropic', API_TIMEOUT_MS: '3000000', ANTHROPIC_DEFAULT_SONNET_MODEL: 'glm-5.1', ANTHROPIC_AUTH_TOKEN: '${Z_AI_API_KEY}', CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: '1' } },
   'glm-fast': { cli: 'claude-code', model: 'haiku', description: 'claude-code via z.ai → GLM-4.5-Air', soul: 'roles/coder.md', env: { ANTHROPIC_BASE_URL: 'https://api.z.ai/api/anthropic', API_TIMEOUT_MS: '3000000', ANTHROPIC_DEFAULT_HAIKU_MODEL: 'glm-4.5-air', ANTHROPIC_AUTH_TOKEN: '${Z_AI_API_KEY}', CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: '1' } },
-  'glm-opus': { cli: 'claude-code', model: 'opus', description: 'claude-code via z.ai → GLM-4.7', soul: 'roles/coder.md', env: { ANTHROPIC_BASE_URL: 'https://api.z.ai/api/anthropic', API_TIMEOUT_MS: '3000000', ANTHROPIC_DEFAULT_OPUS_MODEL: 'glm-4.7', ANTHROPIC_AUTH_TOKEN: '${Z_AI_API_KEY}', CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: '1' } },
+  'glm-opus': { cli: 'claude-code', model: 'opus[1m]', description: 'claude-code via z.ai → GLM-4.7', soul: 'roles/coder.md', env: { ANTHROPIC_BASE_URL: 'https://api.z.ai/api/anthropic', API_TIMEOUT_MS: '3000000', ANTHROPIC_DEFAULT_OPUS_MODEL: 'glm-4.7', ANTHROPIC_AUTH_TOKEN: '${Z_AI_API_KEY}', CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: '1' } },
   'opencode-coder': { cli: 'opencode', model: 'default', description: 'Coder via opencode', soul: 'roles/coder.md' },
   'orchestrator': { cli: 'claude-code', model: 'opus[1m]', description: 'Persistent fleet orchestrator', dir: '~/.flt/agents/orchestrator', parent: 'human', worktree: false, persistent: true, soul: 'agents/orchestrator/SOUL.md' },
   'pi-coder': { cli: 'pi', model: 'gpt-5.3-codex', description: 'Coder via pi (gpt-5.3-codex)', soul: 'roles/coder.md' },

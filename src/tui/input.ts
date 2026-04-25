@@ -113,10 +113,10 @@ const PRESET_ACTION_DESCRIPTIONS: Record<string, string> = {
 // Load model suggestions from ~/.flt/models.json (user-configurable)
 function loadModelSuggestions(): Record<string, string[]> {
   const defaults: Record<string, string[]> = {
-    'claude-code': ['haiku', 'sonnet', 'opus', 'opus[1m]', 'sonnet[1m]'],
+    'claude-code': ['haiku', 'sonnet', 'opus[1m]', 'sonnet[1m]'],
     codex: ['gpt-5.3-codex', 'gpt-5.4-mini', 'gpt-5.4', 'o3', 'gpt-4.1'],
     gemini: ['gemini-2.5-pro', 'gemini-2.5-flash'],
-    aider: ['sonnet', 'opus', 'gpt-4.1', 'o3'],
+    aider: ['sonnet', 'opus[1m]', 'gpt-4.1', 'o3'],
     opencode: ['gpt-5.3', 'gpt-5.4-mini', 'o3'],
     'swe-agent': ['sonnet', 'gpt-4.1'],
     pi: ['gpt-5.4', 'gpt-5.4-mini'],

@@ -36,7 +36,7 @@ describe('resolveAlias', () => {
   it('cc-opus: maps correctly for claude-code, codex, openclaude', () => {
     expect(resolveAlias('claude-code', 'cc-opus')).toBe('opus[1m]')
     expect(resolveAlias('codex', 'cc-opus')).toBe('gpt-5.4')
-    expect(resolveAlias('openclaude', 'cc-opus')).toBe('opus')
+    expect(resolveAlias('openclaude', 'cc-opus')).toBe('opus[1m]')
   })
 
   it('cc-opus: throws for CLIs with no mapping', () => {
@@ -129,5 +129,30 @@ describe('resolveAlias', () => {
 
   it('resolveModelForCli alias resolution is skipped when noResolve=true', () => {
     expect(resolveModelForCli('claude-code', 'cc-opus', true)).toBe('cc-opus')
+  })
+
+  it('plain opus → opus[1m] for claude-code (no non-1m Opus rule)', () => {
+    expect(resolveModelForCli('claude-code', 'opus')).toBe('opus[1m]')
+  })
+
+  it('plain opus → opus[1m] for openclaude', () => {
+    expect(resolveModelForCli('openclaude', 'opus')).toBe('opus[1m]')
+  })
+
+  it('opus[1m] passes through unchanged for claude-code', () => {
+    expect(resolveModelForCli('claude-code', 'opus[1m]')).toBe('opus[1m]')
+  })
+
+  it('plain opus is preserved for non-claude CLIs (aider, etc. — provider prefix instead)', () => {
+    // aider gets `anthropic/opus`; the 1m rule is claude-API-specific.
+    expect(resolveModelForCli('aider', 'opus')).toBe('anthropic/opus')
+  })
+
+  it('cc-opus alias for openclaude → opus[1m] (was opus)', () => {
+    expect(resolveAlias('openclaude', 'cc-opus')).toBe('opus[1m]')
+  })
+
+  it('noResolve preserves plain opus literally', () => {
+    expect(resolveModelForCli('claude-code', 'opus', true)).toBe('opus')
   })
 })
