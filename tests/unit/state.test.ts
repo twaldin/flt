@@ -75,7 +75,7 @@ describe('state', () => {
 
   it('removes an agent', () => {
     setAgent('to-remove', {
-      cli: 'aider',
+      cli: 'claude-code',
       model: 'sonnet',
       tmuxSession: 'flt-to-remove',
       parentName: 'orchestrator',

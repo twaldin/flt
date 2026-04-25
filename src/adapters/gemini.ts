@@ -4,6 +4,10 @@ import { existsSync, readFileSync } from 'fs'
 import { join } from 'path'
 import { getAdapter as getHarnessAdapter } from '@twaldin/harness-ts'
 
+function shSingleQuote(s: string): string {
+  return `'${s.replace(/'/g, `'\\''`)}'`
+}
+
 function loadGeminiKey(): string | undefined {
   for (const path of [
     join(process.env.HOME ?? '', '.env'),
@@ -26,9 +30,17 @@ export const geminiAdapter: CliAdapter = {
   submitKeys: ['Enter'],
 
   spawnArgs(opts: SpawnOpts): string[] {
-    const args = ['gemini']
-    if (opts.model) args.push('--model', opts.model)
-    return args
+    // gemini-cli's bundle uses Unicode regex /v flag (node ≥22). On systems
+    // where the default node is older (e.g. nvm pinned to 18), we have to
+    // force node 22 before launching. Mirrors pi.ts.
+    const modelArg = opts.model ? ` --model ${shSingleQuote(opts.model)}` : ''
+    const script = [
+      'if [ -s "$HOME/.nvm/nvm.sh" ]; then',
+      'source "$HOME/.nvm/nvm.sh" && nvm use 22 >/dev/null;',
+      'fi;',
+      `gemini${modelArg}`,
+    ].join(' ')
+    return ['bash', '-lc', script]
   },
 
   env(): Record<string, string> {

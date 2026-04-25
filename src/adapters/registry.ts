@@ -2,16 +2,16 @@ import type { CliAdapter } from './types'
 import { claudeCodeAdapter } from './claude-code'
 import { codexAdapter } from './codex'
 import { geminiAdapter } from './gemini'
-import { aiderAdapter } from './aider'
 import { opencodeAdapter } from './opencode'
 import { sweAgentAdapter } from './swe-agent'
 import { piAdapter } from './pi'
 
+// Note: aider was removed (REPL-driven /run /add /edit slash commands; no
+// autonomous shell tool). Doesn't fit flt's autonomous-agent-with-tools model.
 const adapters: Record<string, CliAdapter> = {
   'claude-code': claudeCodeAdapter,
   'codex': codexAdapter,
   'gemini': geminiAdapter,
-  'aider': aiderAdapter,
   'opencode': opencodeAdapter,
   'swe-agent': sweAgentAdapter,
   'pi': piAdapter,

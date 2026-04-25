@@ -26,11 +26,8 @@ trap 'rm -f "$RESULTS_FILE"' EXIT
 if [[ $# -gt 0 ]]; then
   ADAPTERS=("$@")
 else
-  # Pull from registry
-  mapfile -t ADAPTERS < <(bun run /Users/twaldin/flt/src/cli.ts --help 2>&1 | grep -oE 'adapter \([a-z-]+(, [a-z-]+)+\)' | head -1 | grep -oE '[a-z-]+' | grep -v '^adapter$')
-  if [[ ${#ADAPTERS[@]} -eq 0 ]]; then
-    ADAPTERS=(claude-code codex gemini aider opencode swe-agent pi)
-  fi
+  # Default registered adapters (works on macOS bash 3.x — no mapfile).
+  ADAPTERS=(claude-code codex gemini opencode swe-agent pi)
 fi
 
 now() { date +%s; }

@@ -224,7 +224,7 @@ export function projectSkills(
       }
     }
   } else {
-    // codex, aider, gemini, swe-agent, pi — write mirrors + inject list into instruction file
+    // codex, gemini, swe-agent, pi — write mirrors + inject list into instruction file
     const mirrorsRoot = join(workDir, '.flt', 'skills')
     for (const skill of selected) {
       const destDir = join(mirrorsRoot, skill.name)

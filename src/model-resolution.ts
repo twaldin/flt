@@ -70,7 +70,6 @@ const BARE_MODEL_HARNESSES = new Set([
 ])
 
 const PROVIDER_MODEL_HARNESSES = new Set([
-  'aider',
   'kilo',
   'opencode',
   'swe-agent',
@@ -120,7 +119,7 @@ function ensureProviderPrefix(model: string, defaultProvider = 'openai'): string
 
 // flt rule: no non-1m Opus anywhere. Plain 'opus' → 'opus[1m]' for any
 // claude-API-compatible CLI (claude-code, openclaude). Other CLIs still
-// normalize per their own dialect (aider keeps `anthropic/opus`, etc.).
+// normalize per their own dialect.
 const OPUS_ONE_M_CLIS = new Set(['claude-code', 'openclaude'])
 
 function force1mOpus(cli: string, model: string): string {

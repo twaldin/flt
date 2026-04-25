@@ -18,7 +18,7 @@ describe('model resolution', () => {
 
   it('adds provider for provider-model CLIs', () => {
     expect(resolveModelForCli('opencode', 'gpt-5.4')).toBe('openai/gpt-5.4')
-    expect(resolveModelForCli('aider', 'claude-sonnet-4.6')).toBe('anthropic/claude-sonnet-4.6')
+    expect(resolveModelForCli('opencode', 'claude-sonnet-4.6')).toBe('anthropic/claude-sonnet-4.6')
   })
 
   it('supports raw passthrough when noResolve=true', () => {
@@ -143,9 +143,9 @@ describe('resolveAlias', () => {
     expect(resolveModelForCli('claude-code', 'opus[1m]')).toBe('opus[1m]')
   })
 
-  it('plain opus is preserved for non-claude CLIs (aider, etc. — provider prefix instead)', () => {
-    // aider gets `anthropic/opus`; the 1m rule is claude-API-specific.
-    expect(resolveModelForCli('aider', 'opus')).toBe('anthropic/opus')
+  it('plain opus gets provider-prefixed for non-claude CLIs (opencode, swe-agent, kilo)', () => {
+    // The 1m rule is claude-API-specific; other CLIs get a provider prefix instead.
+    expect(resolveModelForCli('opencode', 'opus')).toBe('anthropic/opus')
   })
 
   it('cc-opus alias for openclaude → opus[1m] (was opus)', () => {

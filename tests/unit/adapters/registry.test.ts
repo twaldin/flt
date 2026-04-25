@@ -7,11 +7,11 @@ describe('adapter registry', () => {
     expect(adapters).toContain('claude-code')
     expect(adapters).toContain('codex')
     expect(adapters).toContain('gemini')
-    expect(adapters).toContain('aider')
     expect(adapters).toContain('opencode')
     expect(adapters).toContain('swe-agent')
     expect(adapters).toContain('pi')
-    expect(adapters.length).toBe(7)
+    expect(adapters).not.toContain('aider')
+    expect(adapters.length).toBe(6)
   })
 
   it('gets adapter by name', () => {

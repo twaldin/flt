@@ -203,7 +203,6 @@ function reconcileAgents(): void {
           if (args.includes('codex')) { cli = 'codex'; model = extractFlag(args, '--model') ?? model }
           else if (args.includes('claude')) { cli = 'claude-code'; model = extractFlag(args, '--model') ?? model }
           else if (args.includes('gemini')) { cli = 'gemini'; model = extractFlag(args, '--model') ?? model }
-          else if (args.includes('aider')) { cli = 'aider'; model = extractFlag(args, '--model') ?? model }
           else if (args.includes('opencode')) { cli = 'opencode'; model = extractFlag(args, '--model') ?? model }
 
           if (cli !== 'unknown') break

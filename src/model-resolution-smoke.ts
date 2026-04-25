@@ -56,7 +56,6 @@ const SMOKE_RECIPES: Record<string, SmokeRecipeBuilder> = {
   'claude-code': (m, bin) => ({ program: bin, args: ['--model', m, '--version'] }),
   'codex': (m, bin) => ({ program: bin, args: ['--model', m, '--help'] }),
   'gemini': (m, bin) => ({ program: bin, args: ['--model', m, '--help'] }),
-  'aider': (m, bin) => ({ program: bin, args: ['--model', m, '--help'] }),
   'opencode': (m, bin) => ({ program: bin, args: ['--model', m, '--help'] }),
   'swe-agent': (m, bin) => ({ program: bin, args: ['--model', m, '--help'] }),
   'pi': (m) => piSmoke(m),
