@@ -532,4 +532,20 @@ routeCmd
     }
   })
 
+routeCmd
+  .command('check')
+  .description('Smoke-test every (role → preset → cli, model) row in policy.yaml')
+  .option('--force', 'Bypass smoke cache (re-run every check)')
+  .option('--json', 'Emit raw JSON instead of a table')
+  .action(async (opts) => {
+    try {
+      const { runRouteCheck } = require('./commands/route-check')
+      const { exitCode } = await runRouteCheck({ force: !!opts.force, json: !!opts.json })
+      process.exit(exitCode)
+    } catch (e) {
+      console.error(`Error: ${(e as Error).message}`)
+      process.exit(1)
+    }
+  })
+
 program.parse()
