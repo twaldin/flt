@@ -44,7 +44,7 @@ export function seedFlt(): void {
     mkdirSync(join(fltDir, sub), { recursive: true })
   }
 
-  writeFileSync(join(fltDir, 'state.json'), '{}\n')
+  writeFileSync(join(fltDir, 'state.json'), '{"agents":{}}\n')
   writeFileSync(join(fltDir, '.managed-skills.json'), '{}\n')
   writeFileSync(join(fltDir, 'config.json'), JSON.stringify({ version: 1 }, null, 2) + '\n')
   writeFileSync(join(fltDir, 'models.json'), '{}\n')

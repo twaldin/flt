@@ -14,7 +14,7 @@ interface AgentInfo {
 
 export function list(): void {
   const state = loadState()
-  const agents = state.agents
+  const agents = state.agents ?? {}
 
   if (Object.keys(agents).length === 0) {
     console.log('No agents running. Use "flt spawn" to start one.')
