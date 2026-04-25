@@ -1,4 +1,4 @@
-import { cpSync, existsSync, lstatSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'fs'
+import { cpSync, existsSync, lstatSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from 'fs'
 import { join, resolve } from 'path'
 import { createHash } from 'crypto'
 import { loadSkills } from '../skills'
@@ -119,7 +119,7 @@ export function skillImport(args: { src: string }): void {
 export function skillMoveFromClaude(_args: {}): void {
   const sourceDirs = [
     join(home(), '.claude', 'skills'),
-    join(home(), '.claude', 'anthropic-skills'),
+    join(home(), '.claude', 'anthropic-skills', 'skills'),
   ]
 
   const skillsRoot = join(home(), '.flt', 'skills')
@@ -142,7 +142,10 @@ export function skillMoveFromClaude(_args: {}): void {
       const entryPath = join(sourceDir, entry)
       const entryAbs = resolve(entryPath)
       try {
-        if (!lstatSync(entryPath).isDirectory()) continue
+        // statSync follows symlinks; lstatSync did not — plugin-installed
+        // skills like ~/.claude/skills/algorithmic-art are symlinks into
+        // ~/.claude/anthropic-skills/skills/<name>, and must be treated as dirs.
+        if (!statSync(entryPath).isDirectory()) continue
       } catch {
         continue
       }
@@ -168,10 +171,20 @@ export function skillMoveFromClaude(_args: {}): void {
         continue
       }
 
+      // Symlink-aware copy: cpSync with dereference materializes the target
+      // contents instead of duplicating the symlink. Then we unlink/rmSync the
+      // source. For real directories rename is faster, but renameSync of a
+      // symlink would keep the new path pointing back at the old location.
+      const isSym = lstatSync(entryPath).isSymbolicLink()
       try {
-        renameSync(entryPath, dstDir)
+        if (isSym) {
+          cpSync(entryPath, dstDir, { recursive: true, dereference: true })
+          rmSync(entryPath, { force: true })
+        } else {
+          renameSync(entryPath, dstDir)
+        }
       } catch {
-        cpSync(entryPath, dstDir, { recursive: true })
+        cpSync(entryPath, dstDir, { recursive: true, dereference: true })
         rmSync(entryPath, { recursive: true, force: true })
       }
 

@@ -1162,7 +1162,7 @@ export class App {
 
     let changed = false
 
-    const agents = allAgents()
+    const agents = allAgents() ?? {}
     const isInsert = this.state.mode === 'insert'
     const nextViews: AgentView[] = []
 
