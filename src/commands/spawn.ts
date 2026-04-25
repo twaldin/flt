@@ -8,6 +8,7 @@ import { getPreset, resolvePresetEnv } from '../presets'
 import * as tmux from '../tmux'
 import { resolve } from 'path'
 import { appendEvent } from '../activity'
+import { resolveModelForCli } from '../model-resolution'
 
 interface SpawnArgs {
   name: string
@@ -19,10 +20,15 @@ interface SpawnArgs {
   bootstrap?: string
   parent?: string
   persistent?: boolean
+  skills?: string[]
+  allSkills?: boolean
+  noModelResolve?: boolean
   workflow?: string
   workflowStep?: string
   _callerName?: string
   _callerDepth?: number
+  _termWidth?: number
+  _termHeight?: number
 }
 
 const CLAUDE_CODE_TIER_ENV_KEYS = {
@@ -64,6 +70,8 @@ export async function spawn(args: SpawnArgs): Promise<void> {
         ...args,
         _callerName: process.env.FLT_AGENT_NAME,
         _callerDepth: parseInt(process.env.FLT_DEPTH ?? '0', 10),
+        _termWidth: process.stdout.columns,
+        _termHeight: process.stdout.rows,
       },
     })
     if (!result.ok) throw new Error(result.error ?? 'Spawn failed')
@@ -97,6 +105,8 @@ export async function spawnDirect(args: SpawnArgs): Promise<void> {
   let presetWorktree: boolean | undefined
   let presetPersistent: boolean | undefined
   let presetEnv: Record<string, string> = {}
+  let presetSkills: string[] | undefined
+  let presetAllSkills: boolean | undefined
   if (effectivePreset) {
     const presetConfig = getPreset(effectivePreset)
     if (!presetConfig) {
@@ -111,10 +121,20 @@ export async function spawnDirect(args: SpawnArgs): Promise<void> {
     presetWorktree = presetConfig.worktree
     presetPersistent = presetConfig.persistent
     presetEnv = resolvePresetEnv(presetConfig.env)
+    presetSkills = presetConfig.skills
+    presetAllSkills = presetConfig.allSkills
   }
 
   if (!cli) {
     throw new Error('Missing CLI adapter. Provide "--cli <cli>" or "--preset <name>".')
+  }
+
+  // Resolve model alias to cli-specific identifier (best-effort).
+  // On any failure we keep raw passthrough semantics.
+  try {
+    resolvedModel = resolveModelForCli(cli, resolvedModel, args.noModelResolve)
+  } catch {
+    // passthrough
   }
 
   // Validate name uniqueness
@@ -183,6 +203,19 @@ export async function spawnDirect(args: SpawnArgs): Promise<void> {
   // Project instructions into workspace
   let instructionProjection: InstructionProjection | undefined
 
+  const explicitSkills = args.skills ?? []
+  const selectedSkills = explicitSkills.length > 0 ? explicitSkills : (presetSkills ?? [])
+  const allSkills = args.allSkills ?? presetAllSkills ?? false
+
+  // Project selected skills into workspace (opt-in only)
+  const projectedSkills = projectSkills(workDir, adapter, {
+    requested: selectedSkills,
+    all: allSkills,
+  }) ?? { names: [], warnings: [] }
+  for (const warning of projectedSkills.warnings) {
+    console.error(`Warning: ${warning}`)
+  }
+
   if (adapter.instructionFile) {
     instructionProjection = projectInstructions(workDir, adapter.instructionFile, {
       agentName: name,
@@ -192,11 +225,9 @@ export async function spawnDirect(args: SpawnArgs): Promise<void> {
       workflow: args.workflow,
       step: args.workflowStep,
       presetSoul,
+      skillNames: projectedSkills.names,
     })
   }
-
-  // Project skills into workspace
-  projectSkills(workDir, adapter, name)
 
   // Build spawn command — shell-quote args that contain special chars
   const cliArgs = adapter.spawnArgs({ model: resolvedModel, dir: workDir })
@@ -210,6 +241,9 @@ export async function spawnDirect(args: SpawnArgs): Promise<void> {
   // because presets are user-level overrides (e.g. swapping claude-code to z.ai).
   const adapterEnv = adapter.env?.() ?? {}
   const mergedPath = presetEnv.PATH ?? adapterEnv.PATH ?? `${process.env.PATH}`
+  const initialWidth = args._termWidth ?? process.stdout.columns ?? 80
+  const initialHeight = args._termHeight ?? process.stdout.rows ?? 24
+
   tmux.createSession(sessionName, workDir, command, {
     ...adapterEnv,
     ...presetEnv,
@@ -218,14 +252,14 @@ export async function spawnDirect(args: SpawnArgs): Promise<void> {
     FLT_PARENT_NAME: parentName,
     FLT_DEPTH: String(callerDepth + 1),
     PATH: mergedPath,
-  })
+  }, initialWidth, initialHeight)
 
   // Poll for readiness (60s timeout — some CLIs have multiple sequential dialogs)
   await waitForReady(sessionName, adapter, 60_000)
 
   // Resize to current terminal dimensions so agent doesn't start at tmux's 80x24 default
-  const termWidth = process.stdout.columns ?? 80
-  const termHeight = process.stdout.rows ?? 24
+  const termWidth = args._termWidth ?? process.stdout.columns ?? 80
+  const termHeight = args._termHeight ?? process.stdout.rows ?? 24
   tmux.resizeWindow(sessionName, termWidth, termHeight)
 
   // Register in state before bootstrap — agent is live and discoverable immediately
@@ -246,7 +280,7 @@ export async function spawnDirect(args: SpawnArgs): Promise<void> {
   appendEvent({
     type: 'spawn',
     agent: name,
-    detail: `cli=${adapter.name} model=${resolvedModel ?? 'default'}${effectivePreset ? ` preset=${effectivePreset}` : ''} dir=${workDir}`,
+    detail: `cli=${adapter.name} model=${resolvedModel ?? 'default'}${effectivePreset ? ` preset=${effectivePreset}` : ''} dir=${workDir}${projectedSkills.names.length ? ` skills=${projectedSkills.names.join(',')}` : ''}${args.noModelResolve ? ' modelResolve=off' : ''}`,
     at: new Date().toISOString(),
   })
 

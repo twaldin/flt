@@ -6,11 +6,13 @@ export interface Preset {
   cli: string
   model: string
   description?: string
-  soul?: string       // path to SOUL.md (relative to ~/.flt/ or absolute)
+  soul?: string       // path to SOUL.md: "roles/<role>.md" (template) or "agents/<name>/SOUL.md" (persistent), relative to ~/.flt/. Absolute paths also accepted.
   dir?: string        // working directory (~ expanded at resolve time)
   parent?: string     // parent agent name
   worktree?: boolean  // false = --no-worktree
   persistent?: boolean
+  skills?: string[]   // opt-in skills enabled for this preset
+  allSkills?: boolean // enable all discoverable skills
   env?: Record<string, string>  // extra env vars merged into the spawn; ${VAR} expands from process.env at resolve time
 }
 
@@ -79,6 +81,15 @@ function validatePresetValue(name: string, value: unknown): Preset {
     throw new Error(`Invalid preset "${name}": "persistent" must be a boolean.`)
   }
   let envNormalized: Record<string, string> | undefined
+  if (preset.skills !== undefined) {
+    if (!Array.isArray(preset.skills) || preset.skills.some(v => typeof v !== 'string' || !v.trim())) {
+      throw new Error(`Invalid preset "${name}": "skills" must be an array of non-empty strings.`)
+    }
+  }
+  if (preset.allSkills !== undefined && typeof preset.allSkills !== 'boolean') {
+    throw new Error(`Invalid preset "${name}": "allSkills" must be a boolean.`)
+  }
+
   if (preset.env !== undefined) {
     if (typeof preset.env !== 'object' || preset.env === null || Array.isArray(preset.env)) {
       throw new Error(`Invalid preset "${name}": "env" must be an object mapping string to string.`)
@@ -102,6 +113,8 @@ function validatePresetValue(name: string, value: unknown): Preset {
     parent: typeof preset.parent === 'string' ? preset.parent.trim() || undefined : undefined,
     worktree: typeof preset.worktree === 'boolean' ? preset.worktree : undefined,
     persistent: typeof preset.persistent === 'boolean' ? preset.persistent : undefined,
+    skills: Array.isArray(preset.skills) ? preset.skills.map(v => String(v).trim()).filter(Boolean) : undefined,
+    allSkills: typeof preset.allSkills === 'boolean' ? preset.allSkills : undefined,
     env: envNormalized,
   }
 }

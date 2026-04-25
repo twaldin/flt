@@ -1,6 +1,5 @@
-import { getCompletionHint, getCompletionItems } from './input'
 import { getKillConfirmPrompt, getModeHint } from './keybinds'
-import { ATTR_BOLD, ATTR_DIM, type Screen } from './screen'
+import { ATTR_BOLD, ATTR_DIM, ATTR_UNDERLINE, ATTR_INVERSE, type Screen } from './screen'
 import { COLORS, fg, getTheme, modeColor, statusColor, statusSymbol } from './theme'
 import type { AgentView, AppState, ModalState } from './types'
 import { getAsciiLogo, getAsciiLogoWidth } from './ascii'
@@ -413,6 +412,69 @@ function renderInbox(screen: Screen, state: AppState, top: number, left: number,
   }
 }
 
+function buildAnsiCarryPrefix(priorText: string): string {
+  let fg = ''
+  let bg = ''
+  let bold = false
+  let dim = false
+  let italic = false
+  let underline = false
+  let inverse = false
+
+  const re = /\x1b\[([0-9;]*)m/g
+  let m: RegExpExecArray | null
+  while ((m = re.exec(priorText)) !== null) {
+    const params = (m[1] || '').split(';').filter(Boolean).map(v => Number.parseInt(v, 10))
+    const values = params.length > 0 ? params : [0]
+    for (let i = 0; i < values.length; i++) {
+      const code = Number.isFinite(values[i]) ? values[i] : 0
+      if (code === 0) {
+        fg = ''; bg = ''
+        bold = dim = italic = underline = inverse = false
+      } else if (code === 1) bold = true
+      else if (code === 2) dim = true
+      else if (code === 3) italic = true
+      else if (code === 4) underline = true
+      else if (code === 7) inverse = true
+      else if (code === 22) { bold = false; dim = false }
+      else if (code === 23) italic = false
+      else if (code === 24) underline = false
+      else if (code === 27) inverse = false
+      else if ((code >= 30 && code <= 37) || (code >= 90 && code <= 97)) fg = String(code)
+      else if (code === 39) fg = ''
+      else if ((code >= 40 && code <= 47) || (code >= 100 && code <= 107)) bg = String(code)
+      else if (code === 49) bg = ''
+      else if (code === 38 || code === 48) {
+        const isFg = code === 38
+        const mode = values[i + 1]
+        if (mode === 5 && i + 2 < values.length) {
+          const n = values[i + 2]
+          if (isFg) fg = `38;5;${n}`
+          else bg = `48;5;${n}`
+          i += 2
+        } else if (mode === 2 && i + 4 < values.length) {
+          const r = values[i + 2]
+          const g = values[i + 3]
+          const b = values[i + 4]
+          if (isFg) fg = `38;2;${r};${g};${b}`
+          else bg = `48;2;${r};${g};${b}`
+          i += 4
+        }
+      }
+    }
+  }
+
+  const codes: string[] = []
+  if (bold) codes.push('1')
+  if (dim) codes.push('2')
+  if (italic) codes.push('3')
+  if (underline) codes.push('4')
+  if (inverse) codes.push('7')
+  if (fg) codes.push(fg)
+  if (bg) codes.push(bg)
+  return codes.length ? `\x1b[${codes.join(';')}m` : ''
+}
+
 function renderLogPane(screen: Screen, state: AppState, top: number, left: number, width: number, height: number): void {
   if (width <= 0 || height <= 0) return
 
@@ -444,7 +506,12 @@ function renderLogPane(screen: Screen, state: AppState, top: number, left: numbe
   const startIdx = clamp(state.logScrollOffset, 0, maxStart)
   const visible = lines.slice(startIdx, startIdx + viewableLines)
 
-  let block = visible.join('\n')
+  // Reconstruct style state from off-screen lines so ANSI sequences that begin
+  // above the viewport still apply to visible rows (including auto-follow).
+  const prior = (startIdx > 0) ? lines.slice(0, startIdx).join('\n') : ''
+  const carryPrefix = prior ? buildAnsiCarryPrefix(prior) : ''
+
+  let block = `${carryPrefix}${visible.join('\n')}`
   if (state.searchQuery) {
     const escaped = state.searchQuery.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
     const regex = new RegExp(`(${escaped})`, 'gi')
@@ -476,12 +543,6 @@ function renderCommandBar(screen: Screen, state: AppState, row: number, col: num
     return
   }
 
-  const { hint, multiHint } = getCompletionHint(
-    state.commandInput,
-    state.agents.map((a) => a.name),
-    Array.from(new Set(state.agents.map((a) => a.cli))),
-  )
-
   screen.put(row, col, ':', t.commandPrefix, '', ATTR_BOLD)
 
   const available = Math.max(0, width - 2)
@@ -501,22 +562,14 @@ function renderCommandBar(screen: Screen, state: AppState, row: number, col: num
     screen.put(row, inputCol, '‹', t.commandHint, '', ATTR_DIM)
   }
 
-  const cursorCol = inputCol + Math.min(widthOf(inputText), available)
+  const cursorInInput = Math.max(0, Math.min(state.commandCursor, widthOf(state.commandInput)))
+  const visibleCursor = leftClipped && available > 1
+    ? Math.max(1, Math.min(available, 1 + cursorInInput - Math.max(0, widthOf(state.commandInput) - (available - 1))))
+    : Math.max(0, Math.min(available, cursorInInput))
+
+  const cursorCol = inputCol + visibleCursor
   if (cursorCol < col + width) {
     screen.put(row, cursorCol, '█', t.commandPrefix)
-  }
-
-  const hintText = hint || multiHint
-  if (hintText) {
-    const hintCol = cursorCol + 1
-    const hintWidth = col + width - hintCol
-    if (hintWidth > 0) {
-      const rightClipped = widthOf(hintText) > hintWidth
-      const displayHint = rightClipped
-        ? truncate(hintText, Math.max(0, hintWidth - 1)) + '›'
-        : truncate(hintText, hintWidth)
-      screen.put(row, hintCol, displayHint, t.commandHint)
-    }
   }
 }
 
@@ -544,7 +597,7 @@ function renderStatusBar(screen: Screen, state: AppState, row: number, col: numb
 
 function renderCompletionPopup(screen: Screen, state: AppState, commandRow: number, sidebarWidth: number, logWidth: number): void {
   const items = state.completionItems
-  if (items.length <= 1 || state.mode !== 'command') return
+  if (items.length === 0 || state.mode !== 'command') return
 
   const maxVisible = Math.min(8, items.length)
   const popupHeight = maxVisible + 2
@@ -561,10 +614,24 @@ function renderCompletionPopup(screen: Screen, state: AppState, commandRow: numb
     if (item.description) w += 2 + Math.min(widthOf(item.description), 30)
     contentWidth = Math.max(contentWidth, w)
   }
-  const popupWidth = Math.min(contentWidth + 4, logWidth)
+  const popupWidth = Math.min(contentWidth + 4, Math.max(8, logWidth))
   if (popupWidth < 4) return
 
   const t = getTheme()
+
+  // Anchor near command cursor, not fixed at left edge.
+  const commandInputCol = 1 // after ':' at col 0
+  const available = Math.max(0, screen.cols - 2)
+  const inputLen = widthOf(state.commandInput)
+  const cursorInInput = Math.max(0, Math.min(state.commandCursor, inputLen))
+  const leftClipped = inputLen > available
+  const visibleCursor = leftClipped && available > 1
+    ? Math.max(1, Math.min(available, 1 + cursorInInput - Math.max(0, inputLen - (available - 1))))
+    : Math.max(0, Math.min(available, cursorInInput))
+  const anchorCol = commandInputCol + visibleCursor
+  const minCol = 0
+  const maxCol = Math.max(minCol, screen.cols - popupWidth)
+  const popupLeft = clamp(anchorCol - 2, minCol, maxCol)
 
   // Scrolling: keep selected item visible
   const selIdx = state.completionSelectedIndex
@@ -576,7 +643,7 @@ function renderCompletionPopup(screen: Screen, state: AppState, commandRow: numb
   const innerHeight = actualHeight - 2
 
   // Render box border
-  screen.box(popupTop, sidebarWidth, popupWidth, actualHeight, 'round', t.sidebarBorder)
+  screen.box(popupTop, popupLeft, popupWidth, actualHeight, 'round', t.sidebarBorder)
 
   // Render items
   for (let i = 0; i < maxVisible && i < items.length; i++) {
@@ -591,10 +658,10 @@ function renderCompletionPopup(screen: Screen, state: AppState, commandRow: numb
     const fgColor = isSelected ? t.sidebarSelected : t.commandInput
 
     // Fill row background
-    screen.put(row, sidebarWidth + 1, ' '.repeat(innerWidth), fgColor, bg, isSelected ? ATTR_BOLD : 0)
+    screen.put(row, popupLeft + 1, ' '.repeat(innerWidth), fgColor, bg, isSelected ? ATTR_BOLD : 0)
 
     // Build item text: value  label  description
-    let col = sidebarWidth + 1
+    let col = popupLeft + 1
     const marker = isSelected ? '▸ ' : '  '
     screen.put(row, col, marker, fgColor, bg, isSelected ? ATTR_BOLD : 0)
     col += 2
@@ -603,19 +670,19 @@ function renderCompletionPopup(screen: Screen, state: AppState, commandRow: numb
     screen.put(row, col, valueText, fgColor, bg, isSelected ? ATTR_BOLD : 0)
     col += widthOf(valueText)
 
-    if (item.label && col < sidebarWidth + popupWidth - 2) {
-      const labelText = truncate(` ${item.label}`, sidebarWidth + popupWidth - 2 - col)
+    if (item.label && col < popupLeft + popupWidth - 2) {
+      const labelText = truncate(` ${item.label}`, popupLeft + popupWidth - 2 - col)
       if (widthOf(labelText) > 0) {
-        screen.put(row, col, labelText, t.sidebarMuted, bg, ATTR_DIM)
+        screen.put(row, col, labelText, isSelected ? fgColor : t.sidebarMuted, bg, isSelected ? ATTR_BOLD : ATTR_DIM)
         col += widthOf(labelText)
       }
     }
 
-    if (item.description && col < sidebarWidth + popupWidth - 2) {
-      const descAvail = sidebarWidth + popupWidth - 2 - col - 2
+    if (item.description && col < popupLeft + popupWidth - 2) {
+      const descAvail = popupLeft + popupWidth - 2 - col - 2
       if (descAvail > 3) {
         const descText = truncate(` ${item.description}`, descAvail + 1)
-        screen.put(row, col, descText, t.sidebarMuted, bg, ATTR_DIM)
+        screen.put(row, col, descText, isSelected ? fgColor : t.sidebarMuted, bg, isSelected ? 0 : ATTR_DIM)
       }
     }
   }
@@ -623,7 +690,7 @@ function renderCompletionPopup(screen: Screen, state: AppState, commandRow: numb
   // Scroll indicator
   if (items.length > maxVisible) {
     const indicator = `${scrollOffset + 1}-${Math.min(scrollOffset + maxVisible, items.length)}/${items.length}`
-    const indCol = sidebarWidth + popupWidth - 2 - widthOf(indicator)
+    const indCol = popupLeft + popupWidth - 2 - widthOf(indicator)
     screen.put(popupTop, indCol, indicator, t.sidebarMuted, '', ATTR_DIM)
   }
 }
@@ -684,17 +751,31 @@ function renderModal(screen: Screen, modal: ModalState, cols: number, rows: numb
   const t = getTheme()
 
   const isForm = modal.fields.length > 0
-  const contentRows = isForm
-    ? modal.fields.reduce((acc, f) => acc + 1 + (f.options?.length ? 0 : 0), 0)
-    : Math.min(modal.listItems.length, 8)
 
-  const modalWidth = Math.min(56, Math.max(32, Math.floor(cols * 0.55)))
-  const modalHeight = Math.min(rows - 2, contentRows + 5) // title + blank + error + footer + padding
+  const maxDetailWidth = modal.listItems.reduce((m, it) => Math.max(m, widthOf(it.label) + 2 + widthOf(it.detail || '')), 0)
+  const contentRows = isForm
+    ? modal.fields.length + 2
+    : Math.max(6, Math.min(modal.listItems.length, Math.floor(rows * 0.55)))
+
+  const baseWidth = modal.type === 'presets' ? Math.floor(cols * 0.62) : Math.floor(cols * 0.55)
+  const modalWidth = Math.min(
+    cols - 4,
+    Math.max(
+      modal.type === 'presets' ? 58 : 40,
+      Math.min(baseWidth, maxDetailWidth + 8),
+    ),
+  )
+  const modalHeight = Math.min(rows - 2, contentRows + 6) // title + blank + error + footer + padding
 
   const left = Math.floor((cols - modalWidth) / 2)
   const top = Math.floor((rows - modalHeight) / 2)
 
-  // Dim overlay border
+  // Opaque modal body (prevents underlying pane text leakage)
+  for (let r = top; r < top + modalHeight; r++) {
+    screen.put(r, left, ' '.repeat(modalWidth), t.sidebarText, '')
+  }
+
+  // Modal border
   screen.box(top, left, modalWidth, modalHeight, 'double', t.sidebarBorder)
 
   // Title bar
@@ -713,6 +794,9 @@ function renderModal(screen: Screen, modal: ModalState, cols: number, rows: numb
       const labelStr = `${req}${field.label}: `
       const labelWidth = widthOf(labelStr)
       const valueWidth = Math.max(0, modalWidth - labelWidth - 4)
+
+      // Clear full editable row area first
+      screen.put(row, left + 1, ' '.repeat(Math.max(0, modalWidth - 2)), t.sidebarText, '')
 
       const labelColor = active ? t.sidebarSelected : t.sidebarText
       screen.put(row, left + 2, labelStr, labelColor, '', active ? ATTR_BOLD : 0)
@@ -766,7 +850,7 @@ function renderModal(screen: Screen, modal: ModalState, cols: number, rows: numb
         const detailCol = left + 1 + widthOf(line) + 1
         const detailWidth = modalWidth - 2 - widthOf(line) - 2
         if (detailWidth > 0) {
-          screen.put(row, detailCol, truncate(item.detail, detailWidth), t.sidebarMuted, bg, ATTR_DIM)
+          screen.put(row, detailCol, truncate(item.detail, detailWidth), selected ? color : t.sidebarMuted, bg, selected ? 0 : ATTR_DIM)
         }
       }
       row += 1

@@ -2,20 +2,20 @@ import { describe, it, expect } from 'bun:test'
 import { piAdapter } from '../../../src/adapters/pi'
 
 describe('pi adapter', () => {
-  it('generates spawn args with provider and model', () => {
-    const args = piAdapter.spawnArgs({ model: 'gpt-5.4', dir: '/tmp' })
+  it('generates spawn args with model', () => {
+    const args = piAdapter.spawnArgs({ model: 'openai-codex/gpt-5.4', dir: '/tmp' })
     expect(args[0]).toBe('bash')
     expect(args[1]).toBe('-lc')
     expect(args[2]).toContain('nvm use 20')
-    expect(args[2]).toContain('pi --provider openai')
-    expect(args[2]).toContain("--model 'gpt-5.4'")
+    expect(args[2]).toContain('pi --model')
+    expect(args[2]).toContain("--model 'openai-codex/gpt-5.4'")
   })
 
   it('generates spawn args without model', () => {
     const args = piAdapter.spawnArgs({ dir: '/tmp' })
     expect(args[0]).toBe('bash')
     expect(args[1]).toBe('-lc')
-    expect(args[2]).toContain('pi --provider openai')
+    expect(args[2]).toContain('pi')
     expect(args[2]).not.toContain('--model')
   })
 
@@ -28,8 +28,8 @@ describe('pi adapter', () => {
     expect(piAdapter.detectReady('starting up...')).toBe('loading')
   })
 
-  it('reports running for spinner output', () => {
-    expect(piAdapter.detectStatus('⠋ Thinking about it')).toBe('running')
+  it('reports running for spinner + Working marker', () => {
+    expect(piAdapter.detectStatus('⠋ Working...')).toBe('running')
   })
 
   it('reports idle for command prompt', () => {

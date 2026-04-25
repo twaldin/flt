@@ -6,20 +6,20 @@ interface SkillsListArgs {
 }
 
 export function skillsList(args: SkillsListArgs): void {
-  const { agent = '', cli = '*' } = args
-  const skills = loadSkills(agent, cli)
+  const { cli = '*' } = args
+  const skills = loadSkills(cli)
 
   if (skills.length === 0) {
     console.log('No skills found.')
     return
   }
 
-  const headers = ['name', 'description', 'cli-support', 'source']
+  const headers = ['name', 'description', 'source', 'path']
   const rows = skills.map(s => [
     s.name,
     s.description,
-    s.cliSupport.join(', '),
     s.source,
+    s.path,
   ])
 
   const widths = headers.map((h, i) =>

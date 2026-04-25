@@ -12,6 +12,7 @@ import { presetsAdd, presetsList, presetsRemove } from './commands/presets'
 import { listAdapters } from './adapters/registry'
 import { cronList, cronAdd, cronRemove } from './commands/cron'
 import { activity } from './commands/activity'
+import { modelsResolve } from './commands/models'
 
 const program = new Command()
   .name('flt')
@@ -77,6 +78,9 @@ program
   .option('-W, --no-worktree', 'Skip git worktree creation')
   .option('--parent <name>', 'Override parent agent for messaging')
   .option('--persistent', 'Mark agent as persistent (shows as respawning when dead)')
+  .option('--skill <name>', 'Enable a skill for this spawn (repeatable)', (value, prev: string[]) => [...prev, value], [])
+  .option('--all-skills', 'Enable all discoverable skills for this spawn')
+  .option('--no-model-resolve', 'Disable CLI-specific model alias resolution (raw passthrough)')
   .argument('[bootstrap]', 'Initial message to send after agent is ready')
   .action(async (name, bootstrap, opts) => {
     try {
@@ -89,6 +93,9 @@ program
         worktree: opts.worktree,
         parent: opts.parent,
         persistent: opts.persistent,
+        skills: opts.skill,
+        allSkills: opts.allSkills,
+        noModelResolve: opts.modelResolve === false,
         bootstrap,
       })
     } catch (e) {
@@ -221,6 +228,24 @@ presetsCmd
     try {
       presetsRemove({ name })
       console.log(`Removed preset "${name}".`)
+    } catch (e) {
+      console.error(`Error: ${(e as Error).message}`)
+      process.exit(1)
+    }
+  })
+
+const modelsCmd = program
+  .command('models')
+  .description('Model alias resolution helpers')
+
+modelsCmd
+  .command('resolve <alias>')
+  .description('Resolve a model alias for a specific CLI')
+  .requiredOption('-c, --cli <cli>', `CLI adapter (${listAdapters().join(', ')})`)
+  .option('--no-resolve', 'Disable resolution (debug passthrough)')
+  .action((alias, opts) => {
+    try {
+      modelsResolve({ alias, cli: opts.cli, noResolve: opts.resolve === false })
     } catch (e) {
       console.error(`Error: ${(e as Error).message}`)
       process.exit(1)

@@ -75,7 +75,7 @@ export interface InputBindings {
 }
 
 const COMMANDS = ['send', 'logs', 'spawn', 'presets', 'kill', 'theme', 'ascii', 'keybinds', 'help']
-const SPAWN_FLAGS = ['--cli', '--model', '--dir', '--preset', '--persistent', '--no-worktree', '--parent']
+const SPAWN_FLAGS = ['--cli', '--model', '--dir', '--preset', '--persistent', '--no-worktree', '--parent', '--skill', '--all-skills', '--no-model-resolve']
 const PRESETS_ACTIONS = ['list', 'add', 'remove']
 const PRESETS_ADD_FLAGS = ['--cli', '--model', '--description']
 
@@ -99,6 +99,9 @@ const FLAG_DESCRIPTIONS: Record<string, string> = {
   '--persistent': 'Keep alive',
   '--no-worktree': 'Skip worktree',
   '--parent': 'Parent agent',
+  '--skill': 'Enable skill for this spawn',
+  '--all-skills': 'Enable all skills',
+  '--no-model-resolve': 'Disable model alias resolution',
 }
 
 const PRESET_ACTION_DESCRIPTIONS: Record<string, string> = {
@@ -171,6 +174,29 @@ function toItems(values: string[], label?: string, descriptions?: Record<string,
 interface CompletionResult {
   items: CompletionItem[]
   currentToken: string
+}
+
+function listSkillNames(): string[] {
+  const { existsSync, readdirSync, lstatSync } = require('fs') as typeof import('fs')
+  const { join } = require('path') as typeof import('path')
+  const home = process.env.HOME || require('os').homedir()
+  const roots = [join(process.cwd(), '.flt', 'skills'), join(home, '.flt', 'skills')]
+  const names = new Set<string>()
+
+  for (const root of roots) {
+    if (!existsSync(root)) continue
+    for (const entry of readdirSync(root)) {
+      const p = join(root, entry)
+      try {
+        if (!lstatSync(p).isDirectory()) continue
+      } catch {
+        continue
+      }
+      if (existsSync(join(p, 'SKILL.md'))) names.add(entry)
+    }
+  }
+
+  return Array.from(names).sort((a, b) => a.localeCompare(b))
 }
 
 function parseInboxSender(messages: InboxMessage[]): string | undefined {
@@ -253,6 +279,11 @@ function getCompletions(
     if (prevPart === '--preset' || prevPart === '-p') {
       const matched = matchCandidates(presetNames, lastPart)
       return { items: toItems(matched, 'preset'), currentToken: lastPart }
+    }
+
+    if (prevPart === '--skill') {
+      const matched = matchCandidates(listSkillNames(), lastPart)
+      return { items: toItems(matched, 'skill'), currentToken: lastPart }
     }
 
     if (lastPart.startsWith('-')) {
@@ -813,7 +844,28 @@ function handleModalKey(event: Extract<ParsedInputEvent, { type: 'key' }>, bindi
 
 function handleModalText(event: Extract<ParsedInputEvent, { type: 'text' }>, bindings: InputBindings): void {
   const modal = bindings.getState().modal
-  if (!modal || modal.fields.length === 0) return
+  if (!modal) return
+
+  // List-mode hotkeys that arrive as plain text events.
+  if (modal.listItems.length > 0 && modal.fields.length === 0) {
+    const ch = event.text.trim().toLowerCase()
+    if (modal.type === 'presets' && ch === 'a') {
+      bindings.cancelModal()
+      bindings.openCommand('presets add ')
+      return
+    }
+    if (modal.type === 'presets' && ch === 'd') {
+      const selected = modal.listItems[modal.selectedIndex]
+      if (selected) {
+        bindings.cancelModal()
+        bindings.openCommand(`presets remove ${selected.label}`)
+      }
+      return
+    }
+    return
+  }
+
+  if (modal.fields.length === 0) return
 
   const field = modal.fields[modal.activeField]
   if (!field) return

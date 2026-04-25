@@ -35,6 +35,8 @@ export async function sendDirect(args: SendArgs): Promise<void> {
   const caller = _caller ?? detectCaller()
   const senderName = caller.agentName ?? (caller.mode === 'human' ? detectUsername() : 'unknown')
 
+  let effectiveTarget = target
+
   // Block workflow agents from sending messages — they should use flt workflow pass/fail
   if (caller.agentName) {
     try {
@@ -48,7 +50,13 @@ export async function sendDirect(args: SendArgs): Promise<void> {
     }
   }
 
-  if (target === 'parent') {
+  // Subagents cannot message human directly; auto-reroute to parent.
+  if (caller.mode === 'agent' && caller.parentName && caller.parentName !== 'human' && target === 'human') {
+    effectiveTarget = 'parent'
+    process.stderr.write('[flt] warning: rerouted send target from "human" to "parent" for subagent\n')
+  }
+
+  if (effectiveTarget === 'parent') {
     if (caller.mode !== 'agent') {
       throw new Error('Cannot send to "parent" — not running as a fleet agent.')
     }
@@ -84,9 +92,9 @@ export async function sendDirect(args: SendArgs): Promise<void> {
       }
     }
   } else {
-    const agent = getAgent(target)
+    const agent = getAgent(effectiveTarget)
     if (!agent) {
-      throw new Error(`Agent "${target}" not found. Run "flt list" to see active agents.`)
+      throw new Error(`Agent "${effectiveTarget}" not found. Run "flt list" to see active agents.`)
     }
 
     if (!tmux.hasSession(agent.tmuxSession)) {
@@ -110,7 +118,7 @@ export async function sendDirect(args: SendArgs): Promise<void> {
   }
 
   if (caller.mode === 'human' && !process.env.FLT_TUI_ACTIVE) {
-    console.log(`Sent to ${target}`)
+    console.log(`Sent to ${effectiveTarget}`)
   }
 }
 

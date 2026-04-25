@@ -99,7 +99,7 @@ export function killDirect(args: KillArgs): void {
     if (agent.instructionProjection) {
       restoreInstructions(agent.instructionProjection)
     }
-    cleanupSkills(agent.dir, adapter, name)
+    cleanupSkills(agent.dir, adapter)
   } catch {
     // Best-effort
   }

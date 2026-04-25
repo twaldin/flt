@@ -18,7 +18,7 @@ export const piAdapter: CliAdapter = {
       'if [ -s "$HOME/.nvm/nvm.sh" ]; then',
       'source "$HOME/.nvm/nvm.sh" && nvm use 20 >/dev/null;',
       'fi;',
-      `pi --provider openai${modelArg}`,
+      `pi${modelArg}`,
     ].join(' ')
     return ['bash', '-lc', script]
   },
@@ -46,7 +46,11 @@ export const piAdapter: CliAdapter = {
 
     if (/rate.?limit|too many requests|quota/i.test(last10)) return 'rate-limited'
     if (/error|fatal|crash/i.test(last10)) return 'error'
-    if (/[⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏]/.test(last10) || /thinking|working/i.test(last10)) return 'running'
+
+    // Prefer explicit active marker from Pi UI:
+    // "⠋ Working..." (braille spinner + working text)
+    if (/[⠁-⣿]\s*Working\.\.\./i.test(last10)) return 'running'
+
     if (/\/[a-z][a-z0-9_-]*/i.test(last10) || /[>❯]\s*$/.test(last10)) return 'idle'
 
     return 'unknown'

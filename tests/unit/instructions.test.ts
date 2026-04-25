@@ -34,10 +34,24 @@ describe('instructions', () => {
   it('builds system block with template substitution', () => {
     const block = buildSystemBlock(baseOpts)
     expect(block).toContain('Fleet Agent: coder-1')
-    expect(block).toContain('Parent: orchestrator')
+    expect(block).toContain('Parent agent: orchestrator')
     expect(block).toContain('CLI: claude-code')
     expect(block).toContain('Model: opus-4-6')
     expect(block).toContain('flt send parent')
+  })
+
+  it('uses root template when parent is human', () => {
+    const block = buildSystemBlock({ ...baseOpts, parentName: 'human' })
+    expect(block).toContain('managed root agent')
+    expect(block).toContain('Parent: human')
+    expect(block).toContain('Terminal output can be useful')
+  })
+
+  it('uses subagent template when parent is another agent', () => {
+    const block = buildSystemBlock({ ...baseOpts, parentName: 'orchestrator' })
+    expect(block).toContain('managed subagent')
+    expect(block).toContain('Parent agent: orchestrator')
+    expect(block).toContain('do not message human directly')
   })
 
   it('builds full instructions without SOUL.md', () => {

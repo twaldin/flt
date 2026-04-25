@@ -6,9 +6,8 @@ import {
   type InstructionProjection,
 } from '@twaldin/harness-ts'
 
-// Local override templates take precedence over bundled ones
-// This allows template updates without waiting for npm publish
-const BUNDLED_TEMPLATE_PATH = join(import.meta.dir, '..', 'templates', 'system-block.md')
+const BUNDLED_ROOT_TEMPLATE_PATH = join(import.meta.dir, '..', 'templates', 'system-block-root.md')
+const BUNDLED_SUBAGENT_TEMPLATE_PATH = join(import.meta.dir, '..', 'templates', 'system-block-subagent.md')
 const BUNDLED_WORKFLOW_PATH = join(import.meta.dir, '..', 'templates', 'workflow-block.md')
 
 function resolveTemplate(localName: string, bundledPath: string): string {
@@ -16,7 +15,8 @@ function resolveTemplate(localName: string, bundledPath: string): string {
   return existsSync(localPath) ? localPath : bundledPath
 }
 
-const TEMPLATE_PATH = resolveTemplate('system-block.md', BUNDLED_TEMPLATE_PATH)
+const ROOT_TEMPLATE_PATH = resolveTemplate('system-block-root.md', BUNDLED_ROOT_TEMPLATE_PATH)
+const SUBAGENT_TEMPLATE_PATH = resolveTemplate('system-block-subagent.md', BUNDLED_SUBAGENT_TEMPLATE_PATH)
 const WORKFLOW_TEMPLATE_PATH = resolveTemplate('workflow-block.md', BUNDLED_WORKFLOW_PATH)
 const FLT_MARKER_START = '<!-- flt:start -->'
 const FLT_MARKER_END = '<!-- flt:end -->'
@@ -33,12 +33,17 @@ interface InstructionOpts {
   workflow?: string
   step?: string
   presetSoul?: string
+  skillNames?: string[]
 }
 
 export type { InstructionProjection }
 
 export function buildSystemBlock(opts: InstructionOpts): string {
-  const templatePath = opts.workflow ? WORKFLOW_TEMPLATE_PATH : TEMPLATE_PATH
+  const templatePath = opts.workflow
+    ? WORKFLOW_TEMPLATE_PATH
+    : (opts.parentName === 'human' || opts.parentName === 'cron')
+      ? ROOT_TEMPLATE_PATH
+      : SUBAGENT_TEMPLATE_PATH
   let template = readFileSync(templatePath, 'utf-8')
   template = template.replace(/\{\{name\}\}/g, opts.agentName)
   template = template.replace(/\{\{parentName\}\}/g, opts.parentName)
@@ -46,6 +51,8 @@ export function buildSystemBlock(opts: InstructionOpts): string {
   template = template.replace(/\{\{model\}\}/g, opts.model || 'default')
   template = template.replace(/\{\{workflow\}\}/g, opts.workflow || '')
   template = template.replace(/\{\{step\}\}/g, opts.step || '')
+  template = template.replace(/\{\{comms\}\}/g, buildCommsBlock(opts.parentName))
+  template = template.replace(/\{\{skills\}\}/g, buildSkillsBlock(opts.skillNames ?? [], opts.cli))
   return template
 }
 
@@ -61,6 +68,32 @@ export function loadSoulMd(agentName: string, presetSoul?: string): string | nul
   }
 
   return null
+}
+
+function buildCommsBlock(parentName: string): string {
+  if (parentName === 'human' || parentName === 'cron') {
+    return '- Parent is human. Use `flt send parent "..."` for important updates/blockers.\n- Terminal output can be useful and may be visible in logs.'
+  }
+  return '- Parent is another agent. Send progress/questions via `flt send parent "..."`.\n- Use parent as the primary coordination channel.'
+}
+
+function skillsDir(cli: string): string {
+  if (cli === 'claude-code') return '.claude/skills'
+  if (cli === 'opencode') return '.opencode/skills'
+  return '.flt/skills'
+}
+
+function buildSkillsBlock(skillNames: string[], cli: string): string {
+  if (skillNames.length === 0) {
+    return '- No skills loaded for this run. Skills are opt-in at spawn.'
+  }
+
+  const dir = skillsDir(cli)
+  const lines = ['- Enabled skills (read only when relevant):']
+  for (const name of skillNames) {
+    lines.push(`  - ./${dir}/${name}/SKILL.md`)
+  }
+  return lines.join('\n')
 }
 
 export function buildFullInstructions(opts: InstructionOpts): string {

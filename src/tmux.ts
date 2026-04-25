@@ -25,12 +25,19 @@ export function createSession(
   cwd: string,
   command: string,
   env: Record<string, string> = {},
+  width?: number,
+  height?: number,
 ): void {
   const envArgs: string[] = []
   for (const [k, v] of Object.entries(env)) {
     envArgs.push('-e', `${k}=${v}`)
   }
-  tmux('new-session', '-d', '-s', name, '-c', cwd, ...envArgs, command)
+
+  const sizeArgs: string[] = []
+  if (width && width > 0) sizeArgs.push('-x', String(width))
+  if (height && height > 0) sizeArgs.push('-y', String(height))
+
+  tmux('new-session', '-d', '-s', name, ...sizeArgs, '-c', cwd, ...envArgs, command)
   // Ensure explicit resize-window calls are respected for this window.
   tmuxNoThrow('set-window-option', '-t', `${name}:^`, 'window-size', 'manual')
 }
@@ -114,6 +121,13 @@ export function getPanePid(session: string): number | null {
   return isNaN(pid) ? null : pid
 }
 
+export function getPaneCurrentCommand(session: string): string | null {
+  const out = tmuxNoThrow('list-panes', '-t', session, '-F', '#{pane_current_command}')
+  if (!out) return null
+  const cmd = out.split('\n')[0]?.trim()
+  return cmd || null
+}
+
 export function setEnv(session: string, key: string, value: string): void {
   tmux('set-environment', '-t', session, key, value)
 }
@@ -127,19 +141,51 @@ export function resizeWindow(session: string, width: number, height: number): vo
 }
 
 /**
- * If flt is running inside tmux, force the current window to fit the attached
- * client's actual dimensions. Fixes the "tmux locked small" case where tmux's
- * window-size option (or a previous smaller client) pinned the window to
- * something narrower than the current terminal. Parses TMUX env to find the
- * current session, then issues an explicit resize-window matching cols/rows.
+ * If flt is running inside tmux, unlock the current window so it tracks the
+ * attached client's size. Fixes "tmux locked small" where window-size=smallest
+ * or a prior smaller client pinned the window below the current terminal.
+ *
+ * Forces an explicit resize to the reported cols/rows, then sets window-size
+ * to `latest` on the window so subsequent client resizes (e.g. terminal font
+ * zoom) are auto-followed by tmux. `resize-window` alone leaves the window in
+ * `manual` mode, which blocks client-initiated resizes — so the restore is
+ * essential for dynamic resize to keep working while the TUI runs.
+ *
+ * Returns the prior `window-size` option so the caller can restore it on exit.
  */
-export function refreshCurrentTmuxWindow(cols: number, rows: number): void {
+export function refreshCurrentTmuxWindow(cols: number, rows: number): string | null {
   const tmuxEnv = process.env.TMUX
-  if (!tmuxEnv) return
+  if (!tmuxEnv) return null
   try {
     const sessionId = tmuxNoThrow('display-message', '-p', '#{session_id}')
-    if (!sessionId) return
+    if (!sessionId) return null
+    const windowId = tmuxNoThrow('display-message', '-p', '#{window_id}')
+    const prior = windowId
+      ? (tmuxNoThrow('show-window-options', '-t', windowId, '-v', 'window-size') ?? null)
+      : null
     tmuxNoThrow('resize-window', '-t', sessionId, '-x', String(cols), '-y', String(rows))
+    if (windowId) {
+      tmuxNoThrow('set-window-option', '-t', windowId, 'window-size', 'latest')
+    }
+    return prior
+  } catch {
+    // Best-effort — not all tmux versions support all flags
+    return null
+  }
+}
+
+/**
+ * Restore the `window-size` option on the current tmux window — pair with
+ * `refreshCurrentTmuxWindow` at TUI shutdown so we don't leave the user's
+ * window pinned to `latest` after we exit.
+ */
+export function restoreCurrentTmuxWindowSize(prior: string | null): void {
+  const tmuxEnv = process.env.TMUX
+  if (!tmuxEnv || !prior) return
+  try {
+    const windowId = tmuxNoThrow('display-message', '-p', '#{window_id}')
+    if (!windowId) return
+    tmuxNoThrow('set-window-option', '-t', windowId, 'window-size', prior)
   } catch {
     // Best-effort — not all tmux versions support all flags
   }

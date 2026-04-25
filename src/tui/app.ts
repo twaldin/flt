@@ -8,7 +8,7 @@ import { send } from '../commands/send'
 import { spawn } from '../commands/spawn'
 import { listPresets } from '../presets'
 import { allAgents, type AgentState } from '../state'
-import { capturePane, capturePaneVisible, flushBatchedKeys, hasSession, refreshCurrentTmuxWindow, resizeWindow, sendKeysAsync, sendLiteralBatched } from '../tmux'
+import { capturePane, capturePaneVisible, flushBatchedKeys, hasSession, refreshCurrentTmuxWindow, resizeWindow, restoreCurrentTmuxWindowSize, sendKeysAsync, sendLiteralBatched } from '../tmux'
 import { getInboxPath } from '../commands/init'
 import { parseCommand, enrichMessageWithFiles } from './command-parser'
 import { setupInput, getCompletionItems, type InputBindings, type TmuxInsertKey } from './input'
@@ -120,6 +120,7 @@ export class App {
   private lastSelectedName: string | undefined
   private lastStatusByAgent: Record<string, string> = {}
   private lastResizedDims: Record<string, { width: number; height: number; spawnedAt: string }> = {}
+  private priorTmuxWindowSize: string | null = null
   // Status detection moved to controller poller — these are no longer needed
   private bannerTimer: ReturnType<typeof setTimeout> | null = null
   private insertCaptureTimer: ReturnType<typeof setTimeout> | null = null
@@ -150,9 +151,11 @@ export class App {
     // If running inside tmux, force the window to match the actual client
     // size. Fixes "tmux locked small" where a prior smaller client or
     // window-size=smallest pinned the window narrower than the terminal.
+    // The call also switches window-size to `latest` so future client-
+    // initiated resizes (terminal zoom) auto-propagate into the TUI.
     const actualCols = process.stdout.columns ?? this.screen.cols
     const actualRows = process.stdout.rows ?? this.screen.rows
-    refreshCurrentTmuxWindow(actualCols, actualRows)
+    this.priorTmuxWindowSize = refreshCurrentTmuxWindow(actualCols, actualRows)
     if (actualCols !== this.screen.cols || actualRows !== this.screen.rows) {
       this.screen.resize(actualCols, actualRows)
       this.state.termWidth = actualCols
@@ -287,15 +290,20 @@ export class App {
     // Clean up typing indicator
     try { unlinkSync(join(homedir(), '.flt', 'typing')) } catch {}
 
+    // Restore the user's original window-size option so we don't leave their
+    // tmux window in `latest` mode after the TUI exits.
+    restoreCurrentTmuxWindowSize(this.priorTmuxWindowSize)
+    this.priorTmuxWindowSize = null
+
     process.stdout.write('\x1b[0m\x1b[?25h\x1b[?1049l')
   }
 
   resize(cols: number, rows: number): void {
     this.markActivity()
-    // If we're inside tmux, re-assert the window size so the inner pane
-    // actually follows the outer terminal. Otherwise tmux can keep the
-    // window at a previously-smaller client size.
-    refreshCurrentTmuxWindow(cols, rows)
+    // SIGWINCH means tmux already resized our pane — don't call
+    // refreshCurrentTmuxWindow here. That would run `tmux resize-window`, which
+    // flips window-size back to `manual` and breaks subsequent client-initiated
+    // resizes (e.g. the user's next cmd+/cmd- zoom).
 
     this.screen.resize(cols, rows)
     this.state.termWidth = cols
@@ -579,11 +587,11 @@ export class App {
   private scrollLogUp(): void {
     if (this.state.autoFollow) {
       // Transitioning out of follow — will switch from visible-pane to scrollback capture.
-      // Pre-capture the scrollback so offset is relative to the full content.
+      // Pre-capture deeper scrollback so off-screen style/opening sequences are preserved.
       const agent = this.selectedAgent
       if (agent) {
         try {
-          const full = capturePane(agent.tmuxSession, Math.max(200, (this.state.termHeight - 5) * 3))
+          const full = capturePane(agent.tmuxSession, Math.max(1000, (this.state.termHeight - 5) * 12))
           this.state.logContent = full
           this.lastLogContent = full
           this.state.logScrollOffset = this.maxScroll(full)
@@ -607,7 +615,7 @@ export class App {
       const agent = this.selectedAgent
       if (agent) {
         try {
-          const full = capturePane(agent.tmuxSession, Math.max(200, (this.state.termHeight - 5) * 3))
+          const full = capturePane(agent.tmuxSession, Math.max(1000, (this.state.termHeight - 5) * 12))
           this.state.logContent = full
           this.lastLogContent = full
           this.state.logScrollOffset = this.maxScroll(full)
@@ -770,6 +778,9 @@ export class App {
       let persistent: boolean | undefined
       let worktree: boolean | undefined
       let parent: string | undefined
+      const skills: string[] = []
+      let allSkills: boolean | undefined
+      let noModelResolve: boolean | undefined
       let i = 1
       while (i < spawnArgs.length) {
         if ((spawnArgs[i] === '--cli' || spawnArgs[i] === '-c') && i + 1 < spawnArgs.length) {
@@ -790,6 +801,15 @@ export class App {
           i += 2
         } else if (spawnArgs[i] === '--persistent') {
           persistent = true
+          i += 1
+        } else if (spawnArgs[i] === '--skill' && i + 1 < spawnArgs.length) {
+          skills.push(spawnArgs[i + 1])
+          i += 2
+        } else if (spawnArgs[i] === '--all-skills') {
+          allSkills = true
+          i += 1
+        } else if (spawnArgs[i] === '--no-model-resolve') {
+          noModelResolve = true
           i += 1
         } else if (spawnArgs[i] === '--no-worktree' || spawnArgs[i] === '-W') {
           worktree = false
@@ -812,7 +832,20 @@ export class App {
         this.setBanner(`Spawn ${name}: still waiting (check flt logs ${name})`, 'yellow')
       }, 65000)
 
-      spawn({ name, cli, preset, model, dir, bootstrap, persistent, worktree, parent })
+      spawn({
+        name,
+        cli,
+        preset,
+        model,
+        dir,
+        bootstrap,
+        persistent,
+        worktree,
+        parent,
+        skills: skills.length ? skills : undefined,
+        allSkills,
+        noModelResolve,
+      })
         .then(() => {
           clearTimeout(staleTimer)
           this.setBanner(`Spawned ${name}`, 'green', 3000)
@@ -1064,10 +1097,14 @@ export class App {
     const agent = agents[selected.name]
     if (!agent) return
     try {
-      // In insert mode we're always auto-following — capture visible pane only
-      const raw = this.state.autoFollow
-        ? capturePaneVisible(agent.tmuxSession)
-        : capturePane(agent.tmuxSession, Math.max(200, (this.state.termHeight - 5) * 3))
+      const layout = calculateLayout(this.state.termWidth, this.state.termHeight, this.state.agents)
+      const paneHeight = Math.max(10, layout.logInnerHeight)
+      // In auto-follow, include style context above the viewport so ANSI state
+      // that begins just off-screen still applies to visible rows.
+      const raw = capturePane(
+        agent.tmuxSession,
+        this.state.autoFollow ? Math.max(1000, paneHeight * 6) : Math.max(1000, (this.state.termHeight - 5) * 12),
+      )
       const content = stripOsc8(raw)
       if (content !== this.lastLogContent) {
         this.lastLogContent = content
@@ -1219,12 +1256,11 @@ export class App {
           const layout = calculateLayout(this.state.termWidth, this.state.termHeight, this.state.agents)
           const paneHeight = Math.max(10, layout.logInnerHeight)
 
-          // In auto-follow: capture only the visible pane (no scrollback).
-          // This gives exactly paneHeight rows — a 1:1 match with the tmux pane.
-          // When scrolled up: capture with scrollback for history.
+          // In auto-follow, still capture some context above the viewport so
+          // opening ANSI sequences that start just off-screen are preserved.
           const content = stripOsc8(this.state.autoFollow
-            ? capturePaneVisible(agent.tmuxSession)
-            : capturePane(agent.tmuxSession, Math.max(200, paneHeight * 3)))
+            ? capturePane(agent.tmuxSession, Math.max(1000, paneHeight * 6))
+            : capturePane(agent.tmuxSession, Math.max(1000, paneHeight * 12)))
           if (content !== this.lastLogContent) {
             this.lastLogContent = content
             if (this.applyLogContent(content)) changed = true

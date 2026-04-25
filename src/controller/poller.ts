@@ -2,13 +2,15 @@ import { readFileSync } from 'fs'
 import { join } from 'path'
 import { resolveAdapter, getAdapter } from '../adapters/registry'
 import type { AgentStatus } from '../adapters/types'
-import { allAgents, setAgent, loadState, saveState, type AgentState } from '../state'
-import { capturePane, hasSession, listSessions, sendKeys } from '../tmux'
+import { loadState, saveState, type AgentState } from '../state'
+import { capturePane, listSessions, sendKeys } from '../tmux'
 import { appendInbox } from '../commands/init'
 import { appendEvent } from '../activity'
+import { killDirect } from '../commands/kill'
 
 const CONTENT_STABLE_TIMEOUT_MS = 60_000
 const STUCK_THRESHOLD_MS = 30 * 60 * 1000  // 30 minutes
+const DEATH_GRACE_MS = 2000
 
 function getTypingAgent(): string | null {
   try {
@@ -27,6 +29,7 @@ const hashStableSince: Record<string, number> = {}  // when content stopped chan
 const stableTracker: Record<string, { hash: string; since: number }> = {}
 const runningSince: Record<string, number> = {}     // when agent entered 'running' state
 const stuckWarned: Record<string, boolean> = {}     // whether 30m warning was already emitted
+const deathCandidateSince: Record<string, { since: number; reason: string }> = {}
 
 const ICON_IDLE_THRESHOLD = 3     // 3 consecutive same-icon polls (3s) before idle
 const CONTENT_IDLE_GRACE_MS = 5000 // 5s of stable content before flipping running→idle
@@ -45,19 +48,42 @@ function simpleHash(s: string): string {
   return String(h)
 }
 
+function detectDeathReason(agent: AgentState, liveSessions: Set<string>): string | null {
+  // Liveness source of truth: tmux session presence only.
+  // Process-name based checks are too flaky across CLIs/startup wrappers
+  // and can produce false deaths during normal operation.
+  if (!liveSessions.has(agent.tmuxSession)) {
+    return 'session gone'
+  }
+
+  return null
+}
+
 function detectAgentStatusFromPane(name: string, agent: AgentState, pane: string, paneHash: string): AgentStatus {
   try {
     const adapter = getAdapter(agent.cli)
-    if (!adapter) return 'unknown'
 
     const stripped = pane.replace(/\x1b\[[0-9;?]*[A-Za-z]/g, '').replace(/\x1b\][^\x07]*\x07/g, '')
 
+    // Unknown adapter fallback: content-delta running/idle heuristic.
+    if (!adapter) {
+      const prevHash = lastHashes[name]
+      lastHashes[name] = paneHash
+
+      if (cachedTypingAgent === name) return agent.status ?? 'idle'
+
+      if (prevHash && prevHash !== paneHash) {
+        delete hashStableSince[name]
+        return 'running'
+      }
+      if (prevHash && prevHash === paneHash) {
+        if (!hashStableSince[name]) hashStableSince[name] = Date.now()
+        return (Date.now() - hashStableSince[name]) >= CONTENT_IDLE_GRACE_MS ? 'idle' : (agent.status ?? 'idle')
+      }
+      return agent.status ?? 'idle'
+    }
+
     // Claude-code: spinner icon delta detection
-    // The spinner cycles through · ✢ ✳ ∗ ✻ ✽ when active (~1s per icon).
-    // When done, it freezes on ✻. Compare between polls:
-    //   icon changed → running (reset stable count)
-    //   icon same N times → idle (only after ICON_IDLE_THRESHOLD consecutive same reads)
-    //   no icon → idle
     if (adapter.name === 'claude-code') {
       const last2 = stripped.split('\n').slice(-2).join('\n')
       if (/rate.?limit|hit your limit/i.test(last2)) return 'rate-limited'
@@ -68,16 +94,13 @@ function detectAgentStatusFromPane(name: string, agent: AgentState, pane: string
         const prev = lastIcons[name]
         lastIcons[name] = icon
         if (prev && prev !== icon) {
-          // Icon changed — definitely running
           iconStableCount[name] = 0
           return 'running'
         }
         if (prev) {
-          // Same icon — increment stable count, only declare idle after threshold
           iconStableCount[name] = (iconStableCount[name] ?? 0) + 1
           return iconStableCount[name] >= ICON_IDLE_THRESHOLD ? 'idle' : 'running'
         }
-        // First time seeing icon — assume running
         iconStableCount[name] = 0
         return 'running'
       }
@@ -91,20 +114,17 @@ function detectAgentStatusFromPane(name: string, agent: AgentState, pane: string
     const adapterResult = adapter.detectStatus(pane)
     if (adapterResult !== 'unknown') return adapterResult
 
-    // Fallback: content-delta with grace period (reuse pre-computed hash)
+    // Fallback: content-delta with grace period
     const prevHash = lastHashes[name]
     lastHashes[name] = paneHash
 
-    // If user is typing into this agent, ignore content changes
     if (cachedTypingAgent === name) return agent.status ?? 'idle'
 
     if (prevHash && prevHash !== paneHash) {
-      // Content changed — running, reset stable timer
       delete hashStableSince[name]
       return 'running'
     }
     if (prevHash && prevHash === paneHash) {
-      // Content stable — only flip to idle after grace period
       if (!hashStableSince[name]) hashStableSince[name] = Date.now()
       return (Date.now() - hashStableSince[name]) >= CONTENT_IDLE_GRACE_MS ? 'idle' : (agent.status ?? 'idle')
     }
@@ -123,7 +143,6 @@ function applyContentStableTimeout(name: string, paneHash: string, adapterStatus
     return adapterStatus
   }
 
-  // Content unchanged — check timeout
   if (Date.now() - prev.since >= CONTENT_STABLE_TIMEOUT_MS) {
     if (adapterStatus === 'running' || adapterStatus === 'unknown') {
       return 'idle'
@@ -131,6 +150,26 @@ function applyContentStableTimeout(name: string, paneHash: string, adapterStatus
   }
 
   return adapterStatus
+}
+
+function handleWorkflowStepFailure(name: string): void {
+  import('../workflow/engine').then(({ getWorkflowForAgent, handleStepFailure }) => {
+    const workflowName = getWorkflowForAgent(name)
+    if (workflowName) {
+      handleStepFailure(workflowName).catch(() => {})
+    }
+  }).catch(() => {})
+}
+
+function cleanupDeadAgent(name: string, reason: string): void {
+  appendInbox('WATCHDOG', `Agent ${name} died (${reason}); cleaning up`) 
+  try {
+    // Keep workflow alive; let engine mark the step failure instead of cancelling run.
+    killDirect({ name, fromWorkflow: true })
+    handleWorkflowStepFailure(name)
+  } catch {
+    // Best effort — state may already be cleaned.
+  }
 }
 
 export type StatusChangeCallback = (name: string, prev: AgentStatus | undefined, next: AgentStatus) => void
@@ -145,20 +184,36 @@ export function setStatusChangeCallback(cb: StatusChangeCallback): void {
 export function pollOnce(): void {
   const state = loadState()
   const agents = state.agents
-  const now = new Date().toISOString()
+  const nowIso = new Date().toISOString()
+  const nowMs = Date.now()
   let dirty = false
+  let performedCleanup = false
+
   cachedTypingAgent = getTypingAgent()
   const liveSessions = new Set(listSessions())
 
+  const toCleanup: Array<{ name: string; reason: string }> = []
+
   for (const [name, agent] of Object.entries(agents)) {
-    if (!liveSessions.has(agent.tmuxSession)) continue
+    const deathReason = detectDeathReason(agent, liveSessions)
+    if (deathReason) {
+      const candidate = deathCandidateSince[name]
+      if (!candidate || candidate.reason !== deathReason) {
+        deathCandidateSince[name] = { since: nowMs, reason: deathReason }
+      } else if (nowMs - candidate.since >= DEATH_GRACE_MS) {
+        toCleanup.push({ name, reason: deathReason })
+      }
+      continue
+    }
+
+    delete deathCandidateSince[name]
 
     const prevStatus = agent.status
     const pane = capturePane(agent.tmuxSession, 50)
     const paneHash = simpleHash(pane)
     let status = detectAgentStatusFromPane(name, agent, pane, paneHash)
 
-    // Auto-approve dialogs (trust prompts, permission prompts)
+    // Auto-approve dialogs
     if (status === ('dialog' as AgentStatus)) {
       try {
         const adapter = resolveAdapter(agent.cli)
@@ -169,15 +224,15 @@ export function pollOnce(): void {
           }
         }
       } catch {}
-      status = 'unknown'  // don't record 'dialog' as a real status
+      status = 'unknown'
     }
 
     status = applyContentStableTimeout(name, paneHash, status)
 
-    // Stuck detector: track how long an agent has been continuously 'running'
+    // Stuck detector
     if (status === 'running') {
-      if (!runningSince[name]) runningSince[name] = Date.now()
-      if (!stuckWarned[name] && Date.now() - runningSince[name] >= STUCK_THRESHOLD_MS) {
+      if (!runningSince[name]) runningSince[name] = nowMs
+      if (!stuckWarned[name] && nowMs - runningSince[name] >= STUCK_THRESHOLD_MS) {
         appendInbox('WATCHDOG', `Agent ${name} has been running for 30+ minutes — may be stuck`)
         stuckWarned[name] = true
       }
@@ -188,13 +243,13 @@ export function pollOnce(): void {
 
     if (status !== prevStatus) {
       agent.status = status
-      agent.statusAt = now
+      agent.statusAt = nowIso
       dirty = true
       appendEvent({
         type: 'status',
         agent: name,
         detail: `${prevStatus ?? 'unknown'} -> ${status}`,
-        at: now,
+        at: nowIso,
       })
       if (onStatusChange) {
         onStatusChange(name, prevStatus, status)
@@ -202,32 +257,16 @@ export function pollOnce(): void {
     }
   }
 
-  // Watchdog: detect agents whose tmux session is gone
-  for (const [name, agent] of Object.entries(agents)) {
-    if (liveSessions.has(agent.tmuxSession)) continue
-    if (agent.status === 'exited') continue
-
-    const prevStatus = agent.status
-    agent.status = 'exited'
-    agent.statusAt = now
-    dirty = true
-    appendInbox('WATCHDOG', `Agent ${name} died (session gone)`)
-    appendEvent({
-      type: 'status',
-      agent: name,
-      detail: `${prevStatus ?? 'unknown'} -> exited`,
-      at: now,
-    })
-    if (onStatusChange) {
-      onStatusChange(name, prevStatus, 'exited')
+  if (toCleanup.length > 0) {
+    for (const { name, reason } of toCleanup) {
+      cleanupDeadAgent(name, reason)
+      performedCleanup = true
     }
-
-    // Clean up tracking state for dead agent (but leave worktree intact)
-    delete runningSince[name]
-    delete stuckWarned[name]
   }
 
-  // Single write for all status changes
+  // Avoid writing stale pre-cleanup state back over killDirect removals.
+  if (performedCleanup) return
+
   if (dirty) saveState(state)
 }
 
@@ -252,4 +291,5 @@ export function cleanupAgent(name: string): void {
   delete stableTracker[name]
   delete runningSince[name]
   delete stuckWarned[name]
+  delete deathCandidateSince[name]
 }
