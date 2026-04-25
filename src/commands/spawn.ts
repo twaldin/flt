@@ -6,7 +6,9 @@ import { createWorktree, isGitRepo } from '../worktree'
 import { loadState, setAgent, hasAgent } from '../state'
 import { getPreset, resolvePresetEnv } from '../presets'
 import * as tmux from '../tmux'
-import { resolve } from 'path'
+import { join, resolve } from 'path'
+import { homedir } from 'os'
+import { createInterface } from 'node:readline'
 import { appendEvent } from '../activity'
 import { resolveModelForCli } from '../model-resolution'
 
@@ -58,7 +60,79 @@ function resolveDisplayedModel(
   return envModel || cliModel
 }
 
+function isDangerousWorkdir(dir: string): boolean {
+  const h = process.env.HOME || homedir()
+  const norm = dir.endsWith('/') ? dir.slice(0, -1) : dir
+
+  if (norm === h) return true
+  // dir is a parent of HOME (e.g. /Users would be a parent of /Users/foo)
+  if (h.startsWith(norm + '/')) return true
+
+  for (const dot of ['.claude', '.codex', '.opencode', '.gemini', '.flt']) {
+    const dotPath = join(h, dot)
+    if (norm === dotPath || norm.startsWith(dotPath + '/')) return true
+  }
+
+  for (const root of ['/', '/etc', '/usr', '/System', '/Library']) {
+    if (norm === root || (root !== '/' && norm.startsWith(root + '/'))) return true
+  }
+
+  return false
+}
+
+async function confirmDangerousWorkdir(dir: string): Promise<boolean> {
+  process.stderr.write(
+    `WARNING: Spawning into ${dir} may leak skills/state into your global CLI config. Continue? (y/N): `,
+  )
+  return new Promise(resolve => {
+    const rl = createInterface({ input: process.stdin })
+    rl.once('line', line => {
+      rl.close()
+      resolve(line.trim().toLowerCase() === 'y')
+    })
+    rl.once('close', () => resolve(false))
+  })
+}
+
+function buildIsolationEnv(cli: string, workDir: string): Record<string, string> {
+  if (cli === 'claude-code') {
+    // CLAUDE_CONFIG_DIR is the official env var (confirmed in the claude binary)
+    // to redirect config away from ~/.claude. Pointing it at <workdir>/.claude
+    // means the spawned agent reads only skills/settings written into the
+    // workspace, not the user's global config or global skills.
+    return { CLAUDE_CONFIG_DIR: join(workDir, '.claude') }
+  }
+  if (cli === 'opencode') {
+    // opencode follows the XDG spec; its config lives under $XDG_CONFIG_HOME.
+    // Redirecting to <workdir>/.config keeps the agent's config project-scoped
+    // without touching HOME or the user's ~/.config.
+    return { XDG_CONFIG_HOME: join(workDir, '.config') }
+  }
+  // pi, codex, aider, gemini, swe-agent: phase-1 isolation is instruction-file
+  // only; no env override needed.
+  return {}
+}
+
 export async function spawn(args: SpawnArgs): Promise<void> {
+  // Workdir safety check runs before the controller dispatch so it executes in
+  // the user's terminal process where stdin is interactive.
+  {
+    const effectivePreset = args.preset ?? (getPreset(args.name) ? args.name : undefined)
+    const presetDir = effectivePreset ? getPreset(effectivePreset)?.dir : undefined
+    const rawDir = args.dir ?? presetDir
+    const expanded = rawDir?.startsWith('~')
+      ? rawDir.replace(/^~/, process.env.HOME || homedir())
+      : rawDir
+    const checkDir = resolve(expanded || process.cwd())
+    if (isDangerousWorkdir(checkDir)) {
+      const confirmed = await confirmDangerousWorkdir(checkDir)
+      if (!confirmed) {
+        if (!process.env.FLT_TUI_ACTIVE) console.error('Spawn cancelled.')
+        return
+      }
+    }
+  }
+
   if (process.env.FLT_CONTROLLER !== '1') {
     const { ensureController } = await import('./controller')
     const { sendToController } = await import('../controller/client')
@@ -240,12 +314,14 @@ export async function spawnDirect(args: SpawnArgs): Promise<void> {
   // Create tmux session with env vars. Preset env takes priority over adapter env
   // because presets are user-level overrides (e.g. swapping claude-code to z.ai).
   const adapterEnv = adapter.env?.() ?? {}
+  const isolationEnv = buildIsolationEnv(adapter.name, workDir)
   const mergedPath = presetEnv.PATH ?? adapterEnv.PATH ?? `${process.env.PATH}`
   const initialWidth = args._termWidth ?? process.stdout.columns ?? 80
   const initialHeight = args._termHeight ?? process.stdout.rows ?? 24
 
   tmux.createSession(sessionName, workDir, command, {
     ...adapterEnv,
+    ...isolationEnv,
     ...presetEnv,
     FLT_AGENT_NAME: name,
     FLT_PARENT_SESSION: parentSession,

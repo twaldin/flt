@@ -16,7 +16,7 @@ export const piAdapter: CliAdapter = {
     const modelArg = opts.model ? ` --model ${shSingleQuote(opts.model)}` : ''
     const script = [
       'if [ -s "$HOME/.nvm/nvm.sh" ]; then',
-      'source "$HOME/.nvm/nvm.sh" && nvm use 20 >/dev/null;',
+      'source "$HOME/.nvm/nvm.sh" && nvm use 22 >/dev/null;',
       'fi;',
       `pi${modelArg}`,
     ].join(' ')
