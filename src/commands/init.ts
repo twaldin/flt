@@ -1,7 +1,64 @@
 import { setOrchestrator, getOrchestrator, getStateDir } from '../state'
-import { existsSync, writeFileSync, mkdirSync } from 'fs'
+import { existsSync, writeFileSync, mkdirSync, readFileSync, copyFileSync } from 'fs'
 import { join } from 'path'
 import { homedir } from 'os'
+
+const SEED_PRESETS = {
+  'cc-architect': { cli: 'claude-code', model: 'opus', description: 'Architect via claude-code', soul: 'roles/architect.md' },
+  'cc-coder': { cli: 'claude-code', model: 'sonnet', description: 'Coder via claude-code', soul: 'roles/coder.md' },
+  'cc-evaluator': { cli: 'claude-code', model: 'opus', description: 'Evaluator via claude-code', soul: 'roles/evaluator.md' },
+  'cc-mutator': { cli: 'claude-code', model: 'opus', description: 'Trace-driven artifact mutator', soul: 'roles/mutator.md' },
+  'cc-oracle': { cli: 'claude-code', model: 'sonnet', description: 'Ephemeral oracle (spawn-on-message)', soul: 'roles/oracle.md' },
+  'cc-reviewer': { cli: 'claude-code', model: 'sonnet', description: 'Reviewer via claude-code', soul: 'roles/reviewer.md' },
+  'cc-spec-writer': { cli: 'claude-code', model: 'sonnet', description: 'Spec writer via claude-code', soul: 'roles/spec_writer.md' },
+  'cc-tester': { cli: 'claude-code', model: 'sonnet', description: 'Tester via claude-code', soul: 'roles/tester.md' },
+  'cc-trace-classifier': { cli: 'claude-code', model: 'haiku', description: 'Failure classifier', soul: 'roles/trace_classifier.md' },
+  'cc-verifier': { cli: 'claude-code', model: 'haiku', description: 'Verifier via claude-code', soul: 'roles/verifier.md' },
+  'codex-coder': { cli: 'codex', model: 'gpt-5.3-codex', description: 'Coder via codex', soul: 'roles/coder.md' },
+  'codex-reviewer': { cli: 'codex', model: 'gpt-5.4', description: 'Reviewer via codex', soul: 'roles/reviewer.md' },
+  'gemini-coder': { cli: 'gemini', model: 'gemini-2.5-pro', description: 'Long-context coder via gemini', soul: 'roles/coder.md' },
+  'glm-coder': { cli: 'claude-code', model: 'sonnet', description: 'claude-code via z.ai → GLM-5.1', soul: 'roles/coder.md', env: { ANTHROPIC_BASE_URL: 'https://api.z.ai/api/anthropic', API_TIMEOUT_MS: '3000000', ANTHROPIC_DEFAULT_SONNET_MODEL: 'glm-5.1', ANTHROPIC_AUTH_TOKEN: '${Z_AI_API_KEY}', CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: '1' } },
+  'glm-fast': { cli: 'claude-code', model: 'haiku', description: 'claude-code via z.ai → GLM-4.5-Air', soul: 'roles/coder.md', env: { ANTHROPIC_BASE_URL: 'https://api.z.ai/api/anthropic', API_TIMEOUT_MS: '3000000', ANTHROPIC_DEFAULT_HAIKU_MODEL: 'glm-4.5-air', ANTHROPIC_AUTH_TOKEN: '${Z_AI_API_KEY}', CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: '1' } },
+  'glm-opus': { cli: 'claude-code', model: 'opus', description: 'claude-code via z.ai → GLM-4.7', soul: 'roles/coder.md', env: { ANTHROPIC_BASE_URL: 'https://api.z.ai/api/anthropic', API_TIMEOUT_MS: '3000000', ANTHROPIC_DEFAULT_OPUS_MODEL: 'glm-4.7', ANTHROPIC_AUTH_TOKEN: '${Z_AI_API_KEY}', CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: '1' } },
+  'opencode-coder': { cli: 'opencode', model: 'default', description: 'Coder via opencode', soul: 'roles/coder.md' },
+  'orchestrator': { cli: 'claude-code', model: 'opus[1m]', description: 'Persistent fleet orchestrator', dir: '~/.flt/agents/orchestrator', parent: 'human', worktree: false, persistent: true, soul: 'agents/orchestrator/SOUL.md' },
+  'pi-coder': { cli: 'pi', model: 'gpt-5.3-codex', description: 'Coder via pi (gpt-5.3-codex)', soul: 'roles/coder.md' },
+  'pi-deep': { cli: 'pi', model: 'gpt-5.4-high', description: 'Deep-reasoning oracle via pi (gpt-5.4 high)', soul: 'roles/oracle.md' },
+}
+
+function fltHome(): string {
+  return join(process.env.HOME || homedir(), '.flt')
+}
+
+export function seedFlt(): void {
+  const fltDir = fltHome()
+
+  if (existsSync(fltDir)) {
+    console.error(
+      `~/.flt already exists. Back it up (e.g. tar -czf ~/.flt-backups/flt-<date>.tar.gz -C ~ .flt && rm -rf ~/.flt) and re-run "flt init".`
+    )
+    process.exit(1)
+  }
+
+  for (const sub of ['roles', 'agents', 'skills', 'workflows', 'templates', 'runs', 'logs', 'bin', 'backups']) {
+    mkdirSync(join(fltDir, sub), { recursive: true })
+  }
+
+  writeFileSync(join(fltDir, 'state.json'), '{}\n')
+  writeFileSync(join(fltDir, '.managed-skills.json'), '{}\n')
+  writeFileSync(join(fltDir, 'config.json'), JSON.stringify({ version: 1 }, null, 2) + '\n')
+  writeFileSync(join(fltDir, 'models.json'), '{}\n')
+  writeFileSync(join(fltDir, 'presets.json'), JSON.stringify(SEED_PRESETS, null, 2) + '\n')
+
+  const bundledTemplates = join(import.meta.dir, '..', '..', 'templates')
+  for (const tmpl of ['system-block-root.md', 'system-block-subagent.md', 'workflow-block.md']) {
+    copyFileSync(join(bundledTemplates, tmpl), join(fltDir, 'templates', tmpl))
+  }
+
+  console.log('Initialized ~/.flt')
+  console.log('  roles/ agents/ skills/ workflows/ templates/ runs/ logs/ bin/ backups/')
+  console.log('  presets.json   config.json   models.json   state.json   .managed-skills.json')
+}
 
 interface InitArgs {
   orchestrator?: boolean | string  // true or agent name
@@ -42,6 +99,8 @@ export function appendInbox(from: string, message: string): void {
 }
 
 export async function init(args: InitArgs): Promise<void> {
+  seedFlt()
+
   if (!process.env.TMUX) {
     throw new Error('flt requires tmux. Run tmux first.')
   }

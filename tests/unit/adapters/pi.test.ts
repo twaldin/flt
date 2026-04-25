@@ -6,7 +6,7 @@ describe('pi adapter', () => {
     const args = piAdapter.spawnArgs({ model: 'openai-codex/gpt-5.4', dir: '/tmp' })
     expect(args[0]).toBe('bash')
     expect(args[1]).toBe('-lc')
-    expect(args[2]).toContain('nvm use 20')
+    expect(args[2]).toContain('nvm use 22')
     expect(args[2]).toContain('pi --model')
     expect(args[2]).toContain("--model 'openai-codex/gpt-5.4'")
   })
