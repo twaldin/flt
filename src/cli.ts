@@ -13,6 +13,7 @@ import { listAdapters } from './adapters/registry'
 import { cronList, cronAdd, cronRemove } from './commands/cron'
 import { activity } from './commands/activity'
 import { modelsResolve } from './commands/models'
+import { pluginAudit, pluginUninstall } from './commands/plugins'
 
 const program = new Command()
   .name('flt')
@@ -474,6 +475,35 @@ program
         type: opts.type,
         since: opts.since,
       })
+    } catch (e) {
+      console.error(`Error: ${(e as Error).message}`)
+      process.exit(1)
+    }
+  })
+
+const pluginCmd = program
+  .command('plugin')
+  .description('Manage Claude Code plugins')
+
+pluginCmd
+  .command('audit')
+  .description('Audit installed plugins and write a recommendation report to plugin-audit.md')
+  .action(() => {
+    try {
+      pluginAudit({})
+    } catch (e) {
+      console.error(`Error: ${(e as Error).message}`)
+      process.exit(1)
+    }
+  })
+
+pluginCmd
+  .command('uninstall')
+  .description('Interactively uninstall plugins flagged for removal')
+  .option('--confirm', 'Enable actual uninstall (prompts y/n per plugin)')
+  .action(async (opts) => {
+    try {
+      await pluginUninstall({ confirm: !!opts.confirm })
     } catch (e) {
       console.error(`Error: ${(e as Error).message}`)
       process.exit(1)
