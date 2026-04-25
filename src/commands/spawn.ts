@@ -365,7 +365,7 @@ export async function spawnDirect(args: SpawnArgs): Promise<void> {
 
   // Send bootstrap message if provided
   if (bootstrap) {
-    await sendBootstrap(sessionName, adapter, bootstrap)
+    await sendBootstrap(sessionName, adapter, bootstrap, workDir)
   }
 
   if (!process.env.FLT_TUI_ACTIVE) {
@@ -423,11 +423,29 @@ async function sendBootstrap(
   session: string,
   adapter: ReturnType<typeof resolveAdapter>,
   message: string,
+  workDir: string,
 ): Promise<void> {
-  // Adapters that submit-per-newline (opencode) need flat input so the whole
-  // brief arrives as one message, not one queued request per line.
-  const payload = adapter.flattenOnPaste ? message.replace(/\r\n|\r|\n/g, ' ') : message
-  if (payload.length > 200 || payload.includes('\n')) {
+  // Multi-line bootstrap can't be safely pasted: many CLIs (pi, opencode,
+  // sometimes claude-code/codex under tmux paste-buffer) treat each newline
+  // as Enter, fragmenting the brief into one submit per line. So:
+  //   - single-line bootstraps go through directly (sendLiteral or paste)
+  //   - multi-line bootstraps are persisted to <workdir>/.flt/bootstrap.md
+  //     and replaced with a one-line redirect that tells the agent to read
+  //     the file. Preserves markdown structure and stays within tmux's
+  //     single-line submit semantics.
+  const isMultiLine = /\r|\n/.test(message)
+  let payload: string
+  if (isMultiLine) {
+    const briefDir = join(workDir, '.flt')
+    const briefPath = join(briefDir, 'bootstrap.md')
+    const { mkdirSync, writeFileSync } = await import('fs')
+    mkdirSync(briefDir, { recursive: true })
+    writeFileSync(briefPath, message)
+    payload = `Read .flt/bootstrap.md in this workdir and follow the instructions there carefully. Do not skip steps.`
+  } else {
+    payload = message
+  }
+  if (payload.length > 200) {
     tmux.pasteBuffer(session, payload)
   } else {
     tmux.sendLiteral(session, payload)
