@@ -510,4 +510,26 @@ pluginCmd
     }
   })
 
+const routeCmd = program
+  .command('route')
+  .description('Routing decisions for agent roles')
+
+routeCmd
+  .command('show <role>')
+  .description('Show routing decision for a role')
+  .option('--tags <tags>', 'Comma-separated task tags (e.g. security,auth)')
+  .option('--budget <tier>', 'Budget tier: low, medium, high')
+  .action((role, opts) => {
+    try {
+      const { resolveRoute } = require('./routing/resolver')
+      const tags = opts.tags ? opts.tags.split(',').map((t: string) => t.trim()) : undefined
+      const budget = opts.budget as 'low' | 'medium' | 'high' | undefined
+      const decision = resolveRoute(role, tags, budget)
+      console.log(JSON.stringify(decision, null, 2))
+    } catch (e) {
+      console.error(`Error: ${(e as Error).message}`)
+      process.exit(1)
+    }
+  })
+
 program.parse()

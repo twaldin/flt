@@ -2,6 +2,45 @@
 // Mirrors harness-ts src/model-normalization.ts semantics (v0.2.x) until
 // harness-ts exports a public resolver API.
 
+// Role-alias → per-CLI model translation table.
+// undefined entry for a CLI = alias is known but has no mapping for that CLI (throws).
+// Absence from ALIAS_TABLE = not a known alias (falls through to normal resolution).
+const ALIAS_TABLE: Record<string, Record<string, string>> = {
+  'cc-opus': {
+    'claude-code': 'opus[1m]',
+    'codex': 'gpt-5.4',
+    'openclaude': 'opus',
+  },
+  'cc-sonnet': {
+    'claude-code': 'sonnet',
+    'crush': 'anthropic/claude-sonnet-4-6',
+    'openclaude': 'sonnet',
+  },
+  'cc-haiku': {
+    'claude-code': 'haiku',
+    'openclaude': 'haiku',
+  },
+  'pi-coder': {
+    'codex': 'gpt-5.3-codex',
+    'pi': 'openai-codex/gpt-5.3-codex',
+  },
+  'pi-deep': {
+    'codex': 'gpt-5.4-high',
+    'pi': 'openai-codex/gpt-5.4:high',
+  },
+  'gemini-pro': {
+    'gemini': 'gemini-2.5-pro',
+  },
+}
+
+export function resolveAlias(cli: string, alias: string): string | null {
+  const row = ALIAS_TABLE[alias]
+  if (!row) return null
+  const mapped = row[cli]
+  if (mapped !== undefined) return mapped
+  throw new Error(`Model alias "${alias}" has no mapping for CLI "${cli}".`)
+}
+
 const KNOWN_PROVIDERS = new Set([
   'anthropic',
   'azure',
@@ -83,6 +122,9 @@ export function resolveModelForCli(cli: string, model: string | undefined, noRes
   if (model === undefined) return undefined
   const normalized = model.trim()
   if (!normalized || noResolve) return normalized
+
+  const aliased = resolveAlias(cli, normalized)
+  if (aliased !== null) return aliased
 
   if (cli === 'pi') {
     if (normalized.includes('/')) {

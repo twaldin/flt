@@ -40,9 +40,39 @@ export function seedFlt(): void {
     process.exit(1)
   }
 
-  for (const sub of ['roles', 'agents', 'skills', 'workflows', 'templates', 'runs', 'logs', 'bin', 'backups']) {
+  for (const sub of ['roles', 'agents', 'skills', 'workflows', 'templates', 'runs', 'logs', 'bin', 'backups', 'routing']) {
     mkdirSync(join(fltDir, sub), { recursive: true })
   }
+
+  writeFileSync(join(fltDir, 'routing', 'policy.yaml'), [
+    '# Two-families split: Claude=judgment, GPT=execution',
+    'orchestrator: cc-opus',
+    'spec_writer: cc-sonnet',
+    'architect: cc-opus',
+    'coder: pi-coder',
+    'tester: pi-coder',
+    'reviewer: cc-sonnet',
+    'verifier: pi-coder',
+    'evaluator: cc-opus',
+    'oracle: pi-deep',
+    'mutator: cc-opus',
+    'trace_classifier: pi-coder',
+    '',
+  ].join('\n'))
+
+  writeFileSync(join(fltDir, 'routing', 'escalation.yaml'), [
+    'triggers:',
+    '  same_step_failed_twice:',
+    '    coder: cc-opus',
+    '    reviewer: cc-opus',
+    '  low_confidence_blocker:',
+    '    "*": pi-deep',
+    '  security_tagged_diff:',
+    '    reviewer: cc-opus',
+    '  hard_debug_reproducible:',
+    '    "*": pi-deep',
+    '',
+  ].join('\n'))
 
   writeFileSync(join(fltDir, 'state.json'), JSON.stringify({ agents: {}, config: { maxDepth: 3 } }, null, 2) + '\n')
   writeFileSync(join(fltDir, '.managed-skills.json'), '{}\n')
@@ -56,8 +86,9 @@ export function seedFlt(): void {
   }
 
   console.log('Initialized ~/.flt')
-  console.log('  roles/ agents/ skills/ workflows/ templates/ runs/ logs/ bin/ backups/')
+  console.log('  roles/ agents/ skills/ workflows/ templates/ runs/ logs/ bin/ backups/ routing/')
   console.log('  presets.json   config.json   models.json   state.json   .managed-skills.json')
+  console.log('  routing/policy.yaml   routing/escalation.yaml')
 }
 
 interface InitArgs {
