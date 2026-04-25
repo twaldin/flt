@@ -7,7 +7,7 @@ import { list } from './commands/list'
 import { kill } from './commands/kill'
 import { logs } from './commands/logs'
 import { init } from './commands/init'
-import { skillsList } from './commands/skills'
+import { skillsList, skillImport, skillMoveFromClaude } from './commands/skills'
 import { presetsAdd, presetsList, presetsRemove } from './commands/presets'
 import { listAdapters } from './adapters/registry'
 import { cronList, cronAdd, cronRemove } from './commands/cron'
@@ -166,11 +166,11 @@ program
     }
   })
 
-const skillsCmd = program
-  .command('skills')
+const skillCmd = program
+  .command('skill')
   .description('Manage skills')
 
-skillsCmd
+skillCmd
   .command('list')
   .description('List available skills')
   .option('-a, --agent <name>', 'Filter by agent name')
@@ -178,6 +178,30 @@ skillsCmd
   .action((opts) => {
     try {
       skillsList({ agent: opts.agent, cli: opts.cli })
+    } catch (e) {
+      console.error(`Error: ${(e as Error).message}`)
+      process.exit(1)
+    }
+  })
+
+skillCmd
+  .command('import <path>')
+  .description('Import a skill directory into ~/.flt/skills/')
+  .action((path) => {
+    try {
+      skillImport({ src: path })
+    } catch (e) {
+      console.error(`Error: ${(e as Error).message}`)
+      process.exit(1)
+    }
+  })
+
+skillCmd
+  .command('move-from-claude')
+  .description('Bulk-migrate skills from ~/.claude/skills/ and ~/.claude/anthropic-skills/ into ~/.flt/skills/')
+  .action(() => {
+    try {
+      skillMoveFromClaude({})
     } catch (e) {
       console.error(`Error: ${(e as Error).message}`)
       process.exit(1)
