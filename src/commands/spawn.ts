@@ -247,6 +247,17 @@ export async function spawnDirect(args: SpawnArgs): Promise<void> {
     worktreeBranch = wt.branch
   }
 
+  // Hard rule: no two agents in the same workdir. Manifest + skill copies are
+  // workdir-scoped; co-tenants would clobber each other on cleanup.
+  for (const [otherName, otherAgent] of Object.entries(state.agents ?? {})) {
+    if (otherAgent.dir === workDir) {
+      throw new Error(
+        `Workdir "${workDir}" is already in use by agent "${otherName}". `
+        + `Run "flt kill ${otherName}" first, or omit --no-worktree to spawn into a fresh worktree.`,
+      )
+    }
+  }
+
   // Determine parent: --parent flag > preset > caller agent > 'human'
   const callerName = args._callerName ?? process.env.FLT_AGENT_NAME
   let parentName: string
