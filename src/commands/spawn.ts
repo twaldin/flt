@@ -94,22 +94,14 @@ async function confirmDangerousWorkdir(dir: string): Promise<boolean> {
   })
 }
 
-function buildIsolationEnv(cli: string, workDir: string): Record<string, string> {
-  if (cli === 'claude-code') {
-    // CLAUDE_CONFIG_DIR is the official env var (confirmed in the claude binary)
-    // to redirect config away from ~/.claude. Pointing it at <workdir>/.claude
-    // means the spawned agent reads only skills/settings written into the
-    // workspace, not the user's global config or global skills.
-    return { CLAUDE_CONFIG_DIR: join(workDir, '.claude') }
-  }
-  if (cli === 'opencode') {
-    // opencode follows the XDG spec; its config lives under $XDG_CONFIG_HOME.
-    // Redirecting to <workdir>/.config keeps the agent's config project-scoped
-    // without touching HOME or the user's ~/.config.
-    return { XDG_CONFIG_HOME: join(workDir, '.config') }
-  }
-  // pi, codex, aider, gemini, swe-agent: phase-1 isolation is instruction-file
-  // only; no env override needed.
+function buildIsolationEnv(_cli: string, _workDir: string): Record<string, string> {
+  // No env override. Claude-code's CLAUDE_CONFIG_DIR override hid the user's
+  // OAuth login. Opencode's XDG_CONFIG_HOME override hid its provider config.
+  // After `flt skill move-from-claude` + `flt plugin uninstall`, the user's
+  // global skill set is small enough that we don't need env-level isolation —
+  // the per-cli skill copy into <workdir>/.claude/skills/ (or .opencode/, or
+  // .flt/skills/ mirror + instruction-list) is sufficient. The agent gets
+  // exactly the skills flt selected plus whatever the user keeps globally.
   return {}
 }
 

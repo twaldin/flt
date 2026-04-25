@@ -18,3 +18,4 @@ demo/demo.cast
 # flt-managed runtime files — per-agent instruction injections
 .flt-instructions.md
 
+.claude/
