@@ -10,18 +10,20 @@ export const crushAdapter: CliAdapter = {
   instructionFile: harness.instructionsFilename || 'AGENTS.md',
   submitKeys: harness.submitKeys ?? ['Enter'],
 
-  spawnArgs(opts: SpawnOpts): string[] {
-    // Default to a GPT model so crush goes through the OAuth proxy
-    // instead of demanding an Anthropic key on first run.
+  spawnArgs(_opts: SpawnOpts): string[] {
+    // crush has no --model flag; model is configured per-project. We rely
+    // on env vars to pick the OpenAI provider as the only one with a valid
+    // api_key (Anthropic env intentionally unset).
     // -y = yolo: auto-approve all permissions.
-    const model = opts.model ?? 'openai/gpt-5.4'
-    return ['crush', '-y', '--model', model]
+    return ['crush', '-y']
   },
 
   env(): Record<string, string> {
+    // crush's bundled providers.json reads $OPENAI_API_KEY and
+    // $OPENAI_API_ENDPOINT (NOT $OPENAI_BASE_URL — that's opencode's name).
     return {
-      OPENAI_BASE_URL: OAUTH_PROXY,
       OPENAI_API_KEY: 'unused',
+      OPENAI_API_ENDPOINT: OAUTH_PROXY,
     }
   },
 
