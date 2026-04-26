@@ -33,12 +33,15 @@ export const geminiAdapter: CliAdapter = {
     // gemini-cli's bundle uses Unicode regex /v flag (node ≥22). On systems
     // where the default node is older (e.g. nvm pinned to 18), we have to
     // force node 22 before launching. Mirrors pi.ts.
+    // --yolo auto-approves tool actions so file writes / shell don't block on
+    // "Apply this change?" dialogs mid-run (handleDialog only fires during
+    // initial waitForReady, not while the agent is working).
     const modelArg = opts.model ? ` --model ${shSingleQuote(opts.model)}` : ''
     const script = [
       'if [ -s "$HOME/.nvm/nvm.sh" ]; then',
       'source "$HOME/.nvm/nvm.sh" && nvm use 22 >/dev/null;',
       'fi;',
-      `gemini${modelArg}`,
+      `gemini --yolo${modelArg}`,
     ].join(' ')
     return ['bash', '-lc', script]
   },
