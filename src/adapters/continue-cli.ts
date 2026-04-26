@@ -39,9 +39,10 @@ export const continueCliAdapter: CliAdapter = {
   submitKeys: harness.submitKeys ?? ['Enter'],
 
   spawnArgs(opts: SpawnOpts): string[] {
+    // --auto: start in auto mode (all tools allowed, no per-action prompts).
     const model = opts.model ?? 'gpt-5.4'
     const config = writeContinueConfig(opts.dir, model)
-    return ['cn', '--config', config]
+    return ['cn', '--auto', '--config', config]
   },
 
   env(): Record<string, string> {

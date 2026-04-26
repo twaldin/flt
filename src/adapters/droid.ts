@@ -11,8 +11,10 @@ export const droidAdapter: CliAdapter = {
   submitKeys: harness.submitKeys ?? ['Enter'],
 
   spawnArgs(opts: SpawnOpts): string[] {
+    // --auto high: max autonomy in interactive mode (no confirmation prompts).
+    // Interactive droid also has ctrl+L for runtime toggle as fallback.
     const model = opts.model ?? 'custom:gpt-5.4'
-    return ['droid', '--model', model]
+    return ['droid', '--auto', 'high', '--model', model]
   },
 
   env(): Record<string, string> {

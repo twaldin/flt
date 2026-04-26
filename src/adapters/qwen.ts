@@ -11,8 +11,9 @@ export const qwenAdapter: CliAdapter = {
   submitKeys: harness.submitKeys ?? ['Enter'],
 
   spawnArgs(opts: SpawnOpts): string[] {
+    // -y / --yolo: auto-accept all actions (qwen-code, like gemini-cli).
     const model = opts.model ?? 'gpt-5.4'
-    return ['qwen', '--model', model]
+    return ['qwen', '--yolo', '--model', model]
   },
 
   env(): Record<string, string> {

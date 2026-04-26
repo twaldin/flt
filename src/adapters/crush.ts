@@ -13,8 +13,9 @@ export const crushAdapter: CliAdapter = {
   spawnArgs(opts: SpawnOpts): string[] {
     // Default to a GPT model so crush goes through the OAuth proxy
     // instead of demanding an Anthropic key on first run.
+    // -y = yolo: auto-approve all permissions.
     const model = opts.model ?? 'openai/gpt-5.4'
-    return ['crush', '--model', model]
+    return ['crush', '-y', '--model', model]
   },
 
   env(): Record<string, string> {
