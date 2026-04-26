@@ -829,16 +829,20 @@ async function executeHumanGateStep(_def: WorkflowDef, run: WorkflowRun, step: H
     throw new Error(`workflow run "${run.id}" is missing runDir`)
   }
 
+  // Resolve {task}, {steps.X.Y}, {pr}, {fail_reason} in the notify text — same
+  // template substitution coder/reviewer/verifier task strings get.
+  const resolvedNotify = step.notify ? resolveTemplate(step.notify, run) : ''
+
   const pendingPath = join(run.runDir, '.gate-pending')
   const tmpPath = `${pendingPath}.tmp`
   writeFileSync(tmpPath, JSON.stringify({
     step: step.id,
-    notify: step.notify ?? '',
+    notify: resolvedNotify,
     at: new Date().toISOString(),
   }) + '\n')
   renameSync(tmpPath, pendingPath)
 
-  const notifySuffix = step.notify ? `: ${step.notify}` : ''
+  const notifySuffix = resolvedNotify ? `: ${resolvedNotify}` : ''
   await notifyWorkflowParent(run, `Workflow ${run.workflow} paused at human_gate "${step.id}"${notifySuffix}`)
 }
 
