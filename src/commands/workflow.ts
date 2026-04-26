@@ -49,6 +49,23 @@ export async function workflowApprove(runId: string, opts?: { candidate?: string
 }
 
 /**
+ * Manually trigger advanceWorkflow for a stuck run.
+ * Useful when result files exist but the controller poller didn't fire because
+ * the agent went idle without a status change. Idempotent.
+ */
+export async function workflowAdvance(runId: string): Promise<void> {
+  const run = loadWorkflowRun(runId)
+  if (!run) throw new Error(`No workflow run found for "${runId}"`)
+  if (run.status !== 'running') {
+    console.log(`Workflow "${runId}" is not running (status: ${run.status}); nothing to advance.`)
+    return
+  }
+  await advanceWorkflow(runId)
+  const after = loadWorkflowRun(runId)
+  console.log(`Advanced ${runId}: step=${after?.currentStep} status=${after?.status}`)
+}
+
+/**
  * Backfill rename of a TERMINAL workflow run id to a slug-based id.
  * Requires status !== 'running' to avoid breaking live agent name lookups.
  * Renames run.json id field, mvs the runDir on disk, updates run.runDir.

@@ -358,6 +358,19 @@ workflowCmd
   })
 
 workflowCmd
+  .command('advance <run>')
+  .description('Manually fire advanceWorkflow for a stuck run (idempotent escape-hatch)')
+  .action(async (run) => {
+    try {
+      const { workflowAdvance } = await import('./commands/workflow')
+      await workflowAdvance(run)
+    } catch (e) {
+      console.error(`Error: ${(e as Error).message}`)
+      process.exit(1)
+    }
+  })
+
+workflowCmd
   .command('rename <run>')
   .description('Backfill-rename a terminal workflow run with a slug-based id')
   .option('--slug <slug>', 'Slug to use; default derives from the run\'s original --task')
