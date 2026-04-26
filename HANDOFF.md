@@ -2,11 +2,15 @@
 
 ## Where we are
 
-**Phase 3 STARTED. Three idea-to-pr workflows are running in parallel.** Recovery + dogfood spawn handled in this session.
+**Phase 3 STARTED. Five idea-to-pr workflows running in parallel.**
 
-- `idea-to-pr-3` — **Track A (TUI metrics modal)**. Parent: human.
+- `idea-to-pr-3` — **Track A (TUI metrics modal, key `t`)**. Parent: human.
 - `idea-to-pr-4` — **Track B (GEPA optimization data plumbing)**. Parent: human.
 - `idea-to-pr-5` — **Track C (harness 12/12 session-log + py-ts parity)**, runs in `~/harness/`. Parent: human.
+- `idea-to-pr-workflow-modal` — **Track D (TUI workflow modal, key `w`)**. Parent: human. Uses new slug-naming.
+- `idea-to-pr-gold-mine-harvest` — **Track E (github.com/twaldin md-harvest into eval suite)**. Depends on Track B's `tests/eval/` scaffolding. Parent: human.
+
+**Slug-based run IDs.** New workflows use `<workflow>-<slug>` instead of `<workflow>-<N>`. Slug auto-derived from `--task` (drops stopwords like "flt", "track", "idea"). Override via `--slug <name>`. Existing 3/4/5 keep numeric names; backfill via `flt workflow rename <id>` once terminal.
 
 Workflow YAML pipeline: spec → architect → coder → reviewer → verifier → human_gate. Approve at gate via `flt workflow approve idea-to-pr-3` (or `-4` / `-5`). Reject via `flt workflow reject idea-to-pr-3 --reason "..."`.
 
@@ -19,7 +23,15 @@ Workflow YAML pipeline: spec → architect → coder → reviewer → verifier �
 
 Skipped per your call: figma (requires MCP), maya (not on skills.sh), all anthropic file-ops (xlsx/pptx/docx — you don't use them).
 
-**Readiness for overnight mutation: ~30%.** Pipe-pane logs + harness archives exist, but B1/B2/B3/B4 (artifact hashing, unified transcripts, metrics.json, eval suite) all blocked on Track B landing. Track B is in flight (currently at reviewer). Don't run real GEPA tonight — wait for Track B PR.
+**Readiness for overnight mutation: ~30% now → ~75-80% after Track B+C+E land.** Pipe-pane logs + harness archives exist, but B1/B2/B3/B4 (artifact hashing, unified transcripts, metrics.json, eval suite) all blocked on Track B landing. Don't run real GEPA tonight — wait for Track B PR.
+
+**Daily-mutator workflow (B5) should integrate `find-skills` for skill-acquisition mutations.** Add a sub-step BEFORE prompt mutation: `npx skills find <task-keywords>` to surface trending skills on skills.sh. If a skill exists that replaces a procedural section in a role/skill .md, propose installing it as the candidate mutation (cheaper + more maintainable than free-form prompt edit). Skill-acquisition becomes its own mutation type alongside prompt-edit.
+
+**Redaction pass (required before mutator input)**: pipe-pane logs + transcripts contain env vars / API keys printed in error messages. Strip before optimizer:
+- API_KEY, AUTH_TOKEN, BEARER, sk-*, pk-*, ghp_*, github_pat_*, AKIA[A-Z0-9]+
+- /[a-zA-Z0-9_-]{32,}/ (long random strings — likely tokens)
+- Email addresses except agent's own committer email
+Replace with `<REDACTED:KIND>`. Track B should bundle this into the `flt trace export` step (B2).
 
 **Harness gap identified**: 6/12 adapters have `sessionLogPath` wired in TS (claude-code, codex, gemini, opencode, swe-agent, pi). Missing: continue-cli, crush, factory-droid, openclaude, qwen, kilo. Harness py also drifts behind ts (claude-code adapter 75 vs 165 LOC). Track C (workflow `idea-to-pr-5`) closes both gaps.
 
