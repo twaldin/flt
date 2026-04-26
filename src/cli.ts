@@ -14,6 +14,7 @@ import { cronList, cronAdd, cronRemove } from './commands/cron'
 import { activity } from './commands/activity'
 import { modelsResolve } from './commands/models'
 import { pluginAudit, pluginUninstall } from './commands/plugins'
+import { promote } from './commands/promote'
 
 const program = new Command()
   .name('flt')
@@ -296,6 +297,24 @@ program
     }
   })
 
+program
+  .command('promote <candidate>')
+  .description('Promote a candidate artifact into stable after evidence checks')
+  .requiredOption('--evidence <run-ids>', 'Comma-separated run ids (e.g. run-a,run-b)')
+  .action((candidate, opts) => {
+    try {
+      const evidenceRunIds = String(opts.evidence)
+        .split(',')
+        .map((id: string) => id.trim())
+        .filter(Boolean)
+      const result = promote({ candidate, evidenceRunIds })
+      console.log(`Promoted ${candidate} -> ${result.stablePath}`)
+    } catch (e) {
+      console.error(`Error: ${(e as Error).message}`)
+      process.exit(1)
+    }
+  })
+
 const workflowCmd = program
   .command('workflow')
   .description('Manage multi-step agent workflows')
@@ -432,24 +451,6 @@ workflowCmd
     try {
       const { workflowFail } = require('./commands/workflow')
       workflowFail(reason)
-    } catch (e) {
-      console.error(`Error: ${(e as Error).message}`)
-      process.exit(1)
-    }
-  })
-
-const traceCmd = program
-  .command('trace')
-  .description('Workflow transcript export utilities')
-
-traceCmd
-  .command('export <run-id>')
-  .description('Export normalized transcript.jsonl for a workflow run')
-  .action(async (runId) => {
-    try {
-      const { traceExport } = await import('./commands/trace')
-      const result = await traceExport(runId)
-      console.log(`Wrote ${result.entryCount} entries to ${result.outPath}`)
     } catch (e) {
       console.error(`Error: ${(e as Error).message}`)
       process.exit(1)

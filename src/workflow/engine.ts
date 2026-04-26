@@ -887,8 +887,19 @@ async function executeStep(def: WorkflowDef, run: WorkflowRun, step: WorkflowSte
 
   if (step.run) {
     // Shell command step — execute and advance immediately
+    if (!run.runDir) {
+      throw new Error(`workflow run "${run.id}" is missing runDir`)
+    }
     try {
-      execSync(resolveTemplateShell(step.run, run), { stdio: 'inherit', timeout: 30_000 })
+      execSync(resolveTemplateShell(step.run, run), {
+        stdio: 'inherit',
+        timeout: 30_000,
+        env: {
+          ...process.env,
+          FLT_RUN_DIR: run.runDir,
+          FLT_RUN_LABEL: '_',
+        },
+      })
       run.history.push({ step: step.id, result: 'completed', at: new Date().toISOString() })
 
       const nextId = step.on_complete
@@ -947,6 +958,12 @@ async function executeStep(def: WorkflowDef, run: WorkflowRun, step: WorkflowSte
     bootstrap: task,
     workflow: run.workflow,
     workflowStep: step.id,
+    extraEnv: run.runDir
+      ? {
+          FLT_RUN_DIR: run.runDir,
+          FLT_RUN_LABEL: '_',
+        }
+      : undefined,
   })
 
   // Capture agent vars immediately after spawn

@@ -264,6 +264,20 @@ steps:
         expect(spawnCalls).toContain(workflowAgentName(run.id, 'next'))
     })
 
+    it('run step gets FLT_RUN_DIR env var', async () => {
+        const outputPath = join(home, '.flt-run-dir.txt')
+        writeWorkflow(home, 'wf-run-env', `
+name: wf-run-env
+steps:
+  - id: shell
+    run: |
+      printf '%s' "$FLT_RUN_DIR" > '${outputPath}'
+`)
+
+        const run = await startWorkflow('wf-run-env', { dir: home })
+        expect(readFileSync(outputPath, 'utf-8')).toBe(run.runDir)
+    })
+
     it('advanceWorkflow parallel all-fail collapses to fail and follows on_fail chain', async () => {
         const spawnCalls: string[] = []
         _setSpawnFnForTest(async args => {

@@ -1,0 +1,111 @@
+name: daily-mutator
+steps:
+  - id: collect
+    run: |
+      mkdir -p "$FLT_RUN_DIR/artifacts"
+      flt trace recent --since 24h --status failed > "$FLT_RUN_DIR/artifacts/trace-bundle.txt" 2>/dev/null \
+        || echo "flt trace not available — bundle empty" > "$FLT_RUN_DIR/artifacts/trace-bundle.txt"
+    on_complete: redact
+    on_fail: abort
+
+  - id: redact
+    run: |
+      sed -E \
+        -e 's/sk-[A-Za-z0-9_-]+/<REDACTED:OPENAI_KEY>/g' \
+        -e 's/ghp_[A-Za-z0-9]+/<REDACTED:GH_TOKEN>/g' \
+        -e 's/github_pat_[A-Za-z0-9_]+/<REDACTED:GH_PAT>/g' \
+        -e 's/AKIA[A-Z0-9]+/<REDACTED:AWS_KEY>/g' \
+        -e 's/(API_KEY|AUTH_TOKEN|BEARER)[ =:]+[^[:space:]"]+/\1=<REDACTED:ENV>/g' \
+        -e 's/[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}/<REDACTED:EMAIL>/g' \
+        -e 's/[A-Za-z0-9_-]{32,}/<REDACTED:LONG_TOKEN>/g' \
+        "$FLT_RUN_DIR/artifacts/trace-bundle.txt" \
+        > "$FLT_RUN_DIR/artifacts/trace-bundle-redacted.txt"
+    on_complete: find_skills
+    on_fail: abort
+
+  - id: find_skills
+    run: |
+      mkdir -p "$FLT_RUN_DIR/artifacts"
+      KEYWORDS=$(printf '%s' {task} | tr 'A-Z ' 'a-z\n' | grep -E '^[a-z0-9-]{3,}$' | head -3 | xargs)
+      if [ -n "$KEYWORDS" ]; then
+        npx --yes skills find $KEYWORDS > "$FLT_RUN_DIR/artifacts/skill-candidates.txt" 2>&1 || true
+      else
+        echo "no keywords extracted from task" > "$FLT_RUN_DIR/artifacts/skill-candidates.txt"
+      fi
+      true
+    on_complete: mutate
+    on_fail: abort
+
+  - id: mutate
+    preset: cc-opus
+    worktree: false
+    task: |
+      You are the GEPA mutator. Pick one artifact implicated by the failure bundle and propose one minimal improvement.
+
+      Inputs:
+      - $FLT_RUN_DIR/artifacts/trace-bundle-redacted.txt
+      - $FLT_RUN_DIR/artifacts/skill-candidates.txt
+      - Focus area: {task}
+
+      Required outputs in $FLT_RUN_DIR/artifacts/:
+
+      1) <artifact>.vNext.md with YAML front-matter:
+      ---
+      stable_path: <ABSOLUTE path of the file you are mutating>
+      mutation_type: prompt_edit | skill_acquisition
+      ---
+      Then the full proposed file body.
+
+      2) hypothesis.json with shape:
+      { "artifact": "<relative path>", "mutation_type": "...", "hypothesis": "...", "expected_delta": { "<metric>": "+/-N%" } }
+
+      Rules:
+      - Produce exactly one candidate.
+      - stable_path must be absolute.
+      - Do not edit the stable file in place.
+
+      flt workflow pass when both files exist.
+      flt workflow fail "<one-line reason>" only if you cannot mutate at all.
+    on_complete: eval
+    on_fail: abort
+
+  - id: eval
+    type: parallel
+    n: 2
+    # treatment_map: { a: stable, b: candidate }
+    presets: [pi-coder, pi-coder]
+    step:
+      id: eval-child
+      preset: pi-coder
+      worktree: true
+      task: |
+        Evaluate treatment $FLT_RUN_LABEL of the candidate.
+        a = stable, b = candidate.
+
+        Inputs:
+        - $FLT_RUN_DIR/artifacts/hypothesis.json
+        - $FLT_RUN_DIR/artifacts/*.vNext.md
+
+        Run:
+        flt eval suite run default > "$FLT_RUN_DIR/results/eval-$FLT_RUN_LABEL.json" 2>&1 || \
+          (bun test > "$FLT_RUN_DIR/results/eval-$FLT_RUN_LABEL.json" 2>&1)
+
+        flt workflow pass when eval output is written.
+        flt workflow fail "eval did not run" only if neither command can execute.
+    on_complete: gate
+    on_fail: abort
+
+  - id: gate
+    type: human_gate
+    notify: |
+      Daily mutator candidate ready for review.
+
+      Hypothesis: $FLT_RUN_DIR/artifacts/hypothesis.json
+      Eval results:
+        a (stable): $FLT_RUN_DIR/results/eval-a.json
+        b (candidate): $FLT_RUN_DIR/results/eval-b.json
+
+      Promotion is manual only:
+      flt promote $FLT_RUN_DIR/artifacts/<artifact>.vNext.md --evidence <run-id-1>,<run-id-2>
+    on_complete: done
+    on_fail: abort

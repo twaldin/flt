@@ -20,10 +20,10 @@ describe('init: default workflows', () => {
     rmSync(testHome, { recursive: true, force: true })
   })
 
-  it('seeds all 4 default workflows and they parse', () => {
+  it('seeds all 5 default workflows and they parse', () => {
     seedFlt()
 
-    const workflowNames = ['idea-to-pr', 'code-and-review', 'new-project', 'fix-bug']
+    const workflowNames = ['idea-to-pr', 'code-and-review', 'new-project', 'fix-bug', 'daily-mutator']
     for (const name of workflowNames) {
       const workflowPath = join(testHome, '.flt', 'workflows', `${name}.yaml`)
       expect(existsSync(workflowPath)).toBe(true)

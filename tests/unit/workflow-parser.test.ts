@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it } from 'bun:test'
-import { mkdirSync, mkdtempSync, writeFileSync } from 'fs'
+import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'fs'
 import { tmpdir } from 'os'
 import { join } from 'path'
 import { parse } from 'yaml'
@@ -345,5 +345,12 @@ steps:
   - id: weird
     type: foobar
 `)).toThrow('unknown step type')
+  })
+
+  it('parses bundled daily-mutator workflow', () => {
+    const workflowPath = join(import.meta.dir, '..', '..', 'templates', 'workflows', 'daily-mutator.yaml')
+    const def = validate(readFileSync(workflowPath, 'utf-8'))
+    expect(def.name).toBe('daily-mutator')
+    expect(def.steps.map(step => step.id)).toEqual(['collect', 'redact', 'find_skills', 'mutate', 'eval', 'gate'])
   })
 })
