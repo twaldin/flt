@@ -1,9 +1,9 @@
-import { readFileSync, writeFileSync, mkdirSync, existsSync, readdirSync, renameSync } from 'fs'
-import { join } from 'path'
+import { readFileSync, writeFileSync, mkdirSync, existsSync, readdirSync, renameSync, copyFileSync } from 'fs'
+import { basename, join } from 'path'
 import { execSync } from 'child_process'
 import { loadWorkflowDef } from './parser'
 import { getAgent, allAgents } from '../state'
-import type { ParallelStep, SpawnStep, WorkflowDef, WorkflowRun, WorkflowStepDef } from './types'
+import type { CollectArtifactsStep, MergeBestStep, ParallelStep, SpawnStep, WorkflowDef, WorkflowRun, WorkflowStepDef } from './types'
 import { appendEvent } from '../activity'
 import * as tmux from '../tmux'
 import { sendDirect } from '../commands/send'
@@ -553,12 +553,182 @@ async function executeParallelStep(def: WorkflowDef, run: WorkflowRun, parallelS
   }
 }
 
+function readJsonFile(path: string): Record<string, unknown> | null {
+  if (!existsSync(path)) return null
+  try {
+    return JSON.parse(readFileSync(path, 'utf-8')) as Record<string, unknown>
+  } catch {
+    return null
+  }
+}
+
+function execStderr(error: unknown): string {
+  if (!(error instanceof Error)) return ''
+  const withStderr = error as Error & { stderr?: Buffer | string }
+  if (typeof withStderr.stderr === 'string') return withStderr.stderr.trim()
+  if (withStderr.stderr instanceof Buffer) return withStderr.stderr.toString('utf-8').trim()
+  return error.message
+}
+
+export function executeMergeBestStep(_def: WorkflowDef, run: WorkflowRun, step: MergeBestStep): void {
+  if (!run.runDir) {
+    throw new Error(`workflow run "${run.id}" is missing runDir`)
+  }
+
+  const winnerPath = join(run.runDir, 'winner.json')
+  const gatePath = join(run.runDir, '.gate-decision')
+  const winnerJson = readJsonFile(winnerPath)
+  const gateJson = readJsonFile(gatePath)
+
+  let winnerLabel: string | null = null
+  if (typeof winnerJson?.winner === 'string' && winnerJson.winner) {
+    winnerLabel = winnerJson.winner
+  } else if (gateJson?.approved === true && typeof gateJson.candidate === 'string' && gateJson.candidate) {
+    winnerLabel = gateJson.candidate
+  }
+
+  if (!winnerLabel) {
+    writeResult(run.runDir, step.id, '_', 'fail', 'merge_best: no winner.json or .gate-decision found')
+    return
+  }
+
+  const group = run.parallelGroups?.[step.candidate_var]
+  if (!group) {
+    writeResult(run.runDir, step.id, '_', 'fail', `merge_best: candidate_var "${step.candidate_var}" not a recognized parallel group`)
+    return
+  }
+
+  const candidate = group.candidates.find(c => c.label === winnerLabel)
+  if (!candidate) {
+    writeResult(run.runDir, step.id, '_', 'fail', `merge_best: candidate label "${winnerLabel}" not found in group`)
+    return
+  }
+  if (!candidate.branch) {
+    writeResult(run.runDir, step.id, '_', 'fail', `merge_best: candidate label "${winnerLabel}" is missing branch`)
+    return
+  }
+
+  const targetBranch = step.target_branch ?? run.startBranch
+  if (!targetBranch) {
+    throw new Error(`merge_best: target branch is not set (step.target_branch or run.startBranch)`)
+  }
+
+  const cwd = run.vars._input?.dir || process.cwd()
+  try {
+    execSync('git rev-parse --show-toplevel', {
+      cwd,
+      encoding: 'utf-8',
+      stdio: ['ignore', 'pipe', 'pipe'],
+      timeout: 5_000,
+    })
+  } catch {
+    writeResult(run.runDir, step.id, '_', 'fail', 'merge_best: workflow dir is not a git repo')
+    return
+  }
+
+  try {
+    execSync(`git checkout ${targetBranch}`, {
+      cwd,
+      encoding: 'utf-8',
+      stdio: ['ignore', 'pipe', 'pipe'],
+      timeout: 15_000,
+    })
+  } catch (error) {
+    const stderr = execStderr(error)
+    writeResult(run.runDir, step.id, '_', 'fail', `merge_best: failed to checkout target branch: ${stderr || 'unknown error'}`)
+    return
+  }
+
+  try {
+    execSync(`git fetch origin ${candidate.branch} || true`, {
+      cwd,
+      encoding: 'utf-8',
+      stdio: ['ignore', 'pipe', 'pipe'],
+      timeout: 30_000,
+    })
+  } catch {}
+
+  try {
+    execSync(`git merge --no-ff ${candidate.branch} -m "workflow ${run.id}: merge winner ${candidate.label}"`, {
+      cwd,
+      encoding: 'utf-8',
+      stdio: ['ignore', 'pipe', 'pipe'],
+      timeout: 60_000,
+    })
+  } catch (error) {
+    const stderr = execStderr(error)
+    const firstLine = stderr.split('\n').find(Boolean) ?? 'merge failed'
+    writeResult(run.runDir, step.id, '_', 'fail', `merge_best: conflict — ${firstLine}`)
+    run.vars._merge = {
+      winner: winnerLabel,
+      branch: candidate.branch,
+      conflict: 'true',
+    }
+    saveWorkflowRun(run)
+    return
+  }
+
+  writeResult(run.runDir, step.id, '_', 'pass')
+  run.vars._merge = {
+    winner: winnerLabel,
+    branch: candidate.branch,
+    conflict: 'false',
+  }
+  saveWorkflowRun(run)
+}
+
+export function executeCollectArtifactsStep(_def: WorkflowDef, run: WorkflowRun, step: CollectArtifactsStep): void {
+  if (!run.runDir) {
+    throw new Error(`workflow run "${run.id}" is missing runDir`)
+  }
+
+  const intoDir = join(run.runDir, step.into)
+  mkdirSync(intoDir, { recursive: true })
+
+  for (const fromId of step.from) {
+    const group = run.parallelGroups?.[fromId]
+    if (group) {
+      for (const candidate of group.candidates) {
+        if (!candidate.worktree) continue
+        for (const fileName of step.files) {
+          const src = join(candidate.worktree, fileName)
+          if (!existsSync(src)) continue
+          const dest = join(intoDir, `${fromId}-${candidate.label}-${basename(fileName)}`)
+          copyFileSync(src, dest)
+        }
+      }
+      continue
+    }
+
+    const fromVars = run.vars[fromId]
+    if (!fromVars) continue
+    const sourceDir = fromVars.worktree ?? fromVars.dir
+    if (!sourceDir) continue
+    for (const fileName of step.files) {
+      const src = join(sourceDir, fileName)
+      if (!existsSync(src)) continue
+      const dest = join(intoDir, `${fromId}-_-${basename(fileName)}`)
+      copyFileSync(src, dest)
+    }
+  }
+
+  writeResult(run.runDir, step.id, '_', 'pass')
+}
+
 async function executeStep(def: WorkflowDef, run: WorkflowRun, step: WorkflowStepDef): Promise<void> {
   if (step.type === 'parallel') {
     await executeParallelStep(def, run, step)
     return
   }
-  if (step.type === 'condition' || step.type === 'human_gate' || step.type === 'merge_best' || step.type === 'collect_artifacts') {
+  if (step.type === 'merge_best') {
+    executeMergeBestStep(def, run, step)
+    return
+  }
+  if (step.type === 'collect_artifacts') {
+    executeCollectArtifactsStep(def, run, step)
+    return
+  }
+  if (step.type === 'condition' || step.type === 'human_gate') {
     return
   }
   if (!isSpawnStep(step)) {
