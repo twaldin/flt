@@ -12,12 +12,14 @@ function writeContinueConfig(workdir: string, model: string): string {
   const dir = join(workdir, '.flt', 'continue')
   mkdirSync(dir, { recursive: true })
   const path = join(dir, 'config.yaml')
+  // Use the model id as the display name so cn shows "Model: gpt-5.4"
+  // instead of "Model: flt-model" — easier to debug.
   const yaml = [
     'name: flt-continue',
     'version: 1.0.0',
     'schema: v1',
     'models:',
-    '  - name: flt-model',
+    `  - name: ${model}`,
     `    model: ${model}`,
     '    provider: openai',
     '    apiKey: unused',
