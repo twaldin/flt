@@ -43,7 +43,10 @@ What do you want to do?`
     expect(sweAgentAdapter.submitKeys).toEqual(['Escape', 'Enter'])
   })
 
-  it('has empty instruction file (uses prompt injection)', () => {
-    expect(sweAgentAdapter.instructionFile).toBe('')
+  it('has AGENTS.md instruction file (mini-swe-agent honors it)', () => {
+    // Originally empty (mini-swe-agent injected via --task arg in harness).
+    // Now uses AGENTS.md so the same instruction file works in interactive
+    // tmux mode too (mini auto-loads AGENTS.md on startup).
+    expect(sweAgentAdapter.instructionFile).toBe('AGENTS.md')
   })
 })

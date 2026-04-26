@@ -1,8 +1,9 @@
 import type { CliAdapter, SpawnOpts, ReadyState, AgentStatus } from './types'
-import { stripAnsi } from '../utils/stripAnsi'
 import { existsSync, readFileSync } from 'fs'
 import { join } from 'path'
 import { getAdapter as getHarnessAdapter } from '@twaldin/harness-ts'
+
+const harness = getHarnessAdapter('gemini')
 
 function shSingleQuote(s: string): string {
   return `'${s.replace(/'/g, `'\\''`)}'`
@@ -26,16 +27,13 @@ function loadGeminiKey(): string | undefined {
 export const geminiAdapter: CliAdapter = {
   name: 'gemini',
   cliCommand: 'gemini',
-  instructionFile: getHarnessAdapter('gemini').instructionsFilename,
-  submitKeys: ['Enter'],
+  instructionFile: harness.instructionsFilename,
+  submitKeys: harness.submitKeys ?? ['Enter'],
 
   spawnArgs(opts: SpawnOpts): string[] {
-    // gemini-cli's bundle uses Unicode regex /v flag (node ≥22). On systems
-    // where the default node is older (e.g. nvm pinned to 18), we have to
-    // force node 22 before launching. Mirrors pi.ts.
-    // --yolo auto-approves tool actions so file writes / shell don't block on
-    // "Apply this change?" dialogs mid-run (handleDialog only fires during
-    // initial waitForReady, not while the agent is working).
+    // gemini-cli's bundle uses Unicode regex /v flag (node ≥22).
+    // --yolo (or -y) auto-approves all tool actions so mid-run "Apply this
+    // change?" doesn't block. handleDialog also catches it as backstop.
     const modelArg = opts.model ? ` --model ${shSingleQuote(opts.model)}` : ''
     const script = [
       'if [ -s "$HOME/.nvm/nvm.sh" ]; then',
@@ -54,69 +52,14 @@ export const geminiAdapter: CliAdapter = {
   },
 
   detectReady(pane: string): ReadyState {
-    pane = stripAnsi(pane)
-    const lines = pane.split('\n').map(l => l.trim()).filter(Boolean)
-    const last20 = lines.slice(-20).join('\n')
-
-    // Gemini ready prompt
-    if (/Type your message/i.test(last20) || /[>❯]\s*$/.test(last20)) {
-      return 'ready'
-    }
-
-    return 'loading'
+    return harness.detectReady?.(pane) ?? 'loading'
   },
 
   handleDialog(pane: string): string[] | null {
-    pane = stripAnsi(pane)
-    // Trust folder dialog — option 1 is already selected, just press Enter
-    if (/Do you trust the files/i.test(pane) || /Trust folder/i.test(pane)) {
-      return ['Enter']
-    }
-    // Permission prompts: "Action Required" or "Allow execution of [tool]?"
-    // Accept whatever option is selected (usually "Allow once")
-    if (/Action Required/i.test(pane) && /Allow/i.test(pane)) {
-      return ['Enter']
-    }
-    if (/Allow execution of/i.test(pane)) {
-      return ['Enter']
-    }
-    return null
+    return harness.handleDialog?.(pane) ?? null
   },
 
   detectStatus(pane: string): AgentStatus {
-    pane = stripAnsi(pane)
-    const lines = pane.split('\n').map(l => l.trim()).filter(Boolean)
-    const last20 = lines.slice(-20).join('\n')
-    const last10 = lines.slice(-10).join('\n')
-
-    // Trust folder or permission prompt — auto-approve
-    if (/Do you trust the files/i.test(last20) || /Trust folder/i.test(last20)) {
-      return 'dialog' as AgentStatus
-    }
-    if (/Action Required/i.test(last20) && /Allow/i.test(last20)) {
-      return 'dialog' as AgentStatus
-    }
-    if (/Allow execution of/i.test(last20)) {
-      return 'dialog' as AgentStatus
-    }
-
-    if (/rate.?limit|quota.?exceeded|resource.?exhausted/i.test(last10)) {
-      return 'rate-limited'
-    }
-
-    if (/error/i.test(last10) && /fatal|crash/i.test(last10)) {
-      return 'error'
-    }
-
-    // Gemini spinners: braille ⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏ (tool exec) or toggle ⊶⊷ (executing)
-    if (/[⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏⊶⊷]/.test(last10)) return 'running'
-    if (/Thinking\.\.\./i.test(last10)) return 'running'
-
-    // Idle: "◇  Ready" or prompt
-    if (/Ready/i.test(last10) || /Type your message/i.test(last10)) return 'idle'
-    // Success markers mean task done
-    if (/[✓✔]/.test(last10) && !/[⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏⊶⊷]/.test(last10)) return 'idle'
-
-    return 'unknown'
+    return (harness.detectStatus?.(pane) ?? 'unknown') as AgentStatus
   },
 }

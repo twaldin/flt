@@ -58,11 +58,12 @@ All tools will be executed without confirmation.
     expect(claudeCodeAdapter.detectStatus(pane)).toBe('running')
   })
 
-  it('returns unknown for idle (TUI uses spinner delta)', () => {
-    // Adapter fallback can't detect idle without cross-poll state
-    // TUI handles idle via spinner icon delta detection
+  it('detects idle when prompt visible without active timer', () => {
+    // Updated post harness-ts session-aware port: a visible "❯" prompt
+    // without an in-flight timer means idle. Spinner-delta detection is
+    // still nice-to-have but not required.
     const pane = '✻ Cogitated for 2m 53s\n❯ \nbypass permissions on'
-    expect(claudeCodeAdapter.detectStatus(pane)).toBe('unknown')
+    expect(claudeCodeAdapter.detectStatus(pane)).toBe('idle')
   })
 
   it('detects rate-limited status', () => {
