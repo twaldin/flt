@@ -1,33 +1,98 @@
 name: fix-bug
+# Reproduce → fix → rerun → review → human_gate. Every retry-able step weaves
+# {fail_reason} so the next agent sees the previous failure verbatim.
 steps:
   - id: reproduce
     preset: pi-coder
-    task: 'Reproduce the bug described as: {task}. Write a failing test that demonstrates it. flt workflow pass when reproduction is committed (test fails as expected).'
+    task: |
+      Bug to investigate and reproduce:
+      {task}
+
+      Your job:
+      1. Read the bug description carefully (and any linked screenshots / files).
+      2. Locate the relevant code — backend engine OR frontend table OR both. Use grep/find to hunt; use the browser-use skill if the bug is observable in the running app.
+      3. Identify the root cause: backend (engine doesn't compute) vs frontend (data exists but UI fails to render) vs both.
+      4. Write a failing test that demonstrates the bug. Test should FAIL with the current bug present.
+      5. Commit the failing test.
+
+      flt workflow pass when reproduction is committed and the test fails as expected.
+      flt workflow fail "<one-line reason>" if you can't reproduce after a thorough check (rare — usually means the bug description is incorrect).
     on_complete: fix
+    on_fail: reproduce
+    max_retries: 1
+
   - id: fix
     preset: pi-coder
     dir: '{steps.reproduce.worktree}'
     worktree: false
-    task: 'Fix the bug; the failing test from {steps.reproduce.worktree} now passes. flt workflow pass when green.'
+    task: |
+      Original bug: {task}
+
+      The reproduction step landed a failing test in this worktree. Run the test, see it fail, then fix the bug so it passes.
+
+      Inspect first:
+      - The failing test (look at recent commits: git log --oneline -5)
+      - The code path the test exercises
+
+      Previous-attempt feedback (only on retry): {fail_reason}
+
+      Fix should be MINIMAL — only what makes the failing test pass + doesn't break other tests. Commit incrementally.
+
+      flt workflow pass when the failing test passes and other tests stay green.
+      flt workflow fail "<reason>" if the test is wrong or you hit a real blocker.
     on_complete: rerun
     on_fail: fix
     max_retries: 2
+
   - id: rerun
     preset: pi-coder
     dir: '{steps.fix.worktree}'
     worktree: false
-    task: 'Run the full test suite. flt workflow pass on full green; fail otherwise.'
+    task: |
+      Run the FULL test suite (not just the new test):
+      - the project's primary test command (bun test / npm test / pytest / cargo test — discover from project files)
+      - typecheck if configured
+      - lint if configured (skip silently if not)
+
+      Original bug: {task}
+      Previous rerun feedback (only on retry): {fail_reason}
+
+      Pass: flt workflow pass
+      Fail: flt workflow fail "<short reason — anything blocking>"
     on_complete: reviewer
     on_fail: fix
+
   - id: reviewer
     preset: cc-sonnet
     dir: '{steps.fix.worktree}'
     worktree: false
-    task: 'Review the bug fix. flt workflow pass / fail.'
+    task: |
+      Review the bug fix.
+
+      Your context:
+      - cwd is the fix worktree (branch {steps.fix.branch}, branched from the workflow's start branch)
+      - PR (if auto-created): {pr}
+      - Original bug: {task}
+
+      To inspect:
+      - git log --oneline main..HEAD
+      - git diff main...HEAD
+
+      Check: Is the fix minimal? Does it actually address the root cause vs masking the symptom? Are there obvious other cases the fix should cover but doesn't? Any unrelated drive-by edits? Are tests sufficient?
+
+      If acceptable: flt workflow pass
+      If problems: flt workflow fail "<concrete actionable feedback referencing files/lines>"
+
+      The next fix retry sees your fail message verbatim — be specific.
     on_complete: gate
     on_fail: fix
+
   - id: gate
     type: human_gate
-    notify: 'Bug fix ready for human review.'
+    notify: |
+      Bug fix ready for human review and merge.
+      Original bug: {task}
+      Worktree: {steps.fix.worktree} (branch {steps.fix.branch})
+      PR: {pr}
     on_complete: done
     on_fail: fix
