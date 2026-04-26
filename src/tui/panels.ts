@@ -4,6 +4,8 @@ import { COLORS, fg, getTheme, modeColor, statusColor, statusSymbol } from './th
 import type { AgentView, AppState, ModalState } from './types'
 import { getAsciiLogo, getAsciiLogoWidth } from './ascii'
 import { renderWorkflowModal } from './modal-workflows'
+import { renderMetricsModal } from './metrics-modal'
+import { listWorkflowRuns } from '../workflow/engine'
 
 export interface LayoutMetrics {
   sidebarWidth: number
@@ -72,6 +74,50 @@ function shortenPath(path: string): string {
   }
 
   return path
+}
+
+interface BackfillResult {
+  workflow?: string
+  projectRoot?: string
+}
+
+let _runsCache: { at: number; entries: Array<{ id: string; workflow: string; dir: string }> } | null = null
+
+function loadRunsForBackfill(): Array<{ id: string; workflow: string; dir: string }> {
+  // Re-read run metadata at most every 10s to avoid pounding disk on each render.
+  const now = Date.now()
+  if (_runsCache && now - _runsCache.at < 10_000) return _runsCache.entries
+  try {
+    const runs = listWorkflowRuns().map(r => ({
+      id: r.id,
+      workflow: r.workflow,
+      dir: r.vars?._input?.dir ?? '',
+    }))
+    _runsCache = { at: now, entries: runs }
+    return runs
+  } catch {
+    return _runsCache?.entries ?? []
+  }
+}
+
+/** Look up workflow + project-root from a run whose id is a prefix of agent.name.
+ * Used as a fallback for agents spawned before the projectRoot plumbing landed. */
+function backfillFromRuns(agent: AgentView): BackfillResult {
+  if (agent.workflow && agent.projectRoot) return {}
+  const runs = loadRunsForBackfill()
+  let best: { id: string; workflow: string; dir: string } | null = null
+  for (const r of runs) {
+    if (agent.name === r.id || agent.name.startsWith(`${r.id}-`)) {
+      // Prefer the longest matching run id (so e.g. agent for runId
+      // 'idea-to-pr-3' doesn't accidentally match 'idea-to-pr').
+      if (!best || r.id.length > best.id.length) best = r
+    }
+  }
+  if (!best) return {}
+  return {
+    workflow: agent.workflow ?? best.workflow,
+    projectRoot: agent.projectRoot ?? (best.dir || undefined),
+  }
 }
 
 interface TreeEntry {
@@ -213,16 +259,16 @@ function renderSidebar(screen: Screen, state: AppState, top: number, left: numbe
     screen.put(row, left, padRight(line2, width), agentColor, bg)
     row += 1
 
-    // Detail: workflow (or em-dash placeholder)
-    const wfText = agent.workflow ?? '—'
+    // Detail: workflow + project-root, with backfill from workflow runs for
+    // agents that pre-date the projectRoot/workflow plumbing.
+    const backfilled = backfillFromRuns(agent)
+    const wfText = agent.workflow ?? backfilled.workflow ?? '—'
     const line3 = `${pad}${belowPrefix}  wf:${wfText}`
     screen.put(row, left, padRight(line3, width), agentColor, bg)
     row += 1
 
-    // Detail: worktree dir, formatted as wt:<base-dir-the-worktree-branched-from>
-    const wtDisplay = agent.worktreeBaseDir
-      ? `wt:${shortenPath(agent.worktreeBaseDir)}`
-      : shortenPath(agent.dir)
+    const project = agent.projectRoot ?? backfilled.projectRoot
+    const wtDisplay = project ? `wt:${shortenPath(project)}` : shortenPath(agent.dir)
     const line4 = `${pad}${belowPrefix}  ${wtDisplay}`
     screen.put(row, left, padRight(line4, width), agentColor, bg)
     row += 1
@@ -947,5 +993,9 @@ export function renderLayout(screen: Screen, state: AppState): void {
 
   if (state.workflowsModal) {
     renderWorkflowModal(state.workflowsModal, screen, cols, rows)
+  }
+
+  if (state.metrics) {
+    renderMetricsModal(screen, state.metrics, { width: cols, height: rows })
   }
 }

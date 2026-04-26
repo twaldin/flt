@@ -602,6 +602,7 @@ async function executeParallelStep(def: WorkflowDef, run: WorkflowRun, parallelS
       bootstrap: resolveTemplate(parallelStep.step.task ?? '', run),
       workflow: run.workflow,
       workflowStep: parallelStep.id,
+      projectRoot: run.vars._input?.dir,
       extraEnv: {
         FLT_RUN_DIR: run.runDir,
         FLT_RUN_LABEL: candidate.label,
@@ -958,6 +959,7 @@ async function executeStep(def: WorkflowDef, run: WorkflowRun, step: WorkflowSte
     bootstrap: task,
     workflow: run.workflow,
     workflowStep: step.id,
+    projectRoot: run.vars._input?.dir,
     extraEnv: run.runDir
       ? {
           FLT_RUN_DIR: run.runDir,

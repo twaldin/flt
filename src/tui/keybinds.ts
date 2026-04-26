@@ -3,7 +3,7 @@ import { homedir } from 'os'
 import { join } from 'path'
 import type { Mode } from './types'
 
-export type ConfigurableMode = Exclude<Mode, 'insert' | 'shell'>
+export type ConfigurableMode = Exclude<Mode, 'insert' | 'shell' | 'metrics'>
 
 export type KeybindAction =
   | 'selectNext'
@@ -15,6 +15,7 @@ export type KeybindAction =
   | 'openInbox'
   | 'reply'
   | 'openShell'
+  | 'openMetrics'
   | 'quit'
   | 'focusLog'
   | 'toggleCollapse'
@@ -72,6 +73,7 @@ const ACTION_LABELS: Record<KeybindAction, string> = {
   openInbox: 'inbox',
   reply: 'reply',
   openShell: 'shell',
+  openMetrics: 'metrics',
   quit: 'quit',
   focusLog: 'focus',
   toggleCollapse: 'collapse',
@@ -110,9 +112,10 @@ const PAIR_GROUPS: Array<{ a: KeybindAction; b: KeybindAction; label: string }> 
   { a: 'msgDown', b: 'msgUp', label: 'select' },
 ]
 
-const STATIC_MODE_HINTS: Record<Extract<Mode, 'insert' | 'shell'>, string> = {
+const STATIC_MODE_HINTS: Record<Extract<Mode, 'insert' | 'shell' | 'metrics'>, string> = {
   insert: 'typing to agent | Ctrl-c interrupt | Esc exit',
   shell: 'typing in shell | Esc close',
+  metrics: 'm group | t period | r runs | j/k scroll | Esc close',
 }
 
 const COMMAND_SPECIAL_KEYS = new Set<string>([
@@ -143,6 +146,7 @@ const KEYBIND_ACTION_SET: ReadonlySet<string> = new Set<string>([
   'openInbox',
   'reply',
   'openShell',
+  'openMetrics',
   'quit',
   'focusLog',
   'toggleCollapse',
@@ -184,6 +188,7 @@ const MODE_ACTION_SET: Record<ConfigurableMode, ReadonlySet<KeybindAction>> = {
     'openInbox',
     'reply',
     'openShell',
+    'openMetrics',
     'quit',
     'focusLog',
     'toggleCollapse',
@@ -248,7 +253,8 @@ export const DEFAULT_KEYBINDS: KeybindConfig = {
     K: 'killConfirm',
     m: 'openInbox',
     r: 'reply',
-    t: 'openShell',
+    t: 'openMetrics',
+    T: 'openShell',
     q: 'quit',
     i: 'enterInsert',
     Enter: 'focusLog',
@@ -381,7 +387,7 @@ export function reloadKeybinds(): void {
 }
 
 export function isConfigurableMode(mode: Mode): mode is ConfigurableMode {
-  return mode !== 'insert' && mode !== 'shell'
+  return mode !== 'insert' && mode !== 'shell' && mode !== 'metrics'
 }
 
 export function getKeybindAction(mode: Mode, key: string): KeybindAction | undefined {
@@ -426,7 +432,7 @@ function buildModeHint(modeKeybinds: ModeKeybinds): string {
 }
 
 export function getModeHint(mode: Mode): string {
-  if (mode === 'insert' || mode === 'shell') {
+  if (mode === 'insert' || mode === 'shell' || mode === 'metrics') {
     return STATIC_MODE_HINTS[mode]
   }
   return buildModeHint(getMergedKeybinds()[mode])

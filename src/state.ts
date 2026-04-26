@@ -19,7 +19,11 @@ export interface AgentState {
   instructionProjection?: InstructionProjection
   worktreePath?: string
   worktreeBranch?: string
-  worktreeBaseDir?: string
+  /** Project root: the base repo dir this agent was spawned to work on (resolves
+   * to e.g. ~/flt regardless of whether the agent runs in its own worktree, in
+   * a sibling step's worktree, or directly in the repo). Used by sidebar to
+   * show `wt:~/flt` instead of the worktree path. */
+  projectRoot?: string
   workflow?: string
   spawnedAt: string
   status?: AgentStatus

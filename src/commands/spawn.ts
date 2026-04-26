@@ -27,6 +27,9 @@ interface SpawnArgs {
   noModelResolve?: boolean
   workflow?: string
   workflowStep?: string
+  /** Project root for sidebar `wt:` display. Workflow engine passes
+   * run.vars._input.dir; manual spawns inherit baseDir. */
+  projectRoot?: string
   extraEnv?: Record<string, string>
   _callerName?: string
   _callerDepth?: number
@@ -355,7 +358,7 @@ export async function spawnDirect(args: SpawnArgs): Promise<void> {
     instructionProjection,
     worktreePath,
     worktreeBranch,
-    worktreeBaseDir: useWorktree ? baseDir : undefined,
+    projectRoot: args.projectRoot ?? (useWorktree ? baseDir : undefined),
     workflow: args.workflow,
     spawnedAt: new Date().toISOString(),
     persistent: args.persistent ?? presetPersistent,

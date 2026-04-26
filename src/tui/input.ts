@@ -57,6 +57,13 @@ export interface InputBindings {
   flushInsert: () => void
   openShell: () => void
   closeShell: () => void
+  openMetrics: () => void
+  closeMetrics: () => void
+  metricsCycleGroup: () => void
+  metricsCyclePeriod: () => void
+  metricsToggleRunsFocus: () => void
+  metricsScrollDown: () => void
+  metricsScrollUp: () => void
   sendShellText: (text: string) => void
   sendShellKey: (key: TmuxInsertKey) => void
   flushShell: () => void
@@ -734,6 +741,7 @@ function executeKeybindAction(mode: ConfigurableMode, action: KeybindAction, bin
       bindings.openCommand(`send ${state.selectedAgent.name} `)
     }
   } else if (action === 'openShell') bindings.openShell()
+  else if (action === 'openMetrics') bindings.openMetrics()
   else if (action === 'quit') bindings.quit()
   else if (action === 'focusLog') bindings.setMode('log-focus')
   else if (action === 'toggleCollapse') bindings.toggleCollapse()
@@ -930,6 +938,14 @@ function handleWorkflowsChar(char: string, bindings: InputBindings): void {
   handleConfigurableKey('workflows', char, bindings)
 }
 
+function handleMetricsChar(char: string, bindings: InputBindings): void {
+  if (char === 'm') bindings.metricsCycleGroup()
+  else if (char === 't') bindings.metricsCyclePeriod()
+  else if (char === 'r') bindings.metricsToggleRunsFocus()
+  else if (char === 'j') bindings.metricsScrollDown()
+  else if (char === 'k') bindings.metricsScrollUp()
+}
+
 function handleSpecialKey(event: Extract<ParsedInputEvent, { type: 'key' }>, bindings: InputBindings): void {
   const state = bindings.getState()
 
@@ -1055,6 +1071,11 @@ function handleSpecialKey(event: Extract<ParsedInputEvent, { type: 'key' }>, bin
 
   if (state.mode === 'workflows') {
     handleConfigurableKey('workflows', event.key, bindings)
+    return
+  }
+
+  if (state.mode === 'metrics') {
+    if (event.key === 'escape') bindings.closeMetrics()
   }
 }
 
@@ -1106,6 +1127,8 @@ function handleText(event: Extract<ParsedInputEvent, { type: 'text' }>, bindings
       handlePresetsChar(char, bindings)
     } else if (state.mode === 'workflows') {
       handleWorkflowsChar(char, bindings)
+    } else if (state.mode === 'metrics') {
+      handleMetricsChar(char, bindings)
     }
   }
 }

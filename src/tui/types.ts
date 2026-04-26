@@ -1,7 +1,10 @@
 import type { AgentState } from '../state'
+import type { GroupBy, Period } from '../metrics'
 import type { WorkflowModalState } from './modal-workflows'
 
-export type Mode = 'normal' | 'log-focus' | 'insert' | 'command' | 'inbox' | 'presets' | 'kill-confirm' | 'shell' | 'workflows'
+export type { GroupBy, Period } from '../metrics'
+
+export type Mode = 'normal' | 'log-focus' | 'insert' | 'command' | 'inbox' | 'presets' | 'kill-confirm' | 'shell' | 'workflows' | 'metrics'
 
 export type ModalType = 'spawn' | 'kill' | 'presets'
 
@@ -53,6 +56,13 @@ export interface Banner {
   color: string
 }
 
+export interface MetricsModalState {
+  period: Period
+  groupBy: GroupBy
+  runsListFocused: boolean
+  runsScrollOffset: number
+}
+
 export interface AppState {
   mode: Mode
   previousMode: Mode
@@ -75,6 +85,7 @@ export interface AppState {
   collapsedAgents: string[]
   modal: ModalState | null
   workflowsModal: WorkflowModalState | null
+  metrics: MetricsModalState | null
   completionItems: CompletionItem[]
   completionSelectedIndex: number
 }
@@ -102,6 +113,7 @@ export function createInitialState(width = 80, height = 24): AppState {
     collapsedAgents: [],
     modal: null,
     workflowsModal: null,
+    metrics: null,
     completionItems: [],
     completionSelectedIndex: 0,
   }

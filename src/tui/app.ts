@@ -19,7 +19,8 @@ import { getWorkflowHistory, type WorkflowFilter } from '../metrics-workflows'
 import { initialWorkflowModalState, loadWorkflowRows } from './modal-workflows'
 import { getCurrentThemeName, getThemeBackground, getThemeNames, setTheme } from './theme'
 import { getAsciiLogo } from './ascii'
-import { createInitialState, type AgentView, type AppState, type InboxMessage, type Mode, type ModalState, type ModalListItem } from './types'
+import { invalidateMetricsModalCache } from './metrics-modal'
+import { createInitialState, type AgentView, type AppState, type GroupBy, type InboxMessage, type MetricsModalState, type Mode, type ModalState, type ModalListItem, type Period } from './types'
 
 /** Strip OSC 8 hyperlink sequences, keeping the display text */
 function stripOsc8(s: string): string {
@@ -214,6 +215,13 @@ export class App {
       flushInsert: () => this.flushInsert(),
       openShell: () => this.openShell(),
       closeShell: () => this.closeShell(),
+      openMetrics: () => this.openMetrics(),
+      closeMetrics: () => this.closeMetrics(),
+      metricsCycleGroup: () => this.metricsCycleGroup(),
+      metricsCyclePeriod: () => this.metricsCyclePeriod(),
+      metricsToggleRunsFocus: () => this.metricsToggleRunsFocus(),
+      metricsScrollDown: () => this.metricsScrollDown(),
+      metricsScrollUp: () => this.metricsScrollUp(),
       sendShellText: (text) => {
         sendLiteralBatched(this.shellSession, text)
         this.scheduleShellCapture()
@@ -394,6 +402,69 @@ export class App {
     this.lastLogContent = '' // force re-capture of agent content
     this.restartPolling()
     this.poll() // immediate refresh
+    this.requestRender()
+  }
+
+  private openMetrics(): void {
+    this.state.metrics = {
+      period: 'today',
+      groupBy: 'model',
+      runsListFocused: false,
+      runsScrollOffset: 0,
+    }
+    invalidateMetricsModalCache()
+    this.setMode('metrics')
+    this.requestRender()
+  }
+
+  private closeMetrics(): void {
+    if (this.state.mode !== 'metrics') return
+    this.state.metrics = null
+    this.setMode('normal')
+    this.screen.forceDirty()
+    this.requestRender()
+  }
+
+  private metricsCycleGroup(): void {
+    const modal = this.state.metrics
+    if (!modal || this.state.mode !== 'metrics') return
+    const order: GroupBy[] = ['model', 'workflow', 'agent']
+    const idx = order.indexOf(modal.groupBy)
+    modal.groupBy = order[(idx + 1) % order.length]
+    modal.runsScrollOffset = 0
+    invalidateMetricsModalCache()
+    this.requestRender()
+  }
+
+  private metricsCyclePeriod(): void {
+    const modal = this.state.metrics
+    if (!modal || this.state.mode !== 'metrics') return
+    const order: Period[] = ['today', 'week', 'month', 'all']
+    const idx = order.indexOf(modal.period)
+    modal.period = order[(idx + 1) % order.length]
+    modal.runsScrollOffset = 0
+    invalidateMetricsModalCache()
+    this.requestRender()
+  }
+
+  private metricsToggleRunsFocus(): void {
+    const modal = this.state.metrics
+    if (!modal || this.state.mode !== 'metrics') return
+    modal.runsListFocused = !modal.runsListFocused
+    this.requestRender()
+  }
+
+  private metricsScrollDown(): void {
+    const modal = this.state.metrics
+    if (!modal || this.state.mode !== 'metrics' || !modal.runsListFocused) return
+    modal.runsScrollOffset += 1
+    this.requestRender()
+  }
+
+  private metricsScrollUp(): void {
+    const modal = this.state.metrics
+    if (!modal || this.state.mode !== 'metrics' || !modal.runsListFocused) return
+    modal.runsScrollOffset = Math.max(0, modal.runsScrollOffset - 1)
     this.requestRender()
   }
 
