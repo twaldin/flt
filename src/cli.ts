@@ -14,6 +14,7 @@ import { cronList, cronAdd, cronRemove } from './commands/cron'
 import { activity } from './commands/activity'
 import { modelsResolve } from './commands/models'
 import { pluginAudit, pluginUninstall } from './commands/plugins'
+import { traceExport } from './commands/trace'
 
 const program = new Command()
   .name('flt')
@@ -646,6 +647,22 @@ routeCmd
       const { runRouteCheck } = require('./commands/route-check')
       const { exitCode } = await runRouteCheck({ force: !!opts.force, json: !!opts.json })
       process.exit(exitCode)
+    } catch (e) {
+      console.error(`Error: ${(e as Error).message}`)
+      process.exit(1)
+    }
+  })
+
+const traceCmd = program
+  .command('trace')
+  .description('Export normalized workflow transcripts')
+
+traceCmd
+  .command('export <runId>')
+  .description('Export transcript.jsonl for a workflow run')
+  .action((runId) => {
+    try {
+      traceExport(runId)
     } catch (e) {
       console.error(`Error: ${(e as Error).message}`)
       process.exit(1)

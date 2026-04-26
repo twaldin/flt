@@ -139,6 +139,8 @@ steps:
         const loaded = loadWorkflowRun(run.id)
         expect(loaded).not.toBeNull()
         expect(loaded?.runDir).toBe(join(home, '.flt', 'runs', run.id))
+        const treatment = loaded?.vars?.coder?.treatment
+        expect(typeof treatment === 'object' && treatment !== null).toBe(true)
         expect(existsSync(join(loaded!.runDir!, 'results'))).toBe(true)
         expect(existsSync(join(loaded!.runDir!, 'handoffs'))).toBe(true)
 

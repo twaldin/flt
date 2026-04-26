@@ -10,7 +10,7 @@ import { sendDirect } from '../commands/send'
 import type { CallerContext } from '../detect'
 import { aggregateResults, writeResult } from './results'
 import { evaluateCondition } from './condition'
-import { permuteTreatmentMap } from './treatment'
+import { buildWorkflowTreatment, permuteTreatmentMap } from './treatment'
 
 let _spawnFn: typeof import('../commands/spawn').spawnDirect | null = null
 
@@ -524,7 +524,7 @@ function resolveTemplateShell(template: string, run: WorkflowRun): string {
     const stepVars = run.vars[stepId]
     if (!stepVars) return match
     const value = stepVars[field]
-    if (value === undefined) return match
+    if (typeof value !== 'string') return match
     return shellEscapeArg(value)
   })
   return result
@@ -557,6 +557,7 @@ async function executeParallelStep(def: WorkflowDef, run: WorkflowRun, parallelS
     return {
       label,
       preset: treatmentMap[label],
+      treatment: buildWorkflowTreatment(run.workflow, treatmentMap[label]),
       agentName: `${baseName}-${label}`,
     }
   })
@@ -750,7 +751,9 @@ export function executeCollectArtifactsStep(_def: WorkflowDef, run: WorkflowRun,
 
     const fromVars = run.vars[fromId]
     if (!fromVars) continue
-    const sourceDir = fromVars.worktree ?? fromVars.dir
+    const sourceDir = typeof fromVars.worktree === 'string'
+      ? fromVars.worktree
+      : (typeof fromVars.dir === 'string' ? fromVars.dir : '')
     if (!sourceDir) continue
     for (const fileName of step.files) {
       const src = join(sourceDir, fileName)
@@ -928,6 +931,7 @@ async function executeStep(def: WorkflowDef, run: WorkflowRun, step: WorkflowSte
       worktree: agent.worktreePath ?? agent.dir,
       dir: agent.dir,
       branch: agent.worktreeBranch ?? '',
+      treatment: buildWorkflowTreatment(run.workflow, step.preset),
     }
     saveWorkflowRun(run)
   }
@@ -944,7 +948,8 @@ function resolveTemplate(template: string, run: WorkflowRun): string {
   result = result.replace(/\{steps\.([^.]+)\.(\w+)\}/g, (match, stepId, field) => {
     const stepVars = run.vars[stepId]
     if (!stepVars) return match
-    return stepVars[field] ?? match
+    const value = stepVars[field]
+    return typeof value === 'string' ? value : match
   })
   return result
 }
@@ -955,8 +960,8 @@ export function workflowAgentName(runId: string, stepId: string): string {
 
 function cleanupWorkflowWorktrees(run: WorkflowRun): void {
   for (const [stepId, vars] of Object.entries(run.vars)) {
-    const wtPath = vars.worktree
-    const branch = vars.branch
+    const wtPath = typeof vars.worktree === 'string' ? vars.worktree : ''
+    const branch = typeof vars.branch === 'string' ? vars.branch : ''
     if (!wtPath || !wtPath.includes('flt-wt-') || !branch) continue
     try {
       const { removeWorktree } = require('../worktree') as typeof import('../worktree')

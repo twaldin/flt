@@ -120,6 +120,11 @@ steps:
     const mappedPresets = Object.values(group.treatmentMap).sort()
     expect(mappedPresets).toEqual(['A', 'B', 'C'])
     expect(calls.length).toBe(3)
+    for (const candidate of group.candidates) {
+      expect(candidate.treatment?.roleHash).toMatch(/^[a-f0-9]{64}$/)
+      expect(candidate.treatment?.workflowHash).toMatch(/^[a-f0-9]{64}$/)
+      expect(candidate.treatment?.skillHashes).toBeDefined()
+    }
 
     for (const c of group.candidates) {
       const call = calls.find(v => v.name === c.agentName)

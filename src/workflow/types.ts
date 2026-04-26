@@ -59,6 +59,14 @@ export type WorkflowStepDef =
   | MergeBestStep
   | CollectArtifactsStep
 
+export interface WorkflowTreatment {
+  roleHash: string
+  skillHashes: Record<string, string>
+  workflowHash: string
+}
+
+export type WorkflowVars = Record<string, string | WorkflowTreatment | undefined>
+
 export interface WorkflowRun {
   id: string
   workflow: string
@@ -70,7 +78,7 @@ export interface WorkflowRun {
   stepProdCount?: number
   history: WorkflowStepResult[]
   retries: Record<string, number>
-  vars: Record<string, Record<string, string>>
+  vars: Record<string, WorkflowVars>
   startedAt: string
   completedAt?: string
   runDir?: string
@@ -95,6 +103,7 @@ export interface ParallelCandidate {
   label: string
   agentName: string
   preset: string
+  treatment?: WorkflowTreatment
   branch?: string
   worktree?: string
   verdict?: 'pass' | 'fail'

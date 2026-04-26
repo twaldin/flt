@@ -1,3 +1,10 @@
+import { createHash } from 'crypto'
+import { existsSync, readFileSync } from 'fs'
+import { join } from 'path'
+import { getPreset } from '../presets'
+import { loadSkills } from '../skills'
+import type { WorkflowTreatment } from './types'
+
 export function permuteTreatmentMap(n: number, presets: string[], seed: number): Record<string, string> {
   if (n < 1 || n > 26) {
     throw new Error('n must be between 1 and 26')
@@ -23,6 +30,57 @@ export function permuteTreatmentMap(n: number, presets: string[], seed: number):
   }
 
   return map
+}
+
+export function buildWorkflowTreatment(workflowName: string, presetName: string): WorkflowTreatment {
+  const preset = getPreset(presetName)
+  const rolePath = preset?.soul
+    ? (preset.soul.startsWith('/') ? preset.soul : join(getFltDir(), preset.soul))
+    : ''
+
+  const roleContent = rolePath && existsSync(rolePath)
+    ? readFileSync(rolePath, 'utf-8')
+    : ''
+
+  const availableSkills = new Map(loadSkills('*').map(skill => [skill.name, skill]))
+  const selectedSkillNames = preset?.allSkills
+    ? Array.from(availableSkills.keys())
+    : (preset?.skills ?? [])
+
+  const skillHashes: Record<string, string> = {}
+  for (const name of selectedSkillNames.slice().sort()) {
+    const entry = availableSkills.get(name)
+    if (!entry) continue
+    const skillPath = join(entry.path, 'SKILL.md')
+    if (!existsSync(skillPath)) continue
+    skillHashes[name] = sha256(readFileSync(skillPath, 'utf-8'))
+  }
+
+  const workflowPath = resolveWorkflowPath(workflowName)
+  const workflowContent = workflowPath && existsSync(workflowPath)
+    ? readFileSync(workflowPath, 'utf-8')
+    : ''
+
+  return {
+    roleHash: sha256(roleContent),
+    skillHashes,
+    workflowHash: sha256(workflowContent),
+  }
+}
+
+function resolveWorkflowPath(workflowName: string): string {
+  const workflowsDir = join(getFltDir(), 'workflows')
+  const yamlPath = join(workflowsDir, `${workflowName}.yaml`)
+  if (existsSync(yamlPath)) return yamlPath
+  return join(workflowsDir, `${workflowName}.yml`)
+}
+
+function sha256(content: string): string {
+  return createHash('sha256').update(content, 'utf-8').digest('hex')
+}
+
+function getFltDir(): string {
+  return join(process.env.HOME ?? require('os').homedir(), '.flt')
 }
 
 function mulberry32(seed: number): () => number {
