@@ -186,11 +186,24 @@ export function getWorkflowHistory(id: string): WorkflowStepRow[] {
   })
 }
 
-export function formatCost(cost: WorkflowCost): string {
-  // Compact: "$0.42 · 12k/3k" — usd to 2dp, tokens k-rounded; show '—' if zero.
-  if (cost.usd === 0 && cost.tokensIn === 0 && cost.tokensOut === 0) return '—'
-  const usd = cost.usd >= 1 ? `$${cost.usd.toFixed(2)}` : `$${cost.usd.toFixed(3)}`
-  const tin = cost.tokensIn >= 1000 ? `${Math.round(cost.tokensIn / 1000)}k` : `${cost.tokensIn}`
-  const tout = cost.tokensOut >= 1000 ? `${Math.round(cost.tokensOut / 1000)}k` : `${cost.tokensOut}`
-  return `${usd} · ${tin}/${tout}`
+export function formatUsd(cost: WorkflowCost): string {
+  if (cost.usd === 0) return '—'
+  if (cost.usd >= 1) return `$${cost.usd.toFixed(2)}`
+  if (cost.usd >= 0.01) return `$${cost.usd.toFixed(3)}`
+  return `$${cost.usd.toFixed(4)}`
+}
+
+export function formatTokens(cost: WorkflowCost): string {
+  if (cost.tokensIn === 0 && cost.tokensOut === 0) return '—'
+  const fmt = (n: number) => (n >= 1000 ? `${Math.round(n / 1000)}k` : `${n}`)
+  return `${fmt(cost.tokensIn)}/${fmt(cost.tokensOut)}`
+}
+
+/** Strip the workflow-name prefix from an old-style runId so we can show it
+ * alongside its workflow as separate columns. New-style runIds (slug-only)
+ * are returned unchanged. */
+export function deriveSlug(runId: string, workflow: string): string {
+  if (runId === workflow) return ''
+  if (runId.startsWith(`${workflow}-`)) return runId.slice(workflow.length + 1)
+  return runId
 }
