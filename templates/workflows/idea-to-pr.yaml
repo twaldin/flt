@@ -1,44 +1,119 @@
 name: idea-to-pr
+# Single-agent linear pipeline. Every retry-able step weaves {fail_reason} so the
+# next agent sees the previous failure. Reviewer + verifier get full spec/design
+# + branch context so they don't have to guess.
 steps:
   - id: spec
     preset: cc-sonnet
-    task: 'Write a one-page spec for: {task}. Save to spec.md in your worktree. Run flt workflow pass when done.'
+    task: |
+      Original task: {task}
+
+      Write a one-page spec.md in your worktree:
+      - Goal (1-2 sentences)
+      - Acceptance criteria (bulleted, testable)
+      - Out of scope
+      - Open questions (only if blocking)
+
+      flt workflow pass when done.
     on_complete: architect
+
   - id: architect
     preset: cc-opus
     dir: '{steps.spec.worktree}'
     worktree: false
-    task: 'Read spec.md and produce design.md (architecture + interfaces). Run flt workflow pass when done.'
+    task: |
+      Read spec.md (in your cwd). Produce design.md alongside it:
+      - Files to add/modify (with reason per file)
+      - Public interfaces / signatures / key invariants
+      - Test plan that demonstrates the acceptance criteria
+      - Risks
+
+      Original task (for context): {task}
+
+      flt workflow pass when done.
     on_complete: coder
-  # To enable a 3-way coder tournament, replace the coder step below with:
-  #   - id: coder
-  #     type: parallel
-  #     n: 3
-  #     presets: [pi-coder, cc-sonnet, glm-coder]
-  #     step: { id: candidate, preset: pi-coder, task: '...' }
-  # Then add an evaluator step + merge_best step after.
+
   - id: coder
     preset: pi-coder
-    task: 'Implement the design from {steps.architect.worktree}/design.md. Run flt workflow pass when tests are green.'
+    task: |
+      Original task: {task}
+
+      Read first:
+      - {steps.spec.worktree}/spec.md
+      - {steps.architect.worktree}/design.md
+
+      Implement per the design. Land the tests the design promised. Run them. Commit incrementally.
+
+      Previous-attempt feedback (only set on retry): {fail_reason}
+
+      When tests are green and committed: flt workflow pass
+      If blocked: flt workflow fail "<one-line reason>"
     on_complete: reviewer
     on_fail: coder
     max_retries: 2
+
   - id: reviewer
     preset: cc-sonnet
     dir: '{steps.coder.worktree}'
     worktree: false
-    task: 'Review the implementation. flt workflow pass / fail.'
+    task: |
+      You are reviewing the coder's diff against the spec + design.
+
+      Your context:
+      - cwd is the coder's worktree
+      - branch is {steps.coder.branch} (branched from the workflow's start branch — usually main)
+      - PR (if auto-created): {pr}
+      - Original task: {task}
+      - Spec: {steps.spec.worktree}/spec.md
+      - Design: {steps.architect.worktree}/design.md
+
+      To inspect the diff:
+      - git log --oneline {steps.coder.branch} -20
+      - git diff $(git merge-base HEAD origin/HEAD)...HEAD     # or replace base manually if origin/HEAD is unset
+      - or: gh pr diff (if PR exists)
+
+      Read spec.md + design.md FIRST, then look at the diff with the spec in mind.
+
+      Check for: deviations from the spec, missing acceptance-criteria coverage, bugs, security issues, unrelated drive-by edits, missing tests.
+
+      If acceptable: flt workflow pass
+      If problems: flt workflow fail "<concrete actionable feedback>"
+
+      The coder retry receives your fail message verbatim in their bootstrap. Be specific enough that they can act on it without re-reading the diff.
     on_complete: verifier
     on_fail: coder
+
   - id: verifier
     preset: pi-coder
     dir: '{steps.coder.worktree}'
     worktree: false
-    task: 'Run the test suite and lint. flt workflow pass on green.'
+    task: |
+      Mechanically verify the implementation.
+
+      Your context:
+      - cwd is the coder's worktree (branch: {steps.coder.branch})
+      - Original task: {task}
+      - Spec: {steps.spec.worktree}/spec.md
+
+      Discover what the project actually has:
+      - run the test command (bun test / npm test / pytest / cargo test — whatever the project uses)
+      - run typecheck if configured (skip silently if not)
+      - run lint if configured (skip silently if not)
+      - missing tooling is NOT a failure on its own; only fail on actual broken results
+
+      Previous verifier feedback (only on retry): {fail_reason}
+
+      Pass: flt workflow pass
+      Fail: flt workflow fail "<short reason — anything blocking>"
     on_complete: gate
     on_fail: coder
+
   - id: gate
     type: human_gate
-    notify: 'Pipeline complete; human approval needed before merge.'
+    notify: |
+      Pipeline reached the gate. Approve to ship or reject.
+      Original task: {task}
+      Worktree: {steps.coder.worktree} (branch {steps.coder.branch})
+      PR: {pr}
     on_complete: done
     on_fail: coder
