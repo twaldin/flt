@@ -8,13 +8,25 @@ import { appendEvent } from '../activity'
 import * as tmux from '../tmux'
 import { sendDirect } from '../commands/send'
 import type { CallerContext } from '../detect'
+import { aggregateResults, writeResult } from './results'
+
+let _spawnFn: typeof import('../commands/spawn').spawnDirect | null = null
+
+export function _setSpawnFnForTest(fn: typeof import('../commands/spawn').spawnDirect | null): void {
+  _spawnFn = fn
+}
+
+async function getSpawnFn() {
+  if (_spawnFn) return _spawnFn
+  return (await import('../commands/spawn')).spawnDirect
+}
 
 function getRunsDir(): string {
-  return join(process.env.HOME ?? require('os').homedir(), '.flt', 'workflows', 'runs')
+  return join(process.env.HOME ?? require('os').homedir(), '.flt', 'runs')
 }
 
 function getRunPath(runId: string): string {
-  return join(getRunsDir(), `${runId}.json`)
+  return join(getRunsDir(), runId, 'run.json')
 }
 
 function generateRunId(workflowName: string): string {
@@ -30,16 +42,22 @@ export function loadWorkflowRun(runId: string): WorkflowRun | null {
   const path = getRunPath(runId)
   if (!existsSync(path)) return null
   try {
-    return JSON.parse(readFileSync(path, 'utf-8'))
-  } catch {
+    const parsed = JSON.parse(readFileSync(path, 'utf-8')) as WorkflowRun
+    if (!parsed.runDir) {
+      throw new Error(`workflow run "${runId}" was created before the workflow primitives upgrade; cancel it via flt workflow cancel ${runId} and rerun`)
+    }
+    return parsed
+  } catch (e) {
+    if (e instanceof Error && e.message.includes('workflow primitives upgrade')) {
+      throw e
+    }
     return null
   }
 }
 
 export function saveWorkflowRun(run: WorkflowRun): void {
-  const dir = getRunsDir()
-  mkdirSync(dir, { recursive: true })
   const path = getRunPath(run.id)
+  mkdirSync(join(getRunsDir(), run.id), { recursive: true })
   const tmp = path + '.tmp'
   writeFileSync(tmp, JSON.stringify(run, null, 2) + '\n')
   renameSync(tmp, path)
@@ -50,10 +68,14 @@ export function listWorkflowRuns(): WorkflowRun[] {
   if (!existsSync(dir)) return []
 
   const runs: WorkflowRun[] = []
-  for (const file of readdirSync(dir)) {
-    if (!file.endsWith('.json')) continue
+  for (const entry of readdirSync(dir, { withFileTypes: true })) {
+    if (!entry.isDirectory()) continue
+    const runPath = join(dir, entry.name, 'run.json')
+    if (!existsSync(runPath)) continue
     try {
-      runs.push(JSON.parse(readFileSync(join(dir, file), 'utf-8')))
+      const parsed = JSON.parse(readFileSync(runPath, 'utf-8')) as WorkflowRun
+      if (!parsed.runDir) continue
+      runs.push(parsed)
     } catch {}
   }
   return runs
@@ -66,8 +88,23 @@ export async function startWorkflow(name: string, opts?: { parent?: string; task
   const callerName = opts?.parent ?? process.env.FLT_AGENT_NAME
   const resolvedParent = (callerName && callerName !== 'cron') ? callerName : 'human'
 
+  const runId = generateRunId(name)
+  const runDir = join(getRunsDir(), runId)
+
+  let startBranch = ''
+  try {
+    startBranch = execSync('git rev-parse --abbrev-ref HEAD', {
+      cwd: opts?.dir ?? process.cwd(),
+      encoding: 'utf-8',
+      stdio: ['ignore', 'pipe', 'ignore'],
+      timeout: 5000,
+    }).trim()
+  } catch {
+    startBranch = ''
+  }
+
   const run: WorkflowRun = {
-    id: generateRunId(name),
+    id: runId,
     workflow: name,
     currentStep: def.steps[0].id,
     status: 'running',
@@ -81,7 +118,13 @@ export async function startWorkflow(name: string, opts?: { parent?: string; task
       },
     },
     startedAt: new Date().toISOString(),
+    runDir,
+    startBranch,
   }
+
+  mkdirSync(run.runDir, { recursive: true })
+  mkdirSync(join(run.runDir, 'results'), { recursive: true })
+  mkdirSync(join(run.runDir, 'handoffs'), { recursive: true })
 
   saveWorkflowRun(run)
   appendEvent({ type: 'workflow', detail: `started ${name}`, at: run.startedAt })
@@ -117,42 +160,58 @@ export async function advanceWorkflow(runId: string): Promise<void> {
     }
   }
 
-  // Idle-without-verdict guard: an agent that went idle without calling
-  // `flt workflow pass` / `flt workflow fail <reason>` used to silently default
-  // to pass, which swallowed reviewer feedback (e.g. agentelo PR 10). Instead,
-  // prod the agent up to 2 times to force an explicit verdict, then fail the
-  // step if they still won't report.
-  if (run.stepResult === undefined) {
-    const prods = run.stepProdCount ?? 0
-    if (prods < 2 && agent && tmux.hasSession(agent.tmuxSession)) {
-      run.stepProdCount = prods + 1
-      saveWorkflowRun(run)
-      const urgency = prods === 0 ? '' : ' (second prompt — next silent idle fails the step)'
-      const prodMsg = `you went idle without emitting a verdict${urgency}. Review your work against the task and call exactly one of:\n  flt workflow pass\n  flt workflow fail "<one-line reason>"\nDo it now.`
-      try {
-        await sendDirect({ target: agentName, message: prodMsg, _caller: { mode: 'agent', agentName: 'flt-controller', depth: 0 } as CallerContext })
-      } catch (e) {
-        const { appendInbox } = await import('../commands/init')
-        appendInbox('WORKFLOW', `Failed to prod ${agentName} for verdict: ${(e as Error).message}`)
+  const expectedN = run.parallelGroups?.[run.currentStep]
+    ? run.parallelGroups[run.currentStep].candidates.length
+    : 1
+  if (!run.runDir) {
+    throw new Error(`workflow run "${run.id}" is missing runDir`)
+  }
+
+  let aggregated = aggregateResults(run.runDir, run.currentStep, expectedN)
+  if (!aggregated.allDone) {
+    const verdictCount = aggregated.passers.length + aggregated.failures.length
+    if (verdictCount === 0) {
+      const prods = run.stepProdCount ?? 0
+      if (prods < 2 && agent && tmux.hasSession(agent.tmuxSession)) {
+        run.stepProdCount = prods + 1
+        saveWorkflowRun(run)
+        const urgency = prods === 0 ? '' : ' (second prompt — next silent idle fails the step)'
+        const prodMsg = `you went idle without emitting a verdict${urgency}. Review your work against the task and call exactly one of:\n  flt workflow pass\n  flt workflow fail "<one-line reason>"\nDo it now.`
+        try {
+          await sendDirect({ target: agentName, message: prodMsg, _caller: { mode: 'agent', agentName: 'flt-controller', depth: 0 } as CallerContext })
+        } catch (e) {
+          const { appendInbox } = await import('../commands/init')
+          appendInbox('WORKFLOW', `Failed to prod ${agentName} for verdict: ${(e as Error).message}`)
+        }
+        appendEvent({ type: 'workflow', detail: `prod ${run.id}/${currentStepDef.id}: no verdict after idle (attempt ${run.stepProdCount})`, at: new Date().toISOString() })
+        return
       }
-      appendEvent({ type: 'workflow', detail: `prod ${run.id}/${currentStepDef.id}: no verdict after idle (attempt ${run.stepProdCount})`, at: new Date().toISOString() })
+      if (prods >= 2) {
+        const forcedFailReason = `agent went idle ${prods + 1} times without emitting PASS or FAIL via flt workflow`
+        writeResult(run.runDir, run.currentStep, '_', 'fail', forcedFailReason)
+        appendEvent({ type: 'workflow', detail: `forced-fail ${run.id}/${currentStepDef.id}: ${forcedFailReason}`, at: new Date().toISOString() })
+        aggregated = aggregateResults(run.runDir, run.currentStep, expectedN)
+      } else {
+        return
+      }
+    } else {
       return
-    }
-    if (prods >= 2) {
-      // Third silent idle — treat as fail with a clear reason.
-      run.stepResult = 'fail'
-      run.stepFailReason = `agent went idle ${prods + 1} times without emitting PASS or FAIL via flt workflow`
-      appendEvent({ type: 'workflow', detail: `forced-fail ${run.id}/${currentStepDef.id}: ${run.stepFailReason}`, at: new Date().toISOString() })
     }
   }
 
-  // Clear prod counter once we have a verdict (or forced one).
+  if (!aggregated.allDone) return
+
   run.stepProdCount = undefined
 
-  // Check if agent signaled pass/fail (don't clear failReason yet — templates need it)
-  const signalResult = run.stepResult ?? 'pass'
-  const failReason = run.stepFailReason
-  run.stepResult = undefined
+  const isParallelStep = Boolean(run.parallelGroups?.[run.currentStep])
+  const signalResult: 'pass' | 'fail' = isParallelStep
+    ? (aggregated.passers.length >= 1 ? 'pass' : 'fail')
+    : (aggregated.failures.length >= 1 ? 'fail' : 'pass')
+  const failReason = signalResult === 'fail'
+    ? (isParallelStep
+      ? aggregated.failures.map(f => `${f.label}:${f.reason ?? ''}`).join(' ; ')
+      : aggregated.failures[0]?.reason)
+    : undefined
 
   run.history.push({
     step: currentStepDef.id,
@@ -301,6 +360,23 @@ export async function handleStepFailure(runId: string): Promise<void> {
   const currentStepDef = def.steps.find(s => s.id === run.currentStep)
   if (!currentStepDef) return
 
+  if (run.runDir) {
+    const expectedN = run.parallelGroups?.[run.currentStep]
+      ? run.parallelGroups[run.currentStep].candidates.length
+      : 1
+    const aggregated = aggregateResults(run.runDir, run.currentStep, expectedN)
+    if (aggregated.allDone) {
+      const isParallelStep = Boolean(run.parallelGroups?.[run.currentStep])
+      const collapsed = isParallelStep
+        ? (aggregated.passers.length >= 1 ? 'pass' : 'fail')
+        : (aggregated.failures.length >= 1 ? 'fail' : 'pass')
+      if (collapsed === 'pass') {
+        await advanceWorkflow(runId)
+        return
+      }
+    }
+  }
+
   const maxRetries = currentStepDef.max_retries ?? 0
   const retryCount = run.retries[currentStepDef.id] ?? 0
 
@@ -437,8 +513,8 @@ async function executeStep(def: WorkflowDef, run: WorkflowRun, step: WorkflowSte
     ? resolveTemplate(step.dir, run)
     : (run.vars._input?.dir || undefined)
 
-  const { spawnDirect } = await import('../commands/spawn')
-  await spawnDirect({
+  const spawn = await getSpawnFn()
+  await spawn({
     name: agentName,
     preset: step.preset,
     dir,
@@ -522,41 +598,25 @@ async function notifyWorkflowParent(run: WorkflowRun, message: string): Promise<
 /** Signal pass/fail from inside a workflow agent */
 export function signalWorkflowResult(result: 'pass' | 'fail', reason?: string): void {
   const runs = listWorkflowRuns().filter(r => r.status === 'running')
-  // Find which run this agent belongs to by checking the caller's agent name
-  const agentName = process.env.FLT_AGENT_NAME
-  if (!agentName) {
-    // Try tmux session env
-    try {
-      const { execFileSync } = require('child_process')
-      const sessionName = execFileSync('tmux', ['display-message', '-p', '#{session_name}'], {
-        encoding: 'utf-8', timeout: 2000,
-      }).trim()
-      if (sessionName.startsWith('flt-')) {
-        const name = sessionName.slice(4)
-        for (const run of runs) {
-          const expected = workflowAgentName(run.id, run.currentStep)
-          if (name === expected) {
-            run.stepResult = result
-            run.stepFailReason = reason
-            saveWorkflowRun(run)
-            return
-          }
-        }
-      }
-    } catch {}
+  const caller = process.env.FLT_AGENT_NAME ?? resolveAgentNameFromTmux()
+  if (!caller) {
     throw new Error('Not running inside a workflow agent')
   }
 
   for (const run of runs) {
     const expected = workflowAgentName(run.id, run.currentStep)
-    if (agentName === expected) {
-      run.stepResult = result
-      run.stepFailReason = reason
-      saveWorkflowRun(run)
-      return
+    const group = run.parallelGroups?.[run.currentStep]
+    const candidate = group?.candidates.find(c => c.agentName === caller)
+    if (caller !== expected && !candidate) continue
+    if (!run.runDir) {
+      throw new Error(`workflow run "${run.id}" is missing runDir`)
     }
+    const label = candidate?.label ?? '_'
+    writeResult(run.runDir, run.currentStep, label, result, reason)
+    return
   }
-  throw new Error(`No running workflow found for agent "${agentName}"`)
+
+  throw new Error(`No running workflow found for agent "${caller}"`)
 }
 
 // Map agent names to workflow run IDs for the controller poller
@@ -565,6 +625,21 @@ export function getWorkflowForAgent(agentName: string): string | null {
   for (const run of runs) {
     const expectedAgent = workflowAgentName(run.id, run.currentStep)
     if (agentName === expectedAgent) return run.id
+    const candidate = run.parallelGroups?.[run.currentStep]?.candidates.find(c => c.agentName === agentName)
+    if (candidate) return run.id
   }
+  return null
+}
+
+function resolveAgentNameFromTmux(): string | null {
+  try {
+    const { execFileSync } = require('child_process')
+    const sessionName = execFileSync('tmux', ['display-message', '-p', '#{session_name}'], {
+      encoding: 'utf-8', timeout: 2000,
+    }).trim()
+    if (sessionName.startsWith('flt-')) {
+      return sessionName.slice(4)
+    }
+  } catch {}
   return null
 }

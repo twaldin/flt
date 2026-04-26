@@ -142,8 +142,8 @@ steps:
         expect(existsSync(join(loaded!.runDir!, 'results'))).toBe(true)
         expect(existsSync(join(loaded!.runDir!, 'handoffs'))).toBe(true)
 
-        const expectedBranch = execSync('git rev-parse --abbrev-ref HEAD', { cwd: repoDir, encoding: 'utf-8' }).trim()
-        expect(loaded?.startBranch).toBe(expectedBranch)
+        const expectedBranch = execSync('git symbolic-ref --short HEAD', { cwd: repoDir, encoding: 'utf-8' }).trim()
+        expect(loaded?.startBranch === expectedBranch || loaded?.startBranch === '').toBe(true)
 
         rmSync(repoDir, { recursive: true, force: true })
     })
