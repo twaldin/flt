@@ -438,6 +438,24 @@ workflowCmd
     }
   })
 
+const traceCmd = program
+  .command('trace')
+  .description('Workflow transcript export utilities')
+
+traceCmd
+  .command('export <run-id>')
+  .description('Export normalized transcript.jsonl for a workflow run')
+  .action(async (runId) => {
+    try {
+      const { traceExport } = await import('./commands/trace')
+      const result = await traceExport(runId)
+      console.log(`Wrote ${result.entryCount} entries to ${result.outPath}`)
+    } catch (e) {
+      console.error(`Error: ${(e as Error).message}`)
+      process.exit(1)
+    }
+  })
+
 const evalCmd = program
   .command('eval')
   .description('Manage held-out eval suites for workflow benchmarking')

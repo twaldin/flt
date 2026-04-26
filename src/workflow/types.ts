@@ -85,6 +85,12 @@ export interface WorkflowStepResult {
   agent?: string
 }
 
+export interface Treatment {
+  roleHash: string
+  skillHashes: Record<string, string>
+  workflowHash: string
+}
+
 export interface ParallelGroupState {
   candidates: ParallelCandidate[]
   treatmentMap: Record<string, string>
@@ -99,4 +105,5 @@ export interface ParallelCandidate {
   worktree?: string
   verdict?: 'pass' | 'fail'
   failReason?: string
+  treatment?: Treatment
 }

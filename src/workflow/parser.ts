@@ -17,7 +17,7 @@ function getWorkflowsDir(): string {
   return join(process.env.HOME ?? require('os').homedir(), '.flt', 'workflows')
 }
 
-export function loadWorkflowDef(name: string): WorkflowDef {
+export function resolveWorkflowYamlPath(name: string): string {
   const dir = getWorkflowsDir()
   let filePath = join(dir, `${name}.yaml`)
   if (!existsSync(filePath)) {
@@ -26,8 +26,11 @@ export function loadWorkflowDef(name: string): WorkflowDef {
   if (!existsSync(filePath)) {
     throw new Error(`Workflow "${name}" not found. Expected at ${dir}/${name}.yaml`)
   }
+  return filePath
+}
 
-  const raw = readFileSync(filePath, 'utf-8')
+export function loadWorkflowDef(name: string): WorkflowDef {
+  const raw = readFileSync(resolveWorkflowYamlPath(name), 'utf-8')
   const parsed = parse(raw)
   return validateWorkflowDef(parsed)
 }

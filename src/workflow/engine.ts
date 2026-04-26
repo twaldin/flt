@@ -1,7 +1,7 @@
 import { readFileSync, writeFileSync, mkdirSync, existsSync, readdirSync, renameSync, copyFileSync, unlinkSync } from 'fs'
 import { basename, join } from 'path'
 import { execSync } from 'child_process'
-import { loadWorkflowDef } from './parser'
+import { loadWorkflowDef, resolveWorkflowYamlPath } from './parser'
 import { getAgent, allAgents } from '../state'
 import type { CollectArtifactsStep, ConditionStep, HumanGateStep, MergeBestStep, ParallelStep, SpawnStep, WorkflowDef, WorkflowRun, WorkflowStepDef } from './types'
 import { appendEvent } from '../activity'
@@ -10,8 +10,9 @@ import { sendDirect } from '../commands/send'
 import type { CallerContext } from '../detect'
 import { aggregateResults, writeResult } from './results'
 import { evaluateCondition } from './condition'
-import { permuteTreatmentMap } from './treatment'
+import { computeTreatment, permuteTreatmentMap } from './treatment'
 import { writeMetricsForRun } from './metrics'
+import { getPreset } from '../presets'
 
 let _spawnFn: typeof import('../commands/spawn').spawnDirect | null = null
 
@@ -559,13 +560,20 @@ async function executeParallelStep(def: WorkflowDef, run: WorkflowRun, parallelS
 
   const presets = parallelStep.presets ?? Array(parallelStep.n).fill(basePreset!)
   const treatmentMap = permuteTreatmentMap(parallelStep.n, presets, hashRunStepSeed(run.id, parallelStep.id))
+  const workflowYamlPath = resolveWorkflowYamlPath(run.workflow)
   const baseName = workflowAgentName(run.id, parallelStep.id)
   const candidates = Array.from({ length: parallelStep.n }, (_, i) => {
     const label = String.fromCharCode(97 + i)
+    const presetName = treatmentMap[label]
+    const presetConfig = getPreset(presetName)
+    if (!presetConfig) {
+      throw new Error(`Preset "${presetName}" not found. Run "flt presets list".`)
+    }
     return {
       label,
-      preset: treatmentMap[label],
+      preset: presetName,
       agentName: `${baseName}-${label}`,
+      treatment: computeTreatment(presetConfig, workflowYamlPath),
     }
   })
 
@@ -917,6 +925,18 @@ async function executeStep(def: WorkflowDef, run: WorkflowRun, step: WorkflowSte
     ? resolveTemplate(step.dir, run)
     : (run.vars._input?.dir || undefined)
 
+  const workflowYamlPath = resolveWorkflowYamlPath(run.workflow)
+  const presetConfig = getPreset(step.preset)
+  if (!presetConfig) {
+    throw new Error(`Preset "${step.preset}" not found. Run "flt presets list".`)
+  }
+  const treatment = computeTreatment(presetConfig, workflowYamlPath)
+  run.vars[step.id] = {
+    ...(run.vars[step.id] ?? {}),
+    treatment: JSON.stringify(treatment),
+  }
+  saveWorkflowRun(run)
+
   const spawn = await getSpawnFn()
   await spawn({
     name: agentName,
@@ -933,6 +953,7 @@ async function executeStep(def: WorkflowDef, run: WorkflowRun, step: WorkflowSte
   const agent = getAgent(agentName)
   if (agent) {
     run.vars[step.id] = {
+      ...(run.vars[step.id] ?? {}),
       worktree: agent.worktreePath ?? agent.dir,
       dir: agent.dir,
       branch: agent.worktreeBranch ?? '',
