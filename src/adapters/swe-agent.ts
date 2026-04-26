@@ -28,16 +28,19 @@ export const sweAgentAdapter: CliAdapter = {
   submitKeys: ['Escape', 'Enter'], // mini requires Esc then Enter to submit
 
   spawnArgs(opts: SpawnOpts): string[] {
+    // mini-swe-agent has no built-in default model — without --model and
+    // without MSWEA_MODEL_NAME, the first user message crashes with
+    // "ValueError: No default model set". flt always injects a model so
+    // the probe / generic spawn doesn't immediately die.
+    const model = opts.model ?? 'gpt-5.4'
     const args: string[] = []
-    // GPT models: prefix with env vars for OAuth proxy (litellm needs them)
-    const isGpt = opts.model && /^(gpt-|o[0-9]|openai\/)/i.test(opts.model)
+    const isGpt = /^(gpt-|o[0-9]|openai\/)/i.test(model)
     if (isGpt) {
       args.push('env', `OPENAI_API_KEY=unused`, `OPENAI_BASE_URL=${OAUTH_PROXY}`, `MSWEA_COST_TRACKING=ignore_errors`)
     } else {
       args.push('env', `MSWEA_COST_TRACKING=ignore_errors`)
     }
-    args.push('mini', '-y')
-    if (opts.model) args.push('--model', opts.model)
+    args.push('mini', '-y', '--model', model)
     return args
   },
 
