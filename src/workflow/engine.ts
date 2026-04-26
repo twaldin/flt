@@ -1,14 +1,15 @@
-import { readFileSync, writeFileSync, mkdirSync, existsSync, readdirSync, renameSync, copyFileSync } from 'fs'
+import { readFileSync, writeFileSync, mkdirSync, existsSync, readdirSync, renameSync, copyFileSync, unlinkSync } from 'fs'
 import { basename, join } from 'path'
 import { execSync } from 'child_process'
 import { loadWorkflowDef } from './parser'
 import { getAgent, allAgents } from '../state'
-import type { CollectArtifactsStep, MergeBestStep, ParallelStep, SpawnStep, WorkflowDef, WorkflowRun, WorkflowStepDef } from './types'
+import type { CollectArtifactsStep, ConditionStep, HumanGateStep, MergeBestStep, ParallelStep, SpawnStep, WorkflowDef, WorkflowRun, WorkflowStepDef } from './types'
 import { appendEvent } from '../activity'
 import * as tmux from '../tmux'
 import { sendDirect } from '../commands/send'
 import type { CallerContext } from '../detect'
 import { aggregateResults, writeResult } from './results'
+import { evaluateCondition } from './condition'
 import { permuteTreatmentMap } from './treatment'
 
 let _spawnFn: typeof import('../commands/spawn').spawnDirect | null = null
@@ -155,6 +156,7 @@ export async function advanceWorkflow(runId: string): Promise<void> {
   if (agent) {
     // Capture agent vars for template resolution
     run.vars[currentStepDef.id] = {
+      ...(run.vars[currentStepDef.id] ?? {}),
       worktree: agent.worktreePath ?? agent.dir,
       dir: agent.dir,
       branch: agent.worktreeBranch ?? '',
@@ -166,6 +168,25 @@ export async function advanceWorkflow(runId: string): Promise<void> {
     : 1
   if (!run.runDir) {
     throw new Error(`workflow run "${run.id}" is missing runDir`)
+  }
+
+  if (currentStepDef.type === 'human_gate') {
+    const decisionPath = join(run.runDir, '.gate-decision')
+    if (!existsSync(decisionPath)) return
+    let decision: { approved?: boolean, candidate?: string, reason?: string } | null = null
+    try {
+      decision = JSON.parse(readFileSync(decisionPath, 'utf-8')) as { approved?: boolean, candidate?: string, reason?: string }
+    } catch {}
+    if (!decision) return
+
+    if (decision.approved) {
+      writeResult(run.runDir, currentStepDef.id, '_', 'pass')
+    } else {
+      writeResult(run.runDir, currentStepDef.id, '_', 'fail', decision.reason ?? 'rejected')
+    }
+
+    try { unlinkSync(decisionPath) } catch {}
+    try { unlinkSync(join(run.runDir, '.gate-pending')) } catch {}
   }
 
   let aggregated = aggregateResults(run.runDir, run.currentStep, expectedN)
@@ -213,6 +234,13 @@ export async function advanceWorkflow(runId: string): Promise<void> {
       ? aggregated.failures.map(f => `${f.label}:${f.reason ?? ''}`).join(' ; ')
       : aggregated.failures[0]?.reason)
     : undefined
+
+  run.vars[currentStepDef.id] = {
+    ...(run.vars[currentStepDef.id] ?? {}),
+    verdict: signalResult,
+    failReason: failReason ?? '',
+  }
+  saveWorkflowRun(run)
 
   run.history.push({
     step: currentStepDef.id,
@@ -715,6 +743,85 @@ export function executeCollectArtifactsStep(_def: WorkflowDef, run: WorkflowRun,
   writeResult(run.runDir, step.id, '_', 'pass')
 }
 
+async function executeConditionStep(def: WorkflowDef, run: WorkflowRun, step: ConditionStep): Promise<void> {
+  if (!run.runDir) {
+    throw new Error(`workflow run "${run.id}" is missing runDir`)
+  }
+
+  const condVars = {
+    steps: run.vars,
+    fail_reason: run.stepFailReason ?? '',
+    task: run.vars._input?.task ?? '',
+    dir: run.vars._input?.dir ?? '',
+    pr: run.vars._pr?.url ?? '',
+  }
+
+  let result: boolean
+  try {
+    result = evaluateCondition(step.if, condVars)
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error)
+    writeResult(run.runDir, step.id, '_', 'fail', `condition: ${message}`)
+    await advanceWorkflow(run.id)
+    return
+  }
+
+  const target = result === true ? step.then : (step.else ?? step.on_complete ?? 'done')
+  writeResult(run.runDir, step.id, '_', 'pass')
+  run.history.push({
+    step: step.id,
+    result: 'completed',
+    at: new Date().toISOString(),
+  })
+  run.vars[step.id] = {
+    ...(run.vars[step.id] ?? {}),
+    verdict: 'pass',
+    failReason: '',
+  }
+
+  if (target === 'done') {
+    run.status = 'completed'
+    run.completedAt = new Date().toISOString()
+    saveWorkflowRun(run)
+    return
+  }
+
+  run.currentStep = target
+  saveWorkflowRun(run)
+
+  if (target === step.id) {
+    return
+  }
+
+  const nextStep = def.steps.find(s => s.id === target)
+  if (!nextStep) {
+    run.status = 'failed'
+    run.completedAt = new Date().toISOString()
+    saveWorkflowRun(run)
+    return
+  }
+
+  await executeStep(def, run, nextStep)
+}
+
+async function executeHumanGateStep(_def: WorkflowDef, run: WorkflowRun, step: HumanGateStep): Promise<void> {
+  if (!run.runDir) {
+    throw new Error(`workflow run "${run.id}" is missing runDir`)
+  }
+
+  const pendingPath = join(run.runDir, '.gate-pending')
+  const tmpPath = `${pendingPath}.tmp`
+  writeFileSync(tmpPath, JSON.stringify({
+    step: step.id,
+    notify: step.notify ?? '',
+    at: new Date().toISOString(),
+  }) + '\n')
+  renameSync(tmpPath, pendingPath)
+
+  const notifySuffix = step.notify ? `: ${step.notify}` : ''
+  await notifyWorkflowParent(run, `Workflow ${run.workflow} paused at human_gate "${step.id}"${notifySuffix}`)
+}
+
 async function executeStep(def: WorkflowDef, run: WorkflowRun, step: WorkflowStepDef): Promise<void> {
   if (step.type === 'parallel') {
     await executeParallelStep(def, run, step)
@@ -728,8 +835,11 @@ async function executeStep(def: WorkflowDef, run: WorkflowRun, step: WorkflowSte
     executeCollectArtifactsStep(def, run, step)
     return
   }
-  if (step.type === 'condition' || step.type === 'human_gate') {
-    return
+  if (step.type === 'condition') {
+    return executeConditionStep(def, run, step)
+  }
+  if (step.type === 'human_gate') {
+    return executeHumanGateStep(def, run, step)
   }
   if (!isSpawnStep(step)) {
     return
