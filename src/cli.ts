@@ -358,6 +358,20 @@ workflowCmd
   })
 
 workflowCmd
+  .command('rename <run>')
+  .description('Backfill-rename a terminal workflow run with a slug-based id')
+  .option('--slug <slug>', 'Slug to use; default derives from the run\'s original --task')
+  .action(async (run, opts) => {
+    try {
+      const { workflowRename } = await import('./commands/workflow')
+      await workflowRename(run, { slug: opts.slug })
+    } catch (e) {
+      console.error(`Error: ${(e as Error).message}`)
+      process.exit(1)
+    }
+  })
+
+workflowCmd
   .command('approve <run>')
   .description('Approve a paused human_gate step')
   .option('--candidate <label>', 'For merge_best gates: pick a parallel candidate label')

@@ -1,6 +1,7 @@
-import { renameSync, writeFileSync } from 'fs'
+import { existsSync, renameSync, writeFileSync } from 'fs'
 import { join } from 'path'
-import { startWorkflow, loadWorkflowRun, listWorkflowRuns, cancelWorkflow, advanceWorkflow } from '../workflow/engine'
+import { homedir } from 'os'
+import { startWorkflow, loadWorkflowRun, listWorkflowRuns, cancelWorkflow, advanceWorkflow, saveWorkflowRun, slugFromTask } from '../workflow/engine'
 import { listWorkflowDefs, loadWorkflowDef } from '../workflow/parser'
 
 export async function workflowRun(name: string, opts?: { parent?: string; task?: string; dir?: string; n?: number; slug?: string }): Promise<void> {
@@ -45,6 +46,45 @@ export async function workflowApprove(runId: string, opts?: { candidate?: string
 
   console.log(`Approved ${runId}${opts?.candidate ? ` (candidate: ${opts.candidate})` : ''}`)
   await advanceWorkflow(runId)
+}
+
+/**
+ * Backfill rename of a TERMINAL workflow run id to a slug-based id.
+ * Requires status !== 'running' to avoid breaking live agent name lookups.
+ * Renames run.json id field, mvs the runDir on disk, updates run.runDir.
+ * Old worktree branches (flt/<oldId>-<step>) are left alone — git keeps them as historical labels.
+ */
+export async function workflowRename(oldId: string, opts?: { slug?: string }): Promise<void> {
+  const run = loadWorkflowRun(oldId)
+  if (!run) throw new Error(`No workflow run found for "${oldId}"`)
+  if (run.status === 'running') {
+    throw new Error(`Cannot rename "${oldId}" while running (status: ${run.status}). Cancel first.`)
+  }
+
+  const slug = opts?.slug ?? (run.vars._input?.task ? slugFromTask(run.vars._input.task) : '')
+  if (!slug) {
+    throw new Error(`No --slug given and could not derive one from run.vars._input.task`)
+  }
+
+  const fltRunsDir = join(process.env.HOME ?? homedir(), '.flt', 'runs')
+  let newId = `${run.workflow}-${slug}`
+  let n = 2
+  while (existsSync(join(fltRunsDir, newId))) {
+    newId = `${run.workflow}-${slug}-${n}`
+    n++
+  }
+
+  const oldDir = join(fltRunsDir, oldId)
+  const newDir = join(fltRunsDir, newId)
+  if (!existsSync(oldDir)) throw new Error(`Run dir missing: ${oldDir}`)
+
+  renameSync(oldDir, newDir)
+  run.id = newId
+  run.runDir = newDir
+  saveWorkflowRun(run)
+
+  console.log(`Renamed ${oldId} → ${newId}`)
+  console.log(`  runDir: ${newDir}`)
 }
 
 export async function workflowReject(runId: string, reason: string): Promise<void> {
