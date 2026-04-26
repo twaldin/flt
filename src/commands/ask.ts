@@ -40,12 +40,12 @@ export async function askOracle(question: string, opts?: AskOptions): Promise<st
     bootstrap,
   })
 
-  try {
-    if (caller !== 'human') {
-      console.log(`Oracle ${oracleName} spawned; reply will arrive in your session.`)
-      return null
-    }
+  if (caller !== 'human') {
+    console.log(`Oracle ${oracleName} spawned; reply will arrive in your session.`)
+    return null
+  }
 
+  try {
     const baseline = readInbox(inboxPath)
     const timeoutMs = opts?.timeoutMs ?? 300_000
     const deadline = Date.now() + timeoutMs

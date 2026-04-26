@@ -54,11 +54,12 @@ describe('askOracle', () => {
     const outSpy = spyOn(console, 'log').mockImplementation(() => {})
 
     let spawnArgs: Record<string, unknown> | undefined
+    let killCalled = false
     askMod._setAskOracleTestHooks({
       spawnFn: (args: Record<string, unknown>) => {
         spawnArgs = args
       },
-      killFn: () => {},
+      killFn: () => { killCalled = true },
     })
 
     const result = await askMod.askOracle('hello?', { from: 'agent-x' })
@@ -67,6 +68,7 @@ describe('askOracle', () => {
     expect(spawnArgs?.parent).toBe('agent-x')
     expect(String(spawnArgs?.bootstrap)).toContain('flt send agent-x')
     expect(outSpy).toHaveBeenCalledWith(expect.stringContaining('spawned; reply will arrive in your session.'))
+    expect(killCalled).toBe(false)
     outSpy.mockRestore()
   })
 
