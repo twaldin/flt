@@ -6,6 +6,67 @@
 
 **Phase 3 next.** Two parallel tracks, dogfooded via flt's own workflow primitives. See "Phase 3 plan" below.
 
+---
+
+## ⚠️ ~/.flt RECOVERY STATUS (2026-04-26 evening) — READ FIRST
+
+User accidentally `tar -czf ~/.flt-backups/flt-2026-04-25.tar.gz -C ~ .flt && rm -rf ~/.flt` **twice** with the same `flt-2026-04-25.tar.gz` filename, so the **second tarball overwrote the first** — meaning the on-disk backup is whatever ~/.flt looked like just before the second wipe (likely already half-empty), not the full pre-phase-2 state. **Most ~/.flt content was nuked.**
+
+### What I (the prior-session author of this HANDOFF.md) just recovered from in-context memory
+
+I authored these files originally during phase 1 and had full content cached. **All restored:**
+
+- `~/.flt/agents/orchestrator/SOUL.md` — restored as the 3-line trimmed version the user finalized in-session (not my original 15-line draft).
+- `~/.flt/roles/{spec_writer,architect,coder,tester,reviewer,verifier,evaluator,oracle,mutator,trace_classifier}.md` — all 10 role templates restored verbatim from my drafts (`mutator` and `trace_classifier` are intentional phase-3 stubs).
+- `~/.flt/routing/policy.yaml` and `~/.flt/routing/escalation.yaml` — already correct on disk (re-seeded by `flt init` re-run).
+
+Verify with: `find ~/.flt/{agents,roles,routing} -type f | sort`.
+
+### What I COULD NOT recover (you have to)
+
+These are phase-2 artifacts authored by **the next-session agent (you, when reading this)**, not by me. I don't have their content in my context:
+
+- **`~/.flt/skills/*`** — phase 1 migrated 24 skills via `flt skill move-from-claude` from `~/.claude/skills/` + `~/.claude/anthropic-skills/skills/`. Both source paths were emptied during phase 1 cleanup. **The skill files are now gone everywhere.** Recovery options, in order of preference:
+  1. Look in `~/.flt-backups/flt-2026-04-25.tar.gz` first — `tar -tzf ... | grep skills/` to see what survived the overwrite.
+  2. If user-authored ones (grill, research, today, drift, autoresearch, challenge, template-skill) are missing: re-author them or pull from `~/.claude/projects/<project>/` history if any session preserved them.
+  3. For Anthropic-bundled (algorithmic-art, brand-guidelines, canvas-design, claude-api, doc-coauthoring, docx, frontend-design, internal-comms, mcp-builder, pdf, pptx, slack-gif-creator, theme-factory, web-artifacts-builder, webapp-testing, xlsx) — re-fetch by reinstalling claude-code or pulling from the official anthropic-skills repo.
+- **`~/.flt/workflows/*.yaml`** — the 4 default workflows seeded by `flt init` (`idea-to-pr.yaml`, `code-and-review.yaml`, `new-project.yaml`, `fix-bug.yaml`) per Task 26. **You authored these.** They should have been seeded by `flt init` re-run — verify with `ls ~/.flt/workflows/`. If missing, recover from your context, or re-run `flt init` after backing up + wiping `~/.flt` again.
+- **`~/.flt/evals/*`** — Task B4 (Phase 3) hasn't run yet, so this dir might be empty / not-yet-existent. Confirm whether your phase 2 work seeded any eval fixtures. If yes, recover from your context.
+- **`~/.flt/templates/*`** — `system-block-root.md`, `system-block-subagent.md`, `workflow-block.md`. These are copied from the repo's `templates/` dir by `flt init`. Should be restored automatically. Verify: `ls ~/.flt/templates/`.
+- **`~/.flt/presets.json`** — 20 default presets seeded by `flt init`. Verify with `cat ~/.flt/presets.json | jq 'keys'`. If missing or modified, regenerate by re-running `flt init` (after backup+wipe).
+- **`~/.flt/config.json`, `models.json`, `state.json`, `.managed-skills.json`** — all seeded by `flt init`. Verify they exist; if not, re-init.
+- **`~/.flt/runs/<run_id>/`** — historical run dirs from phase 2 testing. Lost. Not critical (phase 3 will produce new ones).
+
+### Concrete recovery checklist for you (next agent)
+
+```bash
+# 1) Inventory what survived
+ls -la ~/.flt/                            # core dirs + files
+find ~/.flt -type f | wc -l               # rough file count
+tar -tzf ~/.flt-backups/flt-2026-04-25.tar.gz | head -50   # what's in the (overwritten) backup
+
+# 2) Verify my SOUL + routing recovery
+diff <(ls ~/.flt/roles/) <(echo -e "architect.md\ncoder.md\nevaluator.md\nmutator.md\noracle.md\nreviewer.md\nspec_writer.md\ntester.md\ntrace_classifier.md\nverifier.md")
+test -f ~/.flt/agents/orchestrator/SOUL.md && echo "orchestrator OK"
+test -s ~/.flt/routing/policy.yaml && echo "policy OK"
+
+# 3) Identify gaps (phase-2 work I don't know about)
+ls ~/.flt/workflows/                      # should have idea-to-pr/code-and-review/new-project/fix-bug yamls
+ls ~/.flt/skills/ | wc -l                  # phase 2 had 24; now likely 0
+ls ~/.flt/evals/ 2>/dev/null               # may not exist yet
+
+# 4) Re-run flt init to restore everything that init seeds
+# CAUTION: this aborts if ~/.flt exists. To re-init: tar backup current + rm -rf + flt init.
+# Only do this AFTER you've recovered or accepted loss of any phase-2 artifacts not seeded by init.
+
+# 5) Skills recovery — manual, since flt skill move-from-claude has nothing left to move
+# Re-author or re-fetch per the list above.
+```
+
+If anything in `~/.flt` is critical phase-2 work the user wants intact, pull it from your in-context memory and write it back BEFORE re-running `flt init`. Once init is re-run, you'll get a clean seeded baseline plus whatever you manually recovered.
+
+---
+
 ## Authoritative documents
 
 - **Plan**: `/Users/twaldin/.claude/plans/cozy-wibbling-kahan.md` — phase 1 + phase 2 plan with locked decisions.
