@@ -438,6 +438,42 @@ workflowCmd
     }
   })
 
+const evalCmd = program
+  .command('eval')
+  .description('Manage held-out eval suites for workflow benchmarking')
+
+const evalSuiteCmd = evalCmd
+  .command('suite')
+  .description('Eval suite operations')
+
+evalSuiteCmd
+  .command('list')
+  .description('List available fixtures under tests/eval/')
+  .action(() => {
+    try {
+      const { evalSuiteList } = require('./commands/eval')
+      evalSuiteList()
+    } catch (e) {
+      console.error(`Error: ${(e as Error).message}`)
+      process.exit(1)
+    }
+  })
+
+evalSuiteCmd
+  .command('run <name>')
+  .description('Run the configured workflow against an eval fixture')
+  .option('--workflow <name>', 'Override the fixture\'s configured workflow')
+  .option('--parent <name>', 'Who gets notified on completion (default: human)')
+  .action(async (name, opts) => {
+    try {
+      const { evalSuiteRun } = await import('./commands/eval')
+      await evalSuiteRun(name, { workflow: opts.workflow, parent: opts.parent })
+    } catch (e) {
+      console.error(`Error: ${(e as Error).message}`)
+      process.exit(1)
+    }
+  })
+
 const artifactCmd = program
   .command('artifact')
   .description('Workflow artifact maintenance')

@@ -11,6 +11,7 @@ import type { CallerContext } from '../detect'
 import { aggregateResults, writeResult } from './results'
 import { evaluateCondition } from './condition'
 import { permuteTreatmentMap } from './treatment'
+import { writeMetricsForRun } from './metrics'
 
 let _spawnFn: typeof import('../commands/spawn').spawnDirect | null = null
 
@@ -81,6 +82,13 @@ export function saveWorkflowRun(run: WorkflowRun): void {
   const tmp = path + '.tmp'
   writeFileSync(tmp, JSON.stringify(run, null, 2) + '\n')
   renameSync(tmp, path)
+}
+
+function finalizeRun(run: WorkflowRun, cwd?: string): void {
+  try {
+    writeMetricsForRun(run, cwd ?? run.vars._input?.dir ?? process.cwd())
+  } catch {}
+  saveWorkflowRun(run)
 }
 
 export function listWorkflowRuns(): WorkflowRun[] {
@@ -166,7 +174,7 @@ export async function advanceWorkflow(runId: string): Promise<void> {
   if (!currentStepDef) {
     run.status = 'failed'
     run.completedAt = new Date().toISOString()
-    saveWorkflowRun(run)
+    finalizeRun(run)
     return
   }
 
@@ -298,7 +306,7 @@ export async function advanceWorkflow(runId: string): Promise<void> {
       run.status = 'failed'
       run.stepFailReason = failReason
       run.completedAt = new Date().toISOString()
-      saveWorkflowRun(run)
+      finalizeRun(run)
       appendEvent({ type: 'workflow', detail: `failed ${run.id}: ${failReason ?? 'agent signaled fail'}`, at: run.completedAt })
       cleanupWorkflowWorktrees(run)
       await notifyWorkflowParent(run, `Workflow "${run.workflow}" failed at step "${currentStepDef.id}": ${failReason ?? 'agent signaled fail'}`)
@@ -313,7 +321,7 @@ export async function advanceWorkflow(runId: string): Promise<void> {
         run.status = 'failed'
         run.stepFailReason = failReason
         run.completedAt = new Date().toISOString()
-        saveWorkflowRun(run)
+        finalizeRun(run)
         appendEvent({ type: 'workflow', detail: `failed ${run.id}: ${currentStepDef.id} exhausted retries (${maxRetries}) — ${failReason ?? 'agent signaled fail'}`, at: run.completedAt })
         cleanupWorkflowWorktrees(run)
         await notifyWorkflowParent(run, `Workflow "${run.workflow}" failed at step "${currentStepDef.id}" after ${maxRetries} retries: ${failReason ?? 'agent signaled fail'}`)
@@ -337,7 +345,7 @@ export async function advanceWorkflow(runId: string): Promise<void> {
     // on_fail points to an unknown step — treat as abort with a clear reason.
     run.status = 'failed'
     run.completedAt = new Date().toISOString()
-    saveWorkflowRun(run)
+    finalizeRun(run)
     appendEvent({ type: 'workflow', detail: `failed ${run.id}: on_fail target "${failStepId}" not found`, at: run.completedAt })
     cleanupWorkflowWorktrees(run)
     await notifyWorkflowParent(run, `Workflow "${run.workflow}" failed at step "${currentStepDef.id}": on_fail target "${failStepId}" not found`)
@@ -349,7 +357,7 @@ export async function advanceWorkflow(runId: string): Promise<void> {
   if (!nextStepId || nextStepId === 'done') {
     run.status = 'completed'
     run.completedAt = new Date().toISOString()
-    saveWorkflowRun(run)
+    finalizeRun(run)
     appendEvent({ type: 'workflow', detail: `completed ${run.id}`, at: run.completedAt })
     cleanupWorkflowWorktrees(run)
     const prUrl = run.vars._pr?.url
@@ -362,7 +370,7 @@ export async function advanceWorkflow(runId: string): Promise<void> {
   if (!nextStepDef) {
     run.status = 'failed'
     run.completedAt = new Date().toISOString()
-    saveWorkflowRun(run)
+    finalizeRun(run)
     return
   }
 
@@ -441,7 +449,7 @@ export async function handleStepFailure(runId: string): Promise<void> {
     // Abort
     run.status = 'failed'
     run.completedAt = new Date().toISOString()
-    saveWorkflowRun(run)
+    finalizeRun(run)
   }
 }
 
@@ -459,7 +467,7 @@ export async function cancelWorkflow(runId: string): Promise<void> {
 
   run.status = 'cancelled'
   run.completedAt = new Date().toISOString()
-  saveWorkflowRun(run)
+  finalizeRun(run)
   cleanupWorkflowWorktrees(run)
 }
 
@@ -802,7 +810,7 @@ async function executeConditionStep(def: WorkflowDef, run: WorkflowRun, step: Co
   if (target === 'done') {
     run.status = 'completed'
     run.completedAt = new Date().toISOString()
-    saveWorkflowRun(run)
+    finalizeRun(run)
     return
   }
 
@@ -817,7 +825,7 @@ async function executeConditionStep(def: WorkflowDef, run: WorkflowRun, step: Co
   if (!nextStep) {
     run.status = 'failed'
     run.completedAt = new Date().toISOString()
-    saveWorkflowRun(run)
+    finalizeRun(run)
     return
   }
 
@@ -879,7 +887,7 @@ async function executeStep(def: WorkflowDef, run: WorkflowRun, step: WorkflowSte
       if (!nextId || nextId === 'done') {
         run.status = 'completed'
         run.completedAt = new Date().toISOString()
-        saveWorkflowRun(run)
+        finalizeRun(run)
         return
       }
 
@@ -893,7 +901,7 @@ async function executeStep(def: WorkflowDef, run: WorkflowRun, step: WorkflowSte
       run.history.push({ step: step.id, result: 'failed', at: new Date().toISOString() })
       run.status = 'failed'
       run.completedAt = new Date().toISOString()
-      saveWorkflowRun(run)
+      finalizeRun(run)
     }
     return
   }
