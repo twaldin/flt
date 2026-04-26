@@ -307,10 +307,11 @@ workflowCmd
   .option('-t, --task <task>', 'Task description (available as {task} in step templates)')
   .option('-d, --dir <path>', 'Working directory for agent steps')
   .option('-n, --n <count>', 'Spawn N independent runs (workflow-level parallel)', (v) => parseInt(v, 10))
+  .option('--slug <slug>', 'Override the auto-derived id slug; default is derived from --task')
   .action(async (name, opts) => {
     try {
       const { workflowRun } = await import('./commands/workflow')
-      await workflowRun(name, { parent: opts.parent, task: opts.task, dir: opts.dir, n: opts.n })
+      await workflowRun(name, { parent: opts.parent, task: opts.task, dir: opts.dir, n: opts.n, slug: opts.slug })
     } catch (e) {
       console.error(`Error: ${(e as Error).message}`)
       process.exit(1)

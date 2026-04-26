@@ -31,13 +31,31 @@ function getRunPath(runId: string): string {
   return join(getRunsDir(), runId, 'run.json')
 }
 
-function generateRunId(workflowName: string): string {
+/** Slug a free-form task string into a short, filesystem-safe identifier. */
+export function slugFromTask(task: string, maxWords = 4): string {
+  const words = task
+    .toLowerCase()
+    .replace(/[^a-z0-9\s-]/g, ' ')
+    .split(/\s+/)
+    .filter(w => w.length > 1 && !STOPWORDS.has(w))
+    .slice(0, maxWords)
+  return words.join('-').replace(/-+/g, '-').replace(/^-+|-+$/g, '')
+}
+
+const STOPWORDS = new Set([
+  'the', 'and', 'for', 'with', 'into', 'from', 'this', 'that', 'these', 'those',
+  'flt', 'task', 'track', 'idea', 'pr', 'run', 'use', 'get', 'set', 'add', 'new',
+])
+
+function generateRunId(workflowName: string, slug?: string): string {
   const allRuns = listWorkflowRuns().filter(r => r.workflow === workflowName)
   const existingIds = new Set(allRuns.map(r => r.id))
-  // Always increment — never reuse a run ID (protects worktree branches)
+  // Base id: workflow name + optional slug (e.g. "idea-to-pr-modal-tui")
+  const base = slug ? `${workflowName}-${slug}` : workflowName
+  // Always increment if collision — never reuse a run ID (protects worktree branches)
   let n = 1
-  while (existingIds.has(n === 1 ? workflowName : `${workflowName}-${n}`)) n++
-  return n === 1 ? workflowName : `${workflowName}-${n}`
+  while (existingIds.has(n === 1 ? base : `${base}-${n}`)) n++
+  return n === 1 ? base : `${base}-${n}`
 }
 
 export function loadWorkflowRun(runId: string): WorkflowRun | null {
@@ -83,14 +101,16 @@ export function listWorkflowRuns(): WorkflowRun[] {
   return runs
 }
 
-export async function startWorkflow(name: string, opts?: { parent?: string; task?: string; dir?: string }): Promise<WorkflowRun> {
+export async function startWorkflow(name: string, opts?: { parent?: string; task?: string; dir?: string; slug?: string }): Promise<WorkflowRun> {
   const def = loadWorkflowDef(name)
 
   // Derive parent from caller if not provided
   const callerName = opts?.parent ?? process.env.FLT_AGENT_NAME
   const resolvedParent = (callerName && callerName !== 'cron') ? callerName : 'human'
 
-  const runId = generateRunId(name)
+  // Run-id slug: explicit --slug wins; else derive from --task; else none.
+  const effectiveSlug = opts?.slug ?? (opts?.task ? slugFromTask(opts.task) : undefined) ?? undefined
+  const runId = generateRunId(name, effectiveSlug || undefined)
   const runDir = join(getRunsDir(), runId)
 
   let startBranch = ''
