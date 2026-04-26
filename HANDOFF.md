@@ -2,12 +2,26 @@
 
 ## Where we are
 
-**Phase 3 STARTED. Both idea-to-pr workflows are running in the fleet right now.** Tim went to sleep; recovery + dogfood spawn handled in this session.
+**Phase 3 STARTED. Three idea-to-pr workflows are running in parallel.** Recovery + dogfood spawn handled in this session.
 
-- `idea-to-pr-3` — **Track A (TUI metrics modal)**, spec step running (claude-code/sonnet). Parent: human (so notifications go to your inbox).
-- `idea-to-pr-4` — **Track B (GEPA optimization data plumbing)**, spec step running. Parent: human.
+- `idea-to-pr-3` — **Track A (TUI metrics modal)**. Parent: human.
+- `idea-to-pr-4` — **Track B (GEPA optimization data plumbing)**. Parent: human.
+- `idea-to-pr-5` — **Track C (harness 12/12 session-log + py-ts parity)**, runs in `~/harness/`. Parent: human.
 
-Both worktrees in `/var/folders/cf/.../flt-wt-idea-to-pr-{3,4}-spec`. Workflow YAML pipeline: spec → architect → coder → reviewer → verifier → human_gate. Approve at gate via `flt workflow approve idea-to-pr-3` (or `-4`). Reject via `flt workflow reject idea-to-pr-3 --reason "..."`.
+Workflow YAML pipeline: spec → architect → coder → reviewer → verifier → human_gate. Approve at gate via `flt workflow approve idea-to-pr-3` (or `-4` / `-5`). Reject via `flt workflow reject idea-to-pr-3 --reason "..."`.
+
+**5 default skills vendored from skills.sh ecosystem** (committed to repo, init seeds them on re-run):
+- `find-skills` (vercel-labs, 1.2M installs) — discovery / "skill-finder"
+- `skill-creator` (anthropics, 168.7K installs) — bootstrap new skills
+- `browser-use` (browser-use, open-source, no API key — NOT browserbase) — local browser automation
+- `autoresearch` (awesome-copilot) — autonomous experiment loop
+- `pi-autoresearch-loop` (aradotso) — pi-specific variant
+
+Skipped per your call: figma (requires MCP), maya (not on skills.sh), all anthropic file-ops (xlsx/pptx/docx — you don't use them).
+
+**Readiness for overnight mutation: ~30%.** Pipe-pane logs + harness archives exist, but B1/B2/B3/B4 (artifact hashing, unified transcripts, metrics.json, eval suite) all blocked on Track B landing. Track B is in flight (currently at reviewer). Don't run real GEPA tonight — wait for Track B PR.
+
+**Harness gap identified**: 6/12 adapters have `sessionLogPath` wired in TS (claude-code, codex, gemini, opencode, swe-agent, pi). Missing: continue-cli, crush, factory-droid, openclaude, qwen, kilo. Harness py also drifts behind ts (claude-code adapter 75 vs 165 LOC). Track C (workflow `idea-to-pr-5`) closes both gaps.
 
 **Phase 2 closed earlier this session.** All 30 tasks done. Final-verification gates: `flt route check` 11/0/0, `bun test` 407/0 (now), `e2e-harness.sh` 12/12 PASS.
 
