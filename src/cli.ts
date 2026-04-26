@@ -277,6 +277,25 @@ modelsCmd
     }
   })
 
+program
+  .command('ask <target> <question>')
+  .description('Ask the oracle (or another routed role) a question')
+  .option('--from <name>', 'Caller agent name; default = human')
+  .option('--timeout <ms>', 'Timeout in milliseconds', (v) => parseInt(v, 10))
+  .action(async (target, question, opts) => {
+    try {
+      if (target !== 'oracle') {
+        console.error('Only "oracle" is supported as a target right now.')
+        process.exit(1)
+      }
+      const { askOracle } = await import('./commands/ask')
+      await askOracle(question, { from: opts.from, timeoutMs: opts.timeout })
+    } catch (e) {
+      console.error('Error: ' + (e as Error).message)
+      process.exit(1)
+    }
+  })
+
 const workflowCmd = program
   .command('workflow')
   .description('Manage multi-step agent workflows')
