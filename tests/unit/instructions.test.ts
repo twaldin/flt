@@ -51,7 +51,8 @@ describe('instructions', () => {
     const block = buildSystemBlock({ ...baseOpts, parentName: 'orchestrator' })
     expect(block).toContain('managed subagent')
     expect(block).toContain('Parent agent: orchestrator')
-    expect(block).toContain('do not message human directly')
+    expect(block).toContain('never human')
+    expect(block).toContain('flt ask oracle')
   })
 
   it('builds full instructions without SOUL.md', () => {
