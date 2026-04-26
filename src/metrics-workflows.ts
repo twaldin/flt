@@ -167,13 +167,30 @@ export function getWorkflowHistory(id: string): WorkflowStepRow[] {
   const run = listWorkflowRuns().find(r => r.id === id)
   if (!run) return []
 
-  // Prime the kill-event cache; per-step sums lookup directly.
+  // Prime the kill-event cache.
   getAgentKillCosts('__prime__')
+
+  // Pair history entries to kill events by ORDER, not time window. The kill
+  // event for a step fires AFTER history.at is stamped (advanceWorkflow writes
+  // history first, then cleans up agents), so a strict [prev, this] window
+  // misses the kill. The Nth history entry for agent X gets the Nth kill
+  // event for agent X.
+  const killCursors = new Map<string, number>()
+  const stepCosts = new Map<number, WorkflowCost>()
+  run.history.forEach((entry, idx) => {
+    if (!entry.agent) return
+    const cursor = killCursors.get(entry.agent) ?? 0
+    const kills = getAgentKillCosts(entry.agent)
+    if (cursor < kills.length) {
+      const k = kills[cursor]
+      stepCosts.set(idx, { usd: k.usd, tokensIn: k.tokensIn, tokensOut: k.tokensOut })
+      killCursors.set(entry.agent, cursor + 1)
+    }
+  })
 
   return run.history.map((entry, idx) => {
     const prevAt = idx > 0 ? run.history[idx - 1].at : run.startedAt
     const durationMs = Math.max(0, new Date(entry.at).getTime() - new Date(prevAt).getTime())
-    const cost = entry.agent ? sumCostFor(entry.agent, prevAt, entry.at) : emptyCost()
     return {
       name: entry.step,
       agent: entry.agent,
@@ -181,7 +198,7 @@ export function getWorkflowHistory(id: string): WorkflowStepRow[] {
       at: entry.at,
       atDisplay: formatTime(entry.at),
       duration: formatDuration(durationMs),
-      cost,
+      cost: stepCosts.get(idx) ?? emptyCost(),
     }
   })
 }

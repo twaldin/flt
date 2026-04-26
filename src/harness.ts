@@ -11,6 +11,7 @@
 import { readFileSync, readdirSync, existsSync, statSync, mkdirSync, writeFileSync, realpathSync } from 'fs'
 import { join } from 'path'
 import { homedir } from 'os'
+import { getAdapter as getHarnessAdapter } from '@twaldin/harness-ts'
 
 function home(): string {
   return process.env.HOME ?? homedir()
@@ -153,9 +154,41 @@ export interface ExtractOpts {
 }
 
 export function harnessExtract(opts: ExtractOpts): HarnessExtractResult | null {
-  // This PR supports claude-code only. Other adapters land in followups.
-  if (opts.cli !== 'claude-code') return null
-  return extractClaudeCode(opts.workdir, opts.spawnedAt)
+  // claude-code: keep flt's inline extractor (uses local CLAUDE_PRICING + spawn-time
+  // gating). All other CLIs: delegate to harness-ts's per-adapter parseSessionLog
+  // (covers pi/codex/gemini/opencode/swe-agent/openclaude/qwen/continue-cli/crush/
+  // factory-droid/kilo via Track C session-telemetry plumbing).
+  if (opts.cli === 'claude-code') {
+    return extractClaudeCode(opts.workdir, opts.spawnedAt)
+  }
+  return extractViaHarness(opts)
+}
+
+function extractViaHarness(opts: ExtractOpts): HarnessExtractResult | null {
+  try {
+    const adapter = getHarnessAdapter(opts.cli) as unknown as {
+      sessionLogPath?: (workdir: string) => string | null
+      parseSessionLog?: (path: string) => {
+        tokensIn: number | null
+        tokensOut: number | null
+        costUsd: number | null
+        model: string | null
+      }
+    } | null
+    if (!adapter?.sessionLogPath || !adapter?.parseSessionLog) return null
+    const path = adapter.sessionLogPath(opts.workdir)
+    if (!path) return null
+    const t = adapter.parseSessionLog(path)
+    if (t.tokensIn == null && t.tokensOut == null && t.costUsd == null) return null
+    return {
+      cost_usd: t.costUsd,
+      tokens_in: t.tokensIn,
+      tokens_out: t.tokensOut,
+      model: t.model,
+    }
+  } catch {
+    return null
+  }
 }
 
 export interface ArchiveOpts {

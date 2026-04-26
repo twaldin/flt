@@ -352,6 +352,12 @@ export function renderMetricsModal(screen: Screen, state: MetricsModalState, ter
   const width = term.width
   const height = term.height
 
+  // Fill the modal area with blank cells so the underlying sidebar/log view
+  // can't bleed through. Matches the pattern in modal-workflows.ts.
+  for (let r = 0; r < height; r += 1) {
+    screen.put(r, 0, ' '.repeat(width), t.sidebarText, '')
+  }
+
   screen.box(0, 0, width, height, 'single', t.sidebarBorder)
 
   const topTitle = ' flt metrics '
