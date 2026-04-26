@@ -3,7 +3,7 @@ import { join } from 'path'
 import { execSync } from 'child_process'
 import { loadWorkflowDef } from './parser'
 import { getAgent, allAgents } from '../state'
-import type { WorkflowDef, WorkflowRun, WorkflowStepDef } from './types'
+import type { SpawnStep, WorkflowDef, WorkflowRun, WorkflowStepDef } from './types'
 import { appendEvent } from '../activity'
 import * as tmux from '../tmux'
 import { sendDirect } from '../commands/send'
@@ -388,7 +388,15 @@ function resolveTemplateShell(template: string, run: WorkflowRun): string {
   return result
 }
 
+function isSpawnStep(step: WorkflowStepDef): step is SpawnStep {
+  return step.type === undefined || step.type === 'spawn'
+}
+
 async function executeStep(def: WorkflowDef, run: WorkflowRun, step: WorkflowStepDef): Promise<void> {
+  if (!isSpawnStep(step)) {
+    return
+  }
+
   if (step.run) {
     // Shell command step — execute and advance immediately
     try {
@@ -419,6 +427,10 @@ async function executeStep(def: WorkflowDef, run: WorkflowRun, step: WorkflowSte
   }
 
   // Agent step — spawn via preset
+  if (!step.preset || !step.task) {
+    throw new Error(`Step "${step.id}": spawn step requires preset and task when run is not set`)
+  }
+
   const agentName = workflowAgentName(run.id, step.id)
   const task = resolveTemplate(step.task, run)
   const dir = step.dir
