@@ -15,6 +15,8 @@ import { setupInput, getCompletionItems, type InputBindings, type TmuxInsertKey 
 import { getKeybindsBanner } from './keybinds'
 import { calculateLayout, renderLayout } from './panels'
 import { Screen } from './screen'
+import { getWorkflowHistory, type WorkflowFilter } from '../metrics-workflows'
+import { initialWorkflowModalState, loadWorkflowRows } from './modal-workflows'
 import { getCurrentThemeName, getThemeBackground, getThemeNames, setTheme } from './theme'
 import { getAsciiLogo } from './ascii'
 import { createInitialState, type AgentView, type AppState, type InboxMessage, type Mode, type ModalState, type ModalListItem } from './types'
@@ -242,6 +244,13 @@ export class App {
       },
       onResize: () => this.resize(process.stdout.columns ?? this.screen.cols, process.stdout.rows ?? this.screen.rows),
       openSpawnModal: () => this.openSpawnModal(),
+      openWorkflowsModal: () => this.openWorkflowsModal(),
+      closeWorkflowsModal: () => this.closeWorkflowsModal(),
+      setWorkflowFilter: (filter) => this.setWorkflowFilter(filter),
+      workflowsSelectNext: () => this.workflowsSelectNext(),
+      workflowsSelectPrev: () => this.workflowsSelectPrev(),
+      openWorkflowDrilldown: () => this.openWorkflowDrilldown(),
+      closeWorkflowDrilldown: () => this.closeWorkflowDrilldown(),
       setModalField: (fieldIndex, value, cursor) => this.setModalField(fieldIndex, value, cursor),
       modalNextField: () => this.modalNextField(),
       modalPrevField: () => this.modalPrevField(),
@@ -1292,6 +1301,64 @@ export class App {
     if (changed) {
       this.requestRender()
     }
+  }
+
+  private openWorkflowsModal(): void {
+    this.state.workflowsModal = initialWorkflowModalState('all')
+    this.setMode('workflows')
+    this.requestRender()
+  }
+
+  private closeWorkflowsModal(): void {
+    this.state.workflowsModal = null
+    if (this.state.mode === 'workflows') {
+      this.setMode('normal')
+    } else {
+      this.requestRender()
+    }
+  }
+
+  private setWorkflowFilter(filter: WorkflowFilter): void {
+    const modal = this.state.workflowsModal
+    if (!modal || modal.drilldown) return
+    modal.filter = filter
+    modal.rows = loadWorkflowRows(filter)
+    modal.selectedIndex = 0
+    this.requestRender()
+  }
+
+  private workflowsSelectNext(): void {
+    const modal = this.state.workflowsModal
+    if (!modal || modal.drilldown || modal.rows.length === 0) return
+    modal.selectedIndex = Math.min(modal.rows.length - 1, modal.selectedIndex + 1)
+    this.requestRender()
+  }
+
+  private workflowsSelectPrev(): void {
+    const modal = this.state.workflowsModal
+    if (!modal || modal.drilldown || modal.rows.length === 0) return
+    modal.selectedIndex = Math.max(0, modal.selectedIndex - 1)
+    this.requestRender()
+  }
+
+  private openWorkflowDrilldown(): void {
+    const modal = this.state.workflowsModal
+    if (!modal || modal.drilldown) return
+    const row = modal.rows[modal.selectedIndex]
+    if (!row) return
+    modal.drilldown = getWorkflowHistory(row.id)
+    modal.drilldownId = row.id
+    modal.drilldownTitle = `${row.workflow} · ${row.id}`
+    this.requestRender()
+  }
+
+  private closeWorkflowDrilldown(): void {
+    const modal = this.state.workflowsModal
+    if (!modal) return
+    modal.drilldown = null
+    modal.drilldownId = null
+    modal.drilldownTitle = null
+    this.requestRender()
   }
 
   private openSpawnModal(rawCommand?: string): void {

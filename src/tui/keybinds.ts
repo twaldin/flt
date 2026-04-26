@@ -10,6 +10,7 @@ export type KeybindAction =
   | 'selectPrev'
   | 'openCommand'
   | 'openSpawn'
+  | 'openWorkflows'
   | 'killConfirm'
   | 'openInbox'
   | 'reply'
@@ -38,11 +39,15 @@ export type KeybindAction =
   | 'completionUp'
   | 'completionDown'
   | 'completeReverse'
+  | 'workflowsAll'
+  | 'workflowsRunning'
+  | 'workflowsCompleted'
+  | 'workflowsFailed'
 
 export type ModeKeybinds = Record<string, KeybindAction>
 export type KeybindConfig = Record<ConfigurableMode, ModeKeybinds>
 
-const MODE_ORDER: ConfigurableMode[] = ['normal', 'log-focus', 'inbox', 'command', 'kill-confirm', 'presets']
+const MODE_ORDER: ConfigurableMode[] = ['normal', 'log-focus', 'inbox', 'command', 'kill-confirm', 'presets', 'workflows']
 
 const SPECIAL_KEY_NAMES: Record<string, string> = {
   enter: 'Enter',
@@ -62,6 +67,7 @@ const ACTION_LABELS: Record<KeybindAction, string> = {
   selectPrev: 'select',
   openCommand: 'cmd',
   openSpawn: 'spawn',
+  openWorkflows: 'workflows',
   killConfirm: 'kill',
   openInbox: 'inbox',
   reply: 'reply',
@@ -90,6 +96,10 @@ const ACTION_LABELS: Record<KeybindAction, string> = {
   completionUp: 'up',
   completionDown: 'down',
   completeReverse: 'prev',
+  workflowsAll: 'all',
+  workflowsRunning: 'running',
+  workflowsCompleted: 'completed',
+  workflowsFailed: 'failed',
 }
 
 const PAIR_GROUPS: Array<{ a: KeybindAction; b: KeybindAction; label: string }> = [
@@ -128,6 +138,7 @@ const KEYBIND_ACTION_SET: ReadonlySet<string> = new Set<string>([
   'selectPrev',
   'openCommand',
   'openSpawn',
+  'openWorkflows',
   'killConfirm',
   'openInbox',
   'reply',
@@ -156,6 +167,10 @@ const KEYBIND_ACTION_SET: ReadonlySet<string> = new Set<string>([
   'completionUp',
   'completionDown',
   'completeReverse',
+  'workflowsAll',
+  'workflowsRunning',
+  'workflowsCompleted',
+  'workflowsFailed',
 ])
 
 const MODE_ACTION_SET: Record<ConfigurableMode, ReadonlySet<KeybindAction>> = {
@@ -164,6 +179,7 @@ const MODE_ACTION_SET: Record<ConfigurableMode, ReadonlySet<KeybindAction>> = {
     'selectPrev',
     'openCommand',
     'openSpawn',
+    'openWorkflows',
     'killConfirm',
     'openInbox',
     'reply',
@@ -210,6 +226,16 @@ const MODE_ACTION_SET: Record<ConfigurableMode, ReadonlySet<KeybindAction>> = {
     'openCommand',
     'back',
   ]),
+  workflows: new Set<KeybindAction>([
+    'selectNext',
+    'selectPrev',
+    'confirm',
+    'back',
+    'workflowsAll',
+    'workflowsRunning',
+    'workflowsCompleted',
+    'workflowsFailed',
+  ]),
 }
 
 export const DEFAULT_KEYBINDS: KeybindConfig = {
@@ -218,6 +244,7 @@ export const DEFAULT_KEYBINDS: KeybindConfig = {
     k: 'selectPrev',
     ':': 'openCommand',
     s: 'openSpawn',
+    w: 'openWorkflows',
     K: 'killConfirm',
     m: 'openInbox',
     r: 'reply',
@@ -264,6 +291,16 @@ export const DEFAULT_KEYBINDS: KeybindConfig = {
   presets: {
     ':': 'openCommand',
     Escape: 'back',
+  },
+  workflows: {
+    j: 'selectNext',
+    k: 'selectPrev',
+    Enter: 'confirm',
+    Escape: 'back',
+    a: 'workflowsAll',
+    r: 'workflowsRunning',
+    c: 'workflowsCompleted',
+    f: 'workflowsFailed',
   },
 }
 
@@ -322,6 +359,7 @@ function mergeKeybinds(defaults: KeybindConfig, overrides: Partial<KeybindConfig
     command: { ...defaults.command, ...(overrides.command ?? {}) },
     'kill-confirm': { ...defaults['kill-confirm'], ...(overrides['kill-confirm'] ?? {}) },
     presets: { ...defaults.presets, ...(overrides.presets ?? {}) },
+    workflows: { ...defaults.workflows, ...(overrides.workflows ?? {}) },
   }
 }
 

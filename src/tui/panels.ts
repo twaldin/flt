@@ -3,6 +3,7 @@ import { ATTR_BOLD, ATTR_DIM, ATTR_UNDERLINE, ATTR_INVERSE, type Screen } from '
 import { COLORS, fg, getTheme, modeColor, statusColor, statusSymbol } from './theme'
 import type { AgentView, AppState, ModalState } from './types'
 import { getAsciiLogo, getAsciiLogoWidth } from './ascii'
+import { renderWorkflowModal } from './modal-workflows'
 
 export interface LayoutMetrics {
   sidebarWidth: number
@@ -932,5 +933,9 @@ export function renderLayout(screen: Screen, state: AppState): void {
 
   if (state.modal) {
     renderModal(screen, state.modal, cols, rows)
+  }
+
+  if (state.workflowsModal) {
+    renderWorkflowModal(state.workflowsModal, screen, cols, rows)
   }
 }

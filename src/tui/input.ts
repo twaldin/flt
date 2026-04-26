@@ -1,5 +1,6 @@
 import { StringDecoder } from 'string_decoder'
 import { getKeybindAction, type ConfigurableMode, type KeybindAction } from './keybinds'
+import type { WorkflowFilter } from '../metrics-workflows'
 import type { AgentView, AppState, CompletionItem, InboxMessage, Mode, ModalState } from './types'
 
 export type TmuxInsertKey =
@@ -62,6 +63,13 @@ export interface InputBindings {
   quit: () => void
   onResize?: () => void
   openSpawnModal: () => void
+  openWorkflowsModal: () => void
+  closeWorkflowsModal: () => void
+  setWorkflowFilter: (filter: WorkflowFilter) => void
+  workflowsSelectNext: () => void
+  workflowsSelectPrev: () => void
+  openWorkflowDrilldown: () => void
+  closeWorkflowDrilldown: () => void
   setModalField: (fieldIndex: number, value: string, cursor: number) => void
   modalNextField: () => void
   modalPrevField: () => void
@@ -706,10 +714,17 @@ function executeKeybindAction(mode: ConfigurableMode, action: KeybindAction, bin
     }
   }
 
-  if (action === 'selectNext') bindings.selectNext()
-  else if (action === 'selectPrev') bindings.selectPrev()
+  if (action === 'selectNext') {
+    if (mode === 'workflows') bindings.workflowsSelectNext()
+    else bindings.selectNext()
+  }
+  else if (action === 'selectPrev') {
+    if (mode === 'workflows') bindings.workflowsSelectPrev()
+    else bindings.selectPrev()
+  }
   else if (action === 'openCommand') bindings.openCommand('')
   else if (action === 'openSpawn') bindings.openSpawnModal()
+  else if (action === 'openWorkflows') bindings.openWorkflowsModal()
   else if (action === 'killConfirm' && state.selectedAgent) bindings.setKillConfirm(state.selectedAgent.name)
   else if (action === 'openInbox') bindings.setMode('inbox')
   else if (action === 'reply') {
@@ -730,7 +745,15 @@ function executeKeybindAction(mode: ConfigurableMode, action: KeybindAction, bin
   else if (action === 'jumpBottom') bindings.jumpLogBottom()
   else if (action === 'jumpTop') bindings.jumpLogTop()
   else if (action === 'search') bindings.setSearchQuery('')
-  else if (action === 'back') bindings.setMode('normal')
+  else if (action === 'back') {
+    if (mode === 'workflows') {
+      const workflows = state.workflowsModal
+      if (workflows?.drilldown) bindings.closeWorkflowDrilldown()
+      else bindings.closeWorkflowsModal()
+    } else {
+      bindings.setMode('normal')
+    }
+  }
   else if (action === 'pageDown') bindings.scrollLogPageDown()
   else if (action === 'pageUp') bindings.scrollLogPageUp()
   else if (action === 'msgDown') bindings.inboxMsgDown()
@@ -774,7 +797,13 @@ function executeKeybindAction(mode: ConfigurableMode, action: KeybindAction, bin
     } else {
       bindings.setMode('normal')
     }
-  } else if (action === 'confirm') bindings.confirmKill()
+  } else if (action === 'confirm') {
+    if (mode === 'workflows') bindings.openWorkflowDrilldown()
+    else bindings.confirmKill()
+  } else if (action === 'workflowsAll') bindings.setWorkflowFilter('all')
+  else if (action === 'workflowsRunning') bindings.setWorkflowFilter('running')
+  else if (action === 'workflowsCompleted') bindings.setWorkflowFilter('completed')
+  else if (action === 'workflowsFailed') bindings.setWorkflowFilter('failed')
   else if (action === 'backspace') backspaceCommand(bindings)
 }
 
@@ -897,6 +926,10 @@ function handlePresetsChar(char: string, bindings: InputBindings): void {
   handleConfigurableKey('presets', char, bindings)
 }
 
+function handleWorkflowsChar(char: string, bindings: InputBindings): void {
+  handleConfigurableKey('workflows', char, bindings)
+}
+
 function handleSpecialKey(event: Extract<ParsedInputEvent, { type: 'key' }>, bindings: InputBindings): void {
   const state = bindings.getState()
 
@@ -1017,6 +1050,11 @@ function handleSpecialKey(event: Extract<ParsedInputEvent, { type: 'key' }>, bin
 
   if (state.mode === 'presets') {
     handleConfigurableKey('presets', event.key, bindings)
+    return
+  }
+
+  if (state.mode === 'workflows') {
+    handleConfigurableKey('workflows', event.key, bindings)
   }
 }
 
@@ -1066,6 +1104,8 @@ function handleText(event: Extract<ParsedInputEvent, { type: 'text' }>, bindings
       handleInboxChar(char, bindings)
     } else if (state.mode === 'presets') {
       handlePresetsChar(char, bindings)
+    } else if (state.mode === 'workflows') {
+      handleWorkflowsChar(char, bindings)
     }
   }
 }

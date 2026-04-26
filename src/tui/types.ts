@@ -1,6 +1,7 @@
 import type { AgentState } from '../state'
+import type { WorkflowModalState } from './modal-workflows'
 
-export type Mode = 'normal' | 'log-focus' | 'insert' | 'command' | 'inbox' | 'presets' | 'kill-confirm' | 'shell'
+export type Mode = 'normal' | 'log-focus' | 'insert' | 'command' | 'inbox' | 'presets' | 'kill-confirm' | 'shell' | 'workflows'
 
 export type ModalType = 'spawn' | 'kill' | 'presets'
 
@@ -73,6 +74,7 @@ export interface AppState {
   sidebarScrollOffset: number
   collapsedAgents: string[]
   modal: ModalState | null
+  workflowsModal: WorkflowModalState | null
   completionItems: CompletionItem[]
   completionSelectedIndex: number
 }
@@ -99,6 +101,7 @@ export function createInitialState(width = 80, height = 24): AppState {
     sidebarScrollOffset: 0,
     collapsedAgents: [],
     modal: null,
+    workflowsModal: null,
     completionItems: [],
     completionSelectedIndex: 0,
   }
