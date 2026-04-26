@@ -17,6 +17,12 @@ describe('evaluateCondition', () => {
     expect(evaluateCondition("'a' == 'b'", {})).toBe(false)
   })
 
+  it('does not split on operator characters inside a literal or template var', () => {
+    expect(evaluateCondition("'a==b' == 'a==b'", {})).toBe(true)
+    expect(evaluateCondition("'{x}' == '{x}'", {})).toBe(true)
+    expect(evaluateCondition("{steps.a==b.x} == ''", {})).toBe(true)
+  })
+
   it('resolves missing vars as empty string', () => {
     expect(evaluateCondition("{missing.path} == ''", {})).toBe(true)
   })
