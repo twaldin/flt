@@ -151,7 +151,7 @@ steps:
 name: basic
 steps:
   - id: run
-    run: true
+    run: "true"
 `)
 
     await workflowRun('basic', { n: 3 })

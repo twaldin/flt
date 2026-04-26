@@ -287,10 +287,11 @@ workflowCmd
   .option('--parent <name>', 'Who gets notified on completion')
   .option('-t, --task <task>', 'Task description (available as {task} in step templates)')
   .option('-d, --dir <path>', 'Working directory for agent steps')
+  .option('-n, --n <count>', 'Spawn N independent runs (workflow-level parallel)', (v) => parseInt(v, 10))
   .action(async (name, opts) => {
     try {
       const { workflowRun } = await import('./commands/workflow')
-      await workflowRun(name, { parent: opts.parent, task: opts.task, dir: opts.dir })
+      await workflowRun(name, { parent: opts.parent, task: opts.task, dir: opts.dir, n: opts.n })
     } catch (e) {
       console.error(`Error: ${(e as Error).message}`)
       process.exit(1)
@@ -332,6 +333,34 @@ workflowCmd
       await workflowCancel(name)
     } catch (e) {
       console.error(`Error: ${(e as Error).message}`)
+      process.exit(1)
+    }
+  })
+
+workflowCmd
+  .command('approve <run>')
+  .description('Approve a paused human_gate step')
+  .option('--candidate <label>', 'For merge_best gates: pick a parallel candidate label')
+  .action(async (run, opts) => {
+    try {
+      const { workflowApprove } = await import('./commands/workflow')
+      await workflowApprove(run, { candidate: opts.candidate })
+    } catch (e) {
+      console.error('Error: ' + (e as Error).message)
+      process.exit(1)
+    }
+  })
+
+workflowCmd
+  .command('reject <run>')
+  .description('Reject a paused human_gate step')
+  .option('--reason <text>', 'Why rejected', '')
+  .action(async (run, opts) => {
+    try {
+      const { workflowReject } = await import('./commands/workflow')
+      await workflowReject(run, opts.reason)
+    } catch (e) {
+      console.error('Error: ' + (e as Error).message)
       process.exit(1)
     }
   })

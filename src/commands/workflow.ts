@@ -1,9 +1,84 @@
-import { startWorkflow, loadWorkflowRun, listWorkflowRuns, cancelWorkflow } from '../workflow/engine'
-import { listWorkflowDefs } from '../workflow/parser'
+import { renameSync, writeFileSync } from 'fs'
+import { join } from 'path'
+import { startWorkflow, loadWorkflowRun, listWorkflowRuns, cancelWorkflow, advanceWorkflow } from '../workflow/engine'
+import { listWorkflowDefs, loadWorkflowDef } from '../workflow/parser'
 
-export async function workflowRun(name: string, opts?: { parent?: string; task?: string; dir?: string }): Promise<void> {
-  const run = await startWorkflow(name, opts)
+export async function workflowRun(name: string, opts?: { parent?: string; task?: string; dir?: string; n?: number }): Promise<void> {
+  if (opts?.n !== undefined && opts.n > 1) {
+    for (let i = 0; i < opts.n; i += 1) {
+      const run = await startWorkflow(name, { parent: opts.parent, task: opts.task, dir: opts.dir })
+      console.log(`Started workflow "${run.id}" (step: ${run.currentStep}, parent: ${run.parentName})`)
+    }
+    return
+  }
+
+  const run = await startWorkflow(name, { parent: opts?.parent, task: opts?.task, dir: opts?.dir })
   console.log(`Started workflow "${run.id}" (step: ${run.currentStep}, parent: ${run.parentName})`)
+}
+
+export async function workflowApprove(runId: string, opts?: { candidate?: string }): Promise<void> {
+  const run = loadWorkflowRun(runId)
+  if (!run) {
+    throw new Error(`No workflow run found for "${runId}"`)
+  }
+  if (run.status !== 'running') {
+    throw new Error(`Workflow "${runId}" is not running (status: ${run.status})`)
+  }
+
+  const def = loadWorkflowDef(run.workflow)
+  const currentStepDef = def.steps.find(s => s.id === run.currentStep)
+  if (currentStepDef?.type !== 'human_gate') {
+    throw new Error(`Workflow "${runId}" current step "${run.currentStep}" is not a human_gate`)
+  }
+  if (!run.runDir) {
+    throw new Error(`workflow run "${run.id}" is missing runDir`)
+  }
+
+  const decisionPath = join(run.runDir, '.gate-decision')
+  const tmp = `${decisionPath}.tmp`
+  writeFileSync(tmp, JSON.stringify({
+    approved: true,
+    ...(opts?.candidate === undefined ? {} : { candidate: opts.candidate }),
+    at: new Date().toISOString(),
+  }) + '\n')
+  renameSync(tmp, decisionPath)
+
+  console.log(`Approved ${runId}${opts?.candidate ? ` (candidate: ${opts.candidate})` : ''}`)
+  await advanceWorkflow(runId)
+}
+
+export async function workflowReject(runId: string, reason: string): Promise<void> {
+  const run = loadWorkflowRun(runId)
+  if (!run) {
+    throw new Error(`No workflow run found for "${runId}"`)
+  }
+  if (run.status !== 'running') {
+    throw new Error(`Workflow "${runId}" is not running (status: ${run.status})`)
+  }
+
+  const def = loadWorkflowDef(run.workflow)
+  const currentStepDef = def.steps.find(s => s.id === run.currentStep)
+  if (currentStepDef?.type !== 'human_gate') {
+    throw new Error(`Workflow "${runId}" current step "${run.currentStep}" is not a human_gate`)
+  }
+  if (!reason) {
+    throw new Error('reject requires --reason')
+  }
+  if (!run.runDir) {
+    throw new Error(`workflow run "${run.id}" is missing runDir`)
+  }
+
+  const decisionPath = join(run.runDir, '.gate-decision')
+  const tmp = `${decisionPath}.tmp`
+  writeFileSync(tmp, JSON.stringify({
+    approved: false,
+    reason,
+    at: new Date().toISOString(),
+  }) + '\n')
+  renameSync(tmp, decisionPath)
+
+  console.log(`Rejected ${runId}: ${reason}`)
+  await advanceWorkflow(runId)
 }
 
 export function workflowStatus(name?: string): void {
