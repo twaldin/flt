@@ -217,6 +217,15 @@ export async function spawnDirect(args: SpawnArgs): Promise<void> {
   if (!/^[a-zA-Z0-9_-]+$/.test(name)) {
     throw new Error('Agent name must be alphanumeric with dashes/underscores only.')
   }
+  // Refuse very short names — almost always a paste-truncation mishap
+  // (e.g. `:spawn p<Enter>` from a stray clipboard fragment that began with
+  // "p = subprocess.Popen(...)"). Workflow agents always have multi-segment
+  // names, so this only catches manual single-char spawns.
+  if (name.length < 3) {
+    throw new Error(
+      `Agent name "${name}" is too short (min 3 chars). If you meant this, pick a longer name.`,
+    )
+  }
 
   const adapter = resolveAdapter(cli)
 
