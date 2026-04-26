@@ -72,13 +72,29 @@ describe('init: seedFlt', () => {
     // second seed should not throw
     expect(() => seedFlt()).not.toThrow()
 
-    // user customizations preserved
-    expect(readFileSync(presetsPath, 'utf-8')).toBe(userPresets)
+    // user customizations preserved (state.json byte-identical; presets.json keeps user entries while merging missing seed defaults)
     expect(readFileSync(statePath, 'utf-8')).toBe(userState)
+    const mergedPresets = JSON.parse(readFileSync(presetsPath, 'utf-8'))
+    expect(mergedPresets['my-custom-preset']).toEqual({ cli: 'claude-code', model: 'sonnet' })
+    expect(mergedPresets['cc-coder']).toBeDefined()
+    expect(mergedPresets['pi-coder']).toBeDefined()
 
     // missing files restored
     expect(existsSync(join(testHome, '.flt', 'workflows', 'idea-to-pr.yaml'))).toBe(true)
     expect(existsSync(join(testHome, '.flt', 'templates', 'system-block-root.md'))).toBe(true)
+  })
+
+  it('restores missing role files + orchestrator SOUL on re-seed (regression: 2026-04-26 wipe)', () => {
+    seedFlt()
+    rmSync(join(testHome, '.flt', 'roles', 'coder.md'), { force: true })
+    rmSync(join(testHome, '.flt', 'roles', 'reviewer.md'), { force: true })
+    rmSync(join(testHome, '.flt', 'agents', 'orchestrator', 'SOUL.md'), { force: true })
+
+    seedFlt()
+
+    expect(existsSync(join(testHome, '.flt', 'roles', 'coder.md'))).toBe(true)
+    expect(existsSync(join(testHome, '.flt', 'roles', 'reviewer.md'))).toBe(true)
+    expect(existsSync(join(testHome, '.flt', 'agents', 'orchestrator', 'SOUL.md'))).toBe(true)
   })
 
   it('idempotent re-seed does not overwrite routing yamls', () => {

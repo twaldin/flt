@@ -44,6 +44,47 @@ export function seedDefaultWorkflows(fltDir: string): void {
   }
 }
 
+function seedRoles(fltDir: string): number {
+  const tplDir = join(import.meta.dir, '..', '..', 'templates', 'roles')
+  const dstDir = join(fltDir, 'roles')
+  if (!existsSync(tplDir)) return 0
+  let n = 0
+  for (const f of readdirSync(tplDir).filter(name => name.endsWith('.md'))) {
+    if (copyIfAbsent(join(tplDir, f), join(dstDir, f))) n++
+  }
+  return n
+}
+
+function seedOrchestratorSoul(fltDir: string): number {
+  const src = join(import.meta.dir, '..', '..', 'templates', 'agents', 'orchestrator', 'SOUL.md')
+  const dst = join(fltDir, 'agents', 'orchestrator', 'SOUL.md')
+  if (!existsSync(src)) return 0
+  mkdirSync(join(fltDir, 'agents', 'orchestrator'), { recursive: true })
+  return copyIfAbsent(src, dst) ? 1 : 0
+}
+
+function mergeMissingPresets(fltDir: string): number {
+  const path = join(fltDir, 'presets.json')
+  if (!existsSync(path)) return 0
+  let current: Record<string, unknown>
+  try {
+    current = JSON.parse(readFileSync(path, 'utf-8'))
+  } catch {
+    return 0
+  }
+  let added = 0
+  for (const [name, def] of Object.entries(SEED_PRESETS)) {
+    if (!(name in current)) {
+      current[name] = def
+      added++
+    }
+  }
+  if (added > 0) {
+    writeFileSync(path, JSON.stringify(current, null, 2) + '\n')
+  }
+  return added
+}
+
 function writeIfAbsent(path: string, content: string): boolean {
   if (existsSync(path)) return false
   writeFileSync(path, content)
@@ -108,6 +149,9 @@ export function seedFlt(): void {
   }
 
   seedDefaultWorkflows(fltDir)
+  restored += seedRoles(fltDir)
+  restored += seedOrchestratorSoul(fltDir)
+  restored += mergeMissingPresets(fltDir)
 
   if (reusing) {
     console.log(`Reusing existing ~/.flt${restored ? ` (restored ${restored} missing seed file${restored === 1 ? '' : 's'})` : ' (no missing seeds)'}`)
