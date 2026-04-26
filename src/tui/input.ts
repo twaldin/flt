@@ -1157,7 +1157,21 @@ export function setupInput(bindings: InputBindings): () => void {
     bindings.onResize?.()
   }
 
-  if (process.stdin.isTTY && typeof process.stdin.setRawMode === 'function') {
+  // Refuse to consume stdin when it isn't a TTY (e.g. inherited from a parent
+  // shell whose stdin is a heredoc/pipe). Otherwise the parser interprets that
+  // pipe content as keystrokes and synthesizes commands from leftover script
+  // text — caused the runaway "p" agent today, where a subprocess'd TUI saw
+  // `python3 -c '...'` heredoc bytes and triggered a `:spawn p<Enter>` plus
+  // bootstrap message.
+  if (!process.stdin.isTTY) {
+    process.stdout.on('resize', onResize)
+    return () => {
+      parser.dispose()
+      process.stdout.off('resize', onResize)
+    }
+  }
+
+  if (typeof process.stdin.setRawMode === 'function') {
     process.stdin.setRawMode(true)
   }
 
@@ -1170,7 +1184,7 @@ export function setupInput(bindings: InputBindings): () => void {
     process.stdin.off('data', onData)
     process.stdout.off('resize', onResize)
 
-    if (process.stdin.isTTY && typeof process.stdin.setRawMode === 'function') {
+    if (typeof process.stdin.setRawMode === 'function') {
       process.stdin.setRawMode(false)
     }
   }
