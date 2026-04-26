@@ -27,6 +27,7 @@ interface SpawnArgs {
   noModelResolve?: boolean
   workflow?: string
   workflowStep?: string
+  extraEnv?: Record<string, string>
   _callerName?: string
   _callerDepth?: number
   _termWidth?: number
@@ -156,6 +157,7 @@ export async function spawnDirect(args: SpawnArgs): Promise<void> {
     dir: rawDir,
     worktree = true,
     bootstrap,
+    extraEnv,
   } = args
 
   let cli = explicitCli
@@ -326,6 +328,7 @@ export async function spawnDirect(args: SpawnArgs): Promise<void> {
     ...adapterEnv,
     ...isolationEnv,
     ...presetEnv,
+    ...extraEnv,
     FLT_AGENT_NAME: name,
     FLT_PARENT_SESSION: parentSession,
     FLT_PARENT_NAME: parentName,

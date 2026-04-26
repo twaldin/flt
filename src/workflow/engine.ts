@@ -3,12 +3,13 @@ import { join } from 'path'
 import { execSync } from 'child_process'
 import { loadWorkflowDef } from './parser'
 import { getAgent, allAgents } from '../state'
-import type { SpawnStep, WorkflowDef, WorkflowRun, WorkflowStepDef } from './types'
+import type { ParallelStep, SpawnStep, WorkflowDef, WorkflowRun, WorkflowStepDef } from './types'
 import { appendEvent } from '../activity'
 import * as tmux from '../tmux'
 import { sendDirect } from '../commands/send'
 import type { CallerContext } from '../detect'
 import { aggregateResults, writeResult } from './results'
+import { permuteTreatmentMap } from './treatment'
 
 let _spawnFn: typeof import('../commands/spawn').spawnDirect | null = null
 
@@ -220,53 +221,25 @@ export async function advanceWorkflow(runId: string): Promise<void> {
     agent: agentName,
   })
 
-  // Auto-commit any uncommitted work in the agent's worktree before killing
-  if (agent?.worktreePath) {
-    try {
-      execSync('git add -A && git diff --cached --quiet || git commit -m "workflow: auto-commit step ' + currentStepDef.id + '"', {
-        cwd: agent.worktreePath, encoding: 'utf-8', timeout: 10_000,
-      })
-    } catch {}
-
-    // Auto-create PR if this is a worktree step and no PR exists yet for this branch
-    if (agent.worktreeBranch && !run.vars._pr) {
+  const group = run.parallelGroups?.[run.currentStep]
+  if (group) {
+    for (const candidate of group.candidates) {
+      const candidateAgent = getAgent(candidate.agentName)
+      applyAutoCommit(candidateAgent, run, currentStepDef.id, true)
       try {
-        // Push the branch
-        execSync(`git push -u origin ${agent.worktreeBranch}`, {
-          cwd: agent.worktreePath, encoding: 'utf-8', timeout: 30_000,
-        })
-        // Check if PR already exists for this branch
-        const existing = execSync(`gh pr view ${agent.worktreeBranch} --json url 2>/dev/null || echo ""`, {
-          cwd: agent.worktreePath, encoding: 'utf-8', timeout: 15_000,
-        }).trim()
-        if (existing) {
-          try {
-            const pr = JSON.parse(existing)
-            run.vars._pr = { url: pr.url, branch: agent.worktreeBranch }
-          } catch {}
-        } else {
-          // Create PR
-          const taskDesc = run.vars._input?.task ?? run.workflow
-          const prUrl = execSync(
-            `gh pr create --title "${taskDesc.slice(0, 70).replace(/"/g, '\\"')}" --body "Automated PR from flt workflow ${run.id}" --head ${agent.worktreeBranch}`,
-            { cwd: agent.worktreePath, encoding: 'utf-8', timeout: 30_000 },
-          ).trim()
-          run.vars._pr = { url: prUrl, branch: agent.worktreeBranch }
-        }
-      } catch {}
-    } else if (agent.worktreeBranch && run.vars._pr) {
-      // PR exists, just push new commits
-      try {
-        execSync(`git push`, { cwd: agent.worktreePath, encoding: 'utf-8', timeout: 30_000 })
+        const { killDirect } = await import('../commands/kill')
+        killDirect({ name: candidate.agentName, preserveWorktree: true, fromWorkflow: true })
       } catch {}
     }
-  }
+  } else {
+    applyAutoCommit(agent, run, currentStepDef.id)
 
-  // Kill the completed agent but preserve its worktree (next step may need it)
-  try {
-    const { killDirect } = await import('../commands/kill')
-    killDirect({ name: agentName, preserveWorktree: true, fromWorkflow: true })
-  } catch {}
+    // Kill the completed agent but preserve its worktree (next step may need it)
+    try {
+      const { killDirect } = await import('../commands/kill')
+      killDirect({ name: agentName, preserveWorktree: true, fromWorkflow: true })
+    } catch {}
+  }
 
   // If agent signaled fail, follow on_fail path (or abort if none defined).
   // Without this guard the fail would silently fall through to on_complete and
@@ -442,6 +415,51 @@ export async function cancelWorkflow(runId: string): Promise<void> {
   cleanupWorkflowWorktrees(run)
 }
 
+function applyAutoCommit(
+  agent: ReturnType<typeof getAgent> | undefined,
+  run: WorkflowRun,
+  stepId: string,
+  commitOnly = false,
+): void {
+  if (!agent?.worktreePath) return
+
+  try {
+    execSync('git add -A && git diff --cached --quiet || git commit -m "workflow: auto-commit step ' + stepId + '"', {
+      cwd: agent.worktreePath, encoding: 'utf-8', timeout: 10_000,
+    })
+  } catch {}
+
+  if (commitOnly) return
+
+  if (agent.worktreeBranch && !run.vars._pr) {
+    try {
+      execSync(`git push -u origin ${agent.worktreeBranch}`, {
+        cwd: agent.worktreePath, encoding: 'utf-8', timeout: 30_000,
+      })
+      const existing = execSync(`gh pr view ${agent.worktreeBranch} --json url 2>/dev/null || echo ""`, {
+        cwd: agent.worktreePath, encoding: 'utf-8', timeout: 15_000,
+      }).trim()
+      if (existing) {
+        try {
+          const pr = JSON.parse(existing)
+          run.vars._pr = { url: pr.url, branch: agent.worktreeBranch }
+        } catch {}
+      } else {
+        const taskDesc = run.vars._input?.task ?? run.workflow
+        const prUrl = execSync(
+          `gh pr create --title "${taskDesc.slice(0, 70).replace(/"/g, '\\"')}" --body "Automated PR from flt workflow ${run.id}" --head ${agent.worktreeBranch}`,
+          { cwd: agent.worktreePath, encoding: 'utf-8', timeout: 30_000 },
+        ).trim()
+        run.vars._pr = { url: prUrl, branch: agent.worktreeBranch }
+      }
+    } catch {}
+  } else if (agent.worktreeBranch && run.vars._pr) {
+    try {
+      execSync('git push', { cwd: agent.worktreePath, encoding: 'utf-8', timeout: 30_000 })
+    } catch {}
+  }
+}
+
 function shellEscapeArg(value: string): string {
   return `'${value.replace(/'/g, "'\\''")}'`
 }
@@ -468,7 +486,81 @@ function isSpawnStep(step: WorkflowStepDef): step is SpawnStep {
   return step.type === undefined || step.type === 'spawn'
 }
 
+function hashRunStepSeed(runId: string, stepId: string): number {
+  let h = 2166136261
+  for (const c of `${runId}:${stepId}`) {
+    h ^= c.charCodeAt(0)
+    h = Math.imul(h, 16777619)
+  }
+  return h >>> 0
+}
+
+async function executeParallelStep(def: WorkflowDef, run: WorkflowRun, parallelStep: ParallelStep): Promise<void> {
+  const basePreset = parallelStep.step.preset
+  if (!parallelStep.presets && !basePreset) {
+    throw new Error(`Step "${parallelStep.id}": parallel step requires step.preset when presets is not set`)
+  }
+
+  const presets = parallelStep.presets ?? Array(parallelStep.n).fill(basePreset!)
+  const treatmentMap = permuteTreatmentMap(parallelStep.n, presets, hashRunStepSeed(run.id, parallelStep.id))
+  const baseName = workflowAgentName(run.id, parallelStep.id)
+  const candidates = Array.from({ length: parallelStep.n }, (_, i) => {
+    const label = String.fromCharCode(97 + i)
+    return {
+      label,
+      preset: treatmentMap[label],
+      agentName: `${baseName}-${label}`,
+    }
+  })
+
+  run.parallelGroups = run.parallelGroups ?? {}
+  run.parallelGroups[parallelStep.id] = {
+    candidates,
+    treatmentMap,
+    allDone: false,
+  }
+  saveWorkflowRun(run)
+
+  if (!run.runDir) {
+    throw new Error(`workflow run "${run.id}" is missing runDir`)
+  }
+
+  const spawn = await getSpawnFn()
+  for (const candidate of candidates) {
+    await spawn({
+      name: candidate.agentName,
+      preset: candidate.preset,
+      dir: parallelStep.step.dir
+        ? resolveTemplate(parallelStep.step.dir, run)
+        : (run.vars._input?.dir || undefined),
+      worktree: parallelStep.step.worktree !== false,
+      parent: run.parentName,
+      bootstrap: resolveTemplate(parallelStep.step.task ?? '', run),
+      workflow: run.workflow,
+      workflowStep: parallelStep.id,
+      extraEnv: {
+        FLT_RUN_DIR: run.runDir,
+        FLT_RUN_LABEL: candidate.label,
+      },
+    })
+
+    const agent = getAgent(candidate.agentName)
+    if (agent) {
+      candidate.branch = agent.worktreeBranch ?? ''
+      candidate.worktree = agent.worktreePath ?? agent.dir
+      saveWorkflowRun(run)
+    }
+  }
+}
+
 async function executeStep(def: WorkflowDef, run: WorkflowRun, step: WorkflowStepDef): Promise<void> {
+  if (step.type === 'parallel') {
+    await executeParallelStep(def, run, step)
+    return
+  }
+  if (step.type === 'condition' || step.type === 'human_gate' || step.type === 'merge_best' || step.type === 'collect_artifacts') {
+    return
+  }
   if (!isSpawnStep(step)) {
     return
   }
