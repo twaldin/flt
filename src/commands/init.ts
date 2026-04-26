@@ -55,6 +55,33 @@ function seedRoles(fltDir: string): number {
   return n
 }
 
+function copyDirRecursiveIfAbsent(src: string, dst: string): boolean {
+  if (existsSync(dst)) return false
+  mkdirSync(dst, { recursive: true })
+  for (const entry of readdirSync(src, { withFileTypes: true })) {
+    const s = join(src, entry.name)
+    const d = join(dst, entry.name)
+    if (entry.isDirectory()) {
+      copyDirRecursiveIfAbsent(s, d)
+    } else if (entry.isFile()) {
+      copyFileSync(s, d)
+    }
+  }
+  return true
+}
+
+function seedDefaultSkills(fltDir: string): number {
+  const tplDir = join(import.meta.dir, '..', '..', 'templates', 'skills')
+  const dstDir = join(fltDir, 'skills')
+  if (!existsSync(tplDir)) return 0
+  let n = 0
+  for (const entry of readdirSync(tplDir, { withFileTypes: true })) {
+    if (!entry.isDirectory()) continue
+    if (copyDirRecursiveIfAbsent(join(tplDir, entry.name), join(dstDir, entry.name))) n++
+  }
+  return n
+}
+
 function seedOrchestratorSoul(fltDir: string): number {
   const src = join(import.meta.dir, '..', '..', 'templates', 'agents', 'orchestrator', 'SOUL.md')
   const dst = join(fltDir, 'agents', 'orchestrator', 'SOUL.md')
@@ -151,6 +178,7 @@ export function seedFlt(): void {
   seedDefaultWorkflows(fltDir)
   restored += seedRoles(fltDir)
   restored += seedOrchestratorSoul(fltDir)
+  restored += seedDefaultSkills(fltDir)
   restored += mergeMissingPresets(fltDir)
 
   if (reusing) {
