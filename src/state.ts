@@ -19,6 +19,8 @@ export interface AgentState {
   instructionProjection?: InstructionProjection
   worktreePath?: string
   worktreeBranch?: string
+  worktreeBaseDir?: string
+  workflow?: string
   spawnedAt: string
   status?: AgentStatus
   statusAt?: string

@@ -1,5 +1,5 @@
 import { getAgent } from '../state'
-import { getWorkflowHistory, listWorkflows, type WorkflowFilter, type WorkflowRow, type WorkflowStepRow } from '../metrics-workflows'
+import { formatCost, getWorkflowHistory, listWorkflows, type WorkflowFilter, type WorkflowRow, type WorkflowStepRow } from '../metrics-workflows'
 import { ATTR_BOLD, ATTR_DIM, ATTR_INVERSE, type Screen } from './screen'
 import { COLORS, getTheme } from './theme'
 
@@ -77,9 +77,10 @@ function renderListView(state: WorkflowModalState, screen: Screen, top: number, 
   const selectedIndex = clamp(state.selectedIndex, 0, Math.max(0, items.length - 1))
   const scrollOffset = clamp(selectedIndex - maxDataRows + 1, 0, Math.max(0, items.length - maxDataRows))
 
-  const idW = 14
-  const stepW = 12
-  const timeW = 12
+  const idW = 22
+  const stepW = 10
+  const timeW = 11
+  const costW = 18
 
   let drawn = 0
   for (let i = scrollOffset; i < items.length && drawn < maxDataRows && row <= innerBottom; i += 1) {
@@ -96,8 +97,8 @@ function renderListView(state: WorkflowModalState, screen: Screen, top: number, 
     const attrs = selected ? ATTR_INVERSE : 0
 
     const prefix = selected ? '› ' : '  '
-    const leftCols = `${padRight(item.id, idW)} ${padRight(item.currentStep, stepW)} ${padRight(item.startedAtDisplay, timeW)}`
-    const parent = `parent: ${item.parentName}`
+    const leftCols = `${padRight(item.id, idW)} ${padRight(item.currentStep, stepW)} ${padRight(item.startedAtDisplay, timeW)} ${padRight(formatCost(item.cost), costW)}`
+    const parent = `${item.workflow} · parent: ${item.parentName}`
     const base = `${prefix}${leftCols} ${parent}`
     putLine(screen, row, left + 1, innerWidth, base, fg, bg, attrs)
     row += 1
@@ -120,12 +121,27 @@ function renderDrilldownView(state: WorkflowModalState, screen: Screen, top: num
   const startRow = top + 1
   const endRow = top + height - 2
 
+  // Header: meta info pulled from the matching list row.
+  const meta = state.rows.find(r => r.id === state.drilldownId)
+  let row = startRow
+  if (meta) {
+    const totalCost = formatCost(meta.cost)
+    const headerLine1 = `  name: ${meta.id}    workflow: ${meta.workflow}    parent: ${meta.parentName}`
+    const headerLine2 = `  status: ${meta.status}    step: ${meta.currentStep}    started: ${meta.startedAtDisplay}    cost: ${totalCost}`
+    const taskLine   = meta.task ? `  task: ${truncate(meta.task.replace(/\s+/g, ' ').trim(), innerWidth - 9)}` : ''
+    putLine(screen, row, left + 1, innerWidth, headerLine1, t.sidebarText, '', ATTR_BOLD); row += 1
+    putLine(screen, row, left + 1, innerWidth, headerLine2, t.sidebarText); row += 1
+    if (taskLine) { putLine(screen, row, left + 1, innerWidth, taskLine, t.sidebarMuted, '', ATTR_DIM); row += 1 }
+    putLine(screen, row, left + 1, innerWidth, '  ─────────────────────────────────────────────────────────────', t.sidebarMuted, '', ATTR_DIM); row += 1
+  }
+
   const nameW = 12
   const agentW = 22
-  const statusW = 8
-  const atW = 10
+  const statusW = 6
+  const atW = 9
+  const durW = 7
+  const costW = 18
 
-  let row = startRow
   for (let i = 0; i < steps.length && row <= endRow; i += 1) {
     const step = steps[i]
     const agentState = step.agent ? getAgent(step.agent) : undefined
@@ -134,7 +150,7 @@ function renderDrilldownView(state: WorkflowModalState, screen: Screen, top: num
     const statusText = step.status === 'completed' ? 'pass' : (step.status === 'failed' ? 'fail' : 'skip')
     const statusColor = step.status === 'completed' ? COLORS.green : (step.status === 'failed' ? COLORS.red : t.sidebarMuted)
 
-    const line = `  ${padRight(step.name, nameW)} ${padRight(agentDisplay, agentW)} ${padRight(statusText, statusW)} ${padRight(step.atDisplay, atW)} ${step.duration}`
+    const line = `  ${padRight(step.name, nameW)} ${padRight(agentDisplay, agentW)} ${padRight(statusText, statusW)} ${padRight(step.atDisplay, atW)} ${padRight(step.duration, durW)} ${padRight(formatCost(step.cost), costW)}`
     putLine(screen, row, left + 1, innerWidth, line, t.sidebarText)
     const statusCol = left + 1 + 2 + nameW + 1 + agentW + 1
     screen.put(row, statusCol, padRight(statusText, statusW), statusColor, '', step.status === 'skipped' ? ATTR_DIM : ATTR_BOLD)

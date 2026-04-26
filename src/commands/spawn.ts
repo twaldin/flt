@@ -355,6 +355,8 @@ export async function spawnDirect(args: SpawnArgs): Promise<void> {
     instructionProjection,
     worktreePath,
     worktreeBranch,
+    worktreeBaseDir: useWorktree ? baseDir : undefined,
+    workflow: args.workflow,
     spawnedAt: new Date().toISOString(),
     persistent: args.persistent ?? presetPersistent,
   })

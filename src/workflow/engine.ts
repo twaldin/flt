@@ -49,11 +49,11 @@ const STOPWORDS = new Set([
 ])
 
 function generateRunId(workflowName: string, slug?: string): string {
-  const allRuns = listWorkflowRuns().filter(r => r.workflow === workflowName)
+  const allRuns = listWorkflowRuns()
   const existingIds = new Set(allRuns.map(r => r.id))
-  // Base id: workflow name + optional slug (e.g. "idea-to-pr-modal-tui")
-  const base = slug ? `${workflowName}-${slug}` : workflowName
-  // Always increment if collision — never reuse a run ID (protects worktree branches)
+  // Base id: slug alone (workflow name lives separately on run.workflow).
+  // Falls back to workflow name for ad-hoc runs spawned without --task/--slug.
+  const base = slug ?? workflowName
   let n = 1
   while (existingIds.has(n === 1 ? base : `${base}-${n}`)) n++
   return n === 1 ? base : `${base}-${n}`

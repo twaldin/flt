@@ -1,7 +1,14 @@
+import { listEvents } from './activity'
 import { listWorkflowRuns } from './workflow/engine'
 import type { WorkflowRun } from './workflow/types'
 
 export type WorkflowFilter = 'all' | 'running' | 'completed' | 'failed'
+
+export interface WorkflowCost {
+  usd: number
+  tokensIn: number
+  tokensOut: number
+}
 
 export interface WorkflowRow {
   id: string
@@ -11,6 +18,8 @@ export interface WorkflowRow {
   startedAt: string
   startedAtDisplay: string
   parentName: string
+  task: string
+  cost: WorkflowCost
 }
 
 export interface WorkflowStepRow {
@@ -20,6 +29,71 @@ export interface WorkflowStepRow {
   at: string
   atDisplay: string
   duration: string
+  cost: WorkflowCost
+}
+
+function emptyCost(): WorkflowCost {
+  return { usd: 0, tokensIn: 0, tokensOut: 0 }
+}
+
+interface AgentKillCost extends WorkflowCost {
+  at: string
+}
+
+const KILL_COST_CACHE: Map<string, AgentKillCost[]> = new Map()
+let killCacheLoadedAt = 0
+
+function getAgentKillCosts(agentName: string): AgentKillCost[] {
+  // Refresh the kill-event cache every 10s to keep TUI cost columns live without
+  // re-reading activity.log on every redraw.
+  const now = Date.now()
+  if (now - killCacheLoadedAt > 10_000) {
+    KILL_COST_CACHE.clear()
+    const kills = listEvents({ type: 'kill', limit: 100_000 })
+    for (const event of kills) {
+      if (!event.agent) continue
+      const arr = KILL_COST_CACHE.get(event.agent) ?? []
+      arr.push({
+        usd: event.cost_usd ?? 0,
+        tokensIn: event.tokens_in ?? 0,
+        tokensOut: event.tokens_out ?? 0,
+        at: event.at,
+      })
+      KILL_COST_CACHE.set(event.agent, arr)
+    }
+    killCacheLoadedAt = now
+  }
+  return KILL_COST_CACHE.get(agentName) ?? []
+}
+
+function sumCostFor(agentName: string, fromIso?: string, toIso?: string): WorkflowCost {
+  const fromMs = fromIso ? Date.parse(fromIso) : -Infinity
+  const toMs = toIso ? Date.parse(toIso) : Infinity
+  let usd = 0, tokensIn = 0, tokensOut = 0
+  for (const cost of getAgentKillCosts(agentName)) {
+    const t = Date.parse(cost.at)
+    if (!Number.isFinite(t)) continue
+    if (t < fromMs || t > toMs) continue
+    usd += cost.usd
+    tokensIn += cost.tokensIn
+    tokensOut += cost.tokensOut
+  }
+  return { usd, tokensIn, tokensOut }
+}
+
+function sumRunCost(run: WorkflowRun): WorkflowCost {
+  // Sum across every agent the run spawned: <runId>-<step> for any step.
+  // Iterate kill events directly for correctness across step renames / retries.
+  const total = emptyCost()
+  for (const [agentName, costs] of KILL_COST_CACHE.entries()) {
+    if (agentName !== run.id && !agentName.startsWith(`${run.id}-`)) continue
+    for (const cost of costs) {
+      total.usd += cost.usd
+      total.tokensIn += cost.tokensIn
+      total.tokensOut += cost.tokensOut
+    }
+  }
+  return total
 }
 
 function formatShortDateTime(iso: string): string {
@@ -66,6 +140,9 @@ export function listWorkflows(filter: WorkflowFilter): WorkflowRow[] {
     return run.status === 'failed' || run.status === 'cancelled'
   })
 
+  // Prime the kill-event cache once so per-run sums share work.
+  getAgentKillCosts('__prime__')
+
   return filtered
     .map((run, idx) => ({ run, idx }))
     .sort((a, b) => {
@@ -81,6 +158,8 @@ export function listWorkflows(filter: WorkflowFilter): WorkflowRow[] {
       startedAt: run.startedAt,
       startedAtDisplay: formatShortDateTime(run.startedAt),
       parentName: run.parentName,
+      task: run.vars._input?.task ?? '',
+      cost: sumRunCost(run),
     }))
 }
 
@@ -88,9 +167,13 @@ export function getWorkflowHistory(id: string): WorkflowStepRow[] {
   const run = listWorkflowRuns().find(r => r.id === id)
   if (!run) return []
 
+  // Prime the kill-event cache; per-step sums lookup directly.
+  getAgentKillCosts('__prime__')
+
   return run.history.map((entry, idx) => {
     const prevAt = idx > 0 ? run.history[idx - 1].at : run.startedAt
     const durationMs = Math.max(0, new Date(entry.at).getTime() - new Date(prevAt).getTime())
+    const cost = entry.agent ? sumCostFor(entry.agent, prevAt, entry.at) : emptyCost()
     return {
       name: entry.step,
       agent: entry.agent,
@@ -98,6 +181,16 @@ export function getWorkflowHistory(id: string): WorkflowStepRow[] {
       at: entry.at,
       atDisplay: formatTime(entry.at),
       duration: formatDuration(durationMs),
+      cost,
     }
   })
+}
+
+export function formatCost(cost: WorkflowCost): string {
+  // Compact: "$0.42 · 12k/3k" — usd to 2dp, tokens k-rounded; show '—' if zero.
+  if (cost.usd === 0 && cost.tokensIn === 0 && cost.tokensOut === 0) return '—'
+  const usd = cost.usd >= 1 ? `$${cost.usd.toFixed(2)}` : `$${cost.usd.toFixed(3)}`
+  const tin = cost.tokensIn >= 1000 ? `${Math.round(cost.tokensIn / 1000)}k` : `${cost.tokensIn}`
+  const tout = cost.tokensOut >= 1000 ? `${Math.round(cost.tokensOut / 1000)}k` : `${cost.tokensOut}`
+  return `${usd} · ${tin}/${tout}`
 }

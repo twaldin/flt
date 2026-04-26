@@ -149,15 +149,16 @@ function renderSidebar(screen: Screen, state: AppState, top: number, left: numbe
     return
   }
 
-  // Compute how many entries fit while reserving space for the ASCII logo
+  // Compute how many entries fit while reserving space for the ASCII logo.
+  // Each entry is 6 rows: above-pad, name, cli/model, workflow, dir, below-pad.
   const logo = getAsciiLogo(width)
   const entryRows = height - logo.length  // reserve logo space
-  const visibleCount = Math.max(1, Math.floor(entryRows / 5))
+  const visibleCount = Math.max(1, Math.floor(entryRows / 6))
   const scrollOffset = clamp(state.sidebarScrollOffset, 0, Math.max(0, ordered.length - visibleCount))
   const visibleEntries = ordered.slice(scrollOffset, scrollOffset + visibleCount)
 
   for (const { agent, index, continuation, connector, hasChildren } of visibleEntries) {
-    if (row + 4 >= top + height) break
+    if (row + 5 >= top + height) break
     const selected = index === state.selectedIndex
     const notification = state.notifications[agent.name]
 
@@ -212,9 +213,18 @@ function renderSidebar(screen: Screen, state: AppState, top: number, left: numbe
     screen.put(row, left, padRight(line2, width), agentColor, bg)
     row += 1
 
-    // Detail: dir
-    const line3 = `${pad}${belowPrefix}  ${shortenPath(agent.dir)}`
+    // Detail: workflow (or em-dash placeholder)
+    const wfText = agent.workflow ?? '—'
+    const line3 = `${pad}${belowPrefix}  wf:${wfText}`
     screen.put(row, left, padRight(line3, width), agentColor, bg)
+    row += 1
+
+    // Detail: worktree dir, formatted as wt:<base-dir-the-worktree-branched-from>
+    const wtDisplay = agent.worktreeBaseDir
+      ? `wt:${shortenPath(agent.worktreeBaseDir)}`
+      : shortenPath(agent.dir)
+    const line4 = `${pad}${belowPrefix}  ${wtDisplay}`
+    screen.put(row, left, padRight(line4, width), agentColor, bg)
     row += 1
 
     // Padding row below
