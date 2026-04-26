@@ -44,21 +44,29 @@ export function seedDefaultWorkflows(fltDir: string): void {
   }
 }
 
+function writeIfAbsent(path: string, content: string): boolean {
+  if (existsSync(path)) return false
+  writeFileSync(path, content)
+  return true
+}
+
+function copyIfAbsent(src: string, dst: string): boolean {
+  if (existsSync(dst)) return false
+  copyFileSync(src, dst)
+  return true
+}
+
 export function seedFlt(): void {
   const fltDir = fltHome()
-
-  if (existsSync(fltDir)) {
-    console.error(
-      `~/.flt already exists. Back it up (e.g. tar -czf ~/.flt-backups/flt-<date>.tar.gz -C ~ .flt && rm -rf ~/.flt) and re-run "flt init".`
-    )
-    process.exit(1)
-  }
+  const reusing = existsSync(fltDir)
 
   for (const sub of ['roles', 'agents', 'skills', 'workflows', 'templates', 'runs', 'logs', 'bin', 'backups', 'routing']) {
     mkdirSync(join(fltDir, sub), { recursive: true })
   }
 
-  writeFileSync(join(fltDir, 'routing', 'policy.yaml'), [
+  let restored = 0
+
+  if (writeIfAbsent(join(fltDir, 'routing', 'policy.yaml'), [
     '# Two-families split: Claude=judgment, GPT=execution',
     'orchestrator: cc-opus',
     'spec_writer: cc-sonnet',
@@ -72,9 +80,9 @@ export function seedFlt(): void {
     'mutator: cc-opus',
     'trace_classifier: pi-coder',
     '',
-  ].join('\n'))
+  ].join('\n'))) restored++
 
-  writeFileSync(join(fltDir, 'routing', 'escalation.yaml'), [
+  if (writeIfAbsent(join(fltDir, 'routing', 'escalation.yaml'), [
     'triggers:',
     '  same_step_failed_twice:',
     '    coder: cc-opus',
@@ -86,25 +94,29 @@ export function seedFlt(): void {
     '  hard_debug_reproducible:',
     '    "*": pi-deep',
     '',
-  ].join('\n'))
+  ].join('\n'))) restored++
 
-  writeFileSync(join(fltDir, 'state.json'), JSON.stringify({ agents: {}, config: { maxDepth: 3 } }, null, 2) + '\n')
-  writeFileSync(join(fltDir, '.managed-skills.json'), '{}\n')
-  writeFileSync(join(fltDir, 'config.json'), JSON.stringify({ version: 1 }, null, 2) + '\n')
-  writeFileSync(join(fltDir, 'models.json'), '{}\n')
-  writeFileSync(join(fltDir, 'presets.json'), JSON.stringify(SEED_PRESETS, null, 2) + '\n')
+  if (writeIfAbsent(join(fltDir, 'state.json'), JSON.stringify({ agents: {}, config: { maxDepth: 3 } }, null, 2) + '\n')) restored++
+  if (writeIfAbsent(join(fltDir, '.managed-skills.json'), '{}\n')) restored++
+  if (writeIfAbsent(join(fltDir, 'config.json'), JSON.stringify({ version: 1 }, null, 2) + '\n')) restored++
+  if (writeIfAbsent(join(fltDir, 'models.json'), '{}\n')) restored++
+  if (writeIfAbsent(join(fltDir, 'presets.json'), JSON.stringify(SEED_PRESETS, null, 2) + '\n')) restored++
 
   const bundledTemplates = join(import.meta.dir, '..', '..', 'templates')
   for (const tmpl of ['system-block-root.md', 'system-block-subagent.md', 'workflow-block.md']) {
-    copyFileSync(join(bundledTemplates, tmpl), join(fltDir, 'templates', tmpl))
+    if (copyIfAbsent(join(bundledTemplates, tmpl), join(fltDir, 'templates', tmpl))) restored++
   }
 
   seedDefaultWorkflows(fltDir)
 
-  console.log('Initialized ~/.flt')
-  console.log('  roles/ agents/ skills/ workflows/ templates/ runs/ logs/ bin/ backups/ routing/')
-  console.log('  presets.json   config.json   models.json   state.json   .managed-skills.json')
-  console.log('  routing/policy.yaml   routing/escalation.yaml')
+  if (reusing) {
+    console.log(`Reusing existing ~/.flt${restored ? ` (restored ${restored} missing seed file${restored === 1 ? '' : 's'})` : ' (no missing seeds)'}`)
+  } else {
+    console.log('Initialized ~/.flt')
+    console.log('  roles/ agents/ skills/ workflows/ templates/ runs/ logs/ bin/ backups/ routing/')
+    console.log('  presets.json   config.json   models.json   state.json   .managed-skills.json')
+    console.log('  routing/policy.yaml   routing/escalation.yaml')
+  }
 }
 
 interface InitArgs {

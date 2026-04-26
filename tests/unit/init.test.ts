@@ -54,33 +54,41 @@ describe('init: seedFlt', () => {
     }
   })
 
-  it('exits with code 1 when ~/.flt already exists, with message including ~./flt already exists', () => {
+  it('is idempotent — second call does not throw and preserves user-modified files', () => {
     seedFlt()
 
-    const origExit = process.exit
-    let stderrMsg = ''
-    const origError = console.error
-    console.error = (...args: unknown[]) => { stderrMsg = args.join(' ') }
+    // user modifies presets.json + state.json after first init
+    const presetsPath = join(testHome, '.flt', 'presets.json')
+    const statePath = join(testHome, '.flt', 'state.json')
+    const userPresets = '{"my-custom-preset":{"cli":"claude-code","model":"sonnet"}}'
+    const userState = '{"agents":{"existing-agent":{"name":"existing-agent"}},"config":{"maxDepth":3}}'
+    require('fs').writeFileSync(presetsPath, userPresets)
+    require('fs').writeFileSync(statePath, userState)
 
-    let exitCode: number | undefined
-    ;(process.exit as (code?: number) => never) = ((code?: number) => {
-      exitCode = code
-      throw new Error(`exit:${code}`)
-    }) as (code?: number) => never
+    // simulate partial loss: delete a workflow + a template
+    rmSync(join(testHome, '.flt', 'workflows', 'idea-to-pr.yaml'), { force: true })
+    rmSync(join(testHome, '.flt', 'templates', 'system-block-root.md'), { force: true })
 
-    let threw = false
-    try {
-      seedFlt()
-    } catch (e: unknown) {
-      threw = true
-      expect((e as Error).message).toBe('exit:1')
-    } finally {
-      process.exit = origExit
-      console.error = origError
-    }
+    // second seed should not throw
+    expect(() => seedFlt()).not.toThrow()
 
-    expect(threw).toBe(true)
-    expect(exitCode).toBe(1)
-    expect(stderrMsg).toContain('~/.flt already exists')
+    // user customizations preserved
+    expect(readFileSync(presetsPath, 'utf-8')).toBe(userPresets)
+    expect(readFileSync(statePath, 'utf-8')).toBe(userState)
+
+    // missing files restored
+    expect(existsSync(join(testHome, '.flt', 'workflows', 'idea-to-pr.yaml'))).toBe(true)
+    expect(existsSync(join(testHome, '.flt', 'templates', 'system-block-root.md'))).toBe(true)
+  })
+
+  it('idempotent re-seed does not overwrite routing yamls', () => {
+    seedFlt()
+    const policyPath = join(testHome, '.flt', 'routing', 'policy.yaml')
+    const userPolicy = 'orchestrator: my-custom-orchestrator-preset\n'
+    require('fs').writeFileSync(policyPath, userPolicy)
+
+    seedFlt()
+
+    expect(readFileSync(policyPath, 'utf-8')).toBe(userPolicy)
   })
 })

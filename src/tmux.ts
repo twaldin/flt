@@ -1,6 +1,6 @@
 import { execFileSync } from 'child_process'
-import { writeFileSync, unlinkSync } from 'fs'
-import { tmpdir } from 'os'
+import { writeFileSync, unlinkSync, mkdirSync } from 'fs'
+import { tmpdir, homedir } from 'os'
 import { join } from 'path'
 import { randomUUID } from 'crypto'
 
@@ -40,6 +40,13 @@ export function createSession(
   tmux('new-session', '-d', '-s', name, ...sizeArgs, '-c', cwd, ...envArgs, command)
   // Ensure explicit resize-window calls are respected for this window.
   tmuxNoThrow('set-window-option', '-t', `${name}:^`, 'window-size', 'manual')
+
+  // Always-on pane logging — supplemental data for trace export (B2) + crash visibility.
+  // `-o` toggles off if already on, but applied once at creation it just enables capture.
+  const logDir = join(process.env.HOME || homedir(), '.flt', 'logs')
+  try { mkdirSync(logDir, { recursive: true }) } catch {}
+  const logPath = join(logDir, `${name}.tmux.log`)
+  tmuxNoThrow('pipe-pane', '-t', `${name}:^`, '-o', `cat >> "${logPath}"`)
 }
 
 export function killSession(name: string): void {
