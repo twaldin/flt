@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, afterEach } from 'bun:test'
 import { mkdtempSync, rmSync, existsSync, readFileSync, writeFileSync } from 'fs'
 import { join } from 'path'
 import { tmpdir } from 'os'
-import { seedFlt } from '../../src/commands/init'
+import { seedFlt, seedDefaultWorkflows } from '../../src/commands/init'
 import { loadWorkflowDef } from '../../src/workflow/parser'
 
 describe('init: default workflows', () => {
@@ -35,22 +35,14 @@ describe('init: default workflows', () => {
   it('does not overwrite existing user-edited workflow on re-init copy', () => {
     seedFlt()
 
-    const workflowPath = join(testHome, '.flt', 'workflows', 'code-and-review.yaml')
+    const fltDir = join(testHome, '.flt')
+    const workflowPath = join(fltDir, 'workflows', 'code-and-review.yaml')
     const custom = 'name: code-and-review\nsteps: []\n'
     writeFileSync(workflowPath, custom)
 
-    const original = readFileSync(workflowPath, 'utf-8')
+    seedDefaultWorkflows(fltDir)
 
-    const secondHome = mkdtempSync(join(tmpdir(), 'flt-init-workflows-test-2-'))
-    try {
-      process.env.HOME = secondHome
-      seedFlt()
-
-      process.env.HOME = testHome
-      const after = readFileSync(workflowPath, 'utf-8')
-      expect(after).toBe(original)
-    } finally {
-      rmSync(secondHome, { recursive: true, force: true })
-    }
+    const after = readFileSync(workflowPath, 'utf-8')
+    expect(after).toBe(custom)
   })
 })

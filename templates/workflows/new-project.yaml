@@ -1,0 +1,40 @@
+name: new-project
+steps:
+  - id: research
+    run: 'flt ask oracle "What is the current best-practice stack and gotchas for: {task}"'
+    on_complete: spec
+  - id: spec
+    preset: cc-sonnet
+    task: 'Using the research from inbox, write spec.md for: {task}.'
+    on_complete: architect
+  - id: architect
+    preset: cc-opus
+    dir: '{steps.spec.worktree}'
+    worktree: false
+    task: 'Read spec.md; produce design.md.'
+    on_complete: coder
+  - id: coder
+    preset: pi-coder
+    task: 'Implement per {steps.architect.worktree}/design.md. flt workflow pass when green.'
+    on_complete: reviewer
+    on_fail: coder
+    max_retries: 2
+  - id: reviewer
+    preset: cc-sonnet
+    dir: '{steps.coder.worktree}'
+    worktree: false
+    task: 'Review impl. flt workflow pass / fail.'
+    on_complete: verifier
+    on_fail: coder
+  - id: verifier
+    preset: pi-coder
+    dir: '{steps.coder.worktree}'
+    worktree: false
+    task: 'Run tests + lint. flt workflow pass on green.'
+    on_complete: gate
+    on_fail: coder
+  - id: gate
+    type: human_gate
+    notify: 'New project initial cut ready for human review.'
+    on_complete: done
+    on_fail: coder

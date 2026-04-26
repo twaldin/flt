@@ -1,0 +1,18 @@
+name: code-and-review
+steps:
+  - id: coder
+    preset: pi-coder
+    task: '{task} {fail_reason}'
+    on_complete: reviewer
+  - id: reviewer
+    preset: cc-sonnet
+    dir: '{steps.coder.worktree}'
+    worktree: false
+    task: 'Review the coder work in branch {steps.coder.branch}. Run git diff main...HEAD. Run flt workflow pass on success or flt workflow fail "<reason>" on failure.'
+    on_complete: gate
+    on_fail: coder
+  - id: gate
+    type: human_gate
+    notify: 'Code+review complete. Approve to merge or reject to send back to the coder.'
+    on_complete: done
+    on_fail: coder

@@ -1,0 +1,44 @@
+name: idea-to-pr
+steps:
+  - id: spec
+    preset: cc-sonnet
+    task: 'Write a one-page spec for: {task}. Save to spec.md in your worktree. Run flt workflow pass when done.'
+    on_complete: architect
+  - id: architect
+    preset: cc-opus
+    dir: '{steps.spec.worktree}'
+    worktree: false
+    task: 'Read spec.md and produce design.md (architecture + interfaces). Run flt workflow pass when done.'
+    on_complete: coder
+  # To enable a 3-way coder tournament, replace the coder step below with:
+  #   - id: coder
+  #     type: parallel
+  #     n: 3
+  #     presets: [pi-coder, cc-sonnet, glm-coder]
+  #     step: { id: candidate, preset: pi-coder, task: '...' }
+  # Then add an evaluator step + merge_best step after.
+  - id: coder
+    preset: pi-coder
+    task: 'Implement the design from {steps.architect.worktree}/design.md. Run flt workflow pass when tests are green.'
+    on_complete: reviewer
+    on_fail: coder
+    max_retries: 2
+  - id: reviewer
+    preset: cc-sonnet
+    dir: '{steps.coder.worktree}'
+    worktree: false
+    task: 'Review the implementation. flt workflow pass / fail.'
+    on_complete: verifier
+    on_fail: coder
+  - id: verifier
+    preset: pi-coder
+    dir: '{steps.coder.worktree}'
+    worktree: false
+    task: 'Run the test suite and lint. flt workflow pass on green.'
+    on_complete: gate
+    on_fail: coder
+  - id: gate
+    type: human_gate
+    notify: 'Pipeline complete; human approval needed before merge.'
+    on_complete: done
+    on_fail: coder

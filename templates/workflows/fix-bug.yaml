@@ -1,0 +1,33 @@
+name: fix-bug
+steps:
+  - id: reproduce
+    preset: pi-coder
+    task: 'Reproduce the bug described as: {task}. Write a failing test that demonstrates it. flt workflow pass when reproduction is committed (test fails as expected).'
+    on_complete: fix
+  - id: fix
+    preset: pi-coder
+    dir: '{steps.reproduce.worktree}'
+    worktree: false
+    task: 'Fix the bug; the failing test from {steps.reproduce.worktree} now passes. flt workflow pass when green.'
+    on_complete: rerun
+    on_fail: fix
+    max_retries: 2
+  - id: rerun
+    preset: pi-coder
+    dir: '{steps.fix.worktree}'
+    worktree: false
+    task: 'Run the full test suite. flt workflow pass on full green; fail otherwise.'
+    on_complete: reviewer
+    on_fail: fix
+  - id: reviewer
+    preset: cc-sonnet
+    dir: '{steps.fix.worktree}'
+    worktree: false
+    task: 'Review the bug fix. flt workflow pass / fail.'
+    on_complete: gate
+    on_fail: fix
+  - id: gate
+    type: human_gate
+    notify: 'Bug fix ready for human review.'
+    on_complete: done
+    on_fail: fix

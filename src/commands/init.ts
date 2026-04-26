@@ -1,5 +1,5 @@
 import { setOrchestrator, getOrchestrator, getStateDir } from '../state'
-import { existsSync, writeFileSync, mkdirSync, readFileSync, copyFileSync } from 'fs'
+import { existsSync, writeFileSync, mkdirSync, readFileSync, copyFileSync, readdirSync } from 'fs'
 import { join } from 'path'
 import { homedir } from 'os'
 
@@ -30,6 +30,18 @@ const SEED_PRESETS = {
 
 function fltHome(): string {
   return join(process.env.HOME || homedir(), '.flt')
+}
+
+export function seedDefaultWorkflows(fltDir: string): void {
+  const tplDir = join(import.meta.dir, '..', '..', 'templates', 'workflows')
+  const dstDir = join(fltDir, 'workflows')
+  if (!existsSync(tplDir)) return
+
+  for (const f of readdirSync(tplDir).filter(n => n.endsWith('.yaml') || n.endsWith('.yml'))) {
+    const src = join(tplDir, f)
+    const dst = join(dstDir, f)
+    if (!existsSync(dst)) copyFileSync(src, dst)
+  }
 }
 
 export function seedFlt(): void {
@@ -86,6 +98,8 @@ export function seedFlt(): void {
   for (const tmpl of ['system-block-root.md', 'system-block-subagent.md', 'workflow-block.md']) {
     copyFileSync(join(bundledTemplates, tmpl), join(fltDir, 'templates', tmpl))
   }
+
+  seedDefaultWorkflows(fltDir)
 
   console.log('Initialized ~/.flt')
   console.log('  roles/ agents/ skills/ workflows/ templates/ runs/ logs/ bin/ backups/ routing/')
