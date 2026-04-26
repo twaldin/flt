@@ -35,7 +35,8 @@ trap 'rm -f "$RESULTS_FILE"' EXIT
 if [[ $# -gt 0 ]]; then
   ADAPTERS=("$@")
 else
-  ADAPTERS=(claude-code codex gemini opencode swe-agent pi)
+  # All 12 registered flt adapters.
+  ADAPTERS=(claude-code codex gemini opencode swe-agent pi continue-cli crush droid openclaude qwen kilo)
 fi
 
 now() { date +%s; }
