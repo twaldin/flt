@@ -1,10 +1,22 @@
-# flt rewrite — session handoff (2026-04-26 late)
+# flt rewrite — session handoff (2026-04-26 late-late)
 
 ## Where we are
 
-**Phase 2 fully closed.** All 30 tasks done. Final-verification gates: `flt route check` 11/0/0, `bun test` 405/0, `e2e-harness.sh` 12/12 PASS, 30 commits this session.
+**Phase 3 STARTED. Both idea-to-pr workflows are running in the fleet right now.** Tim went to sleep; recovery + dogfood spawn handled in this session.
 
-**Phase 3 next.** Two parallel tracks, dogfooded via flt's own workflow primitives. See "Phase 3 plan" below.
+- `idea-to-pr-3` — **Track A (TUI metrics modal)**, spec step running (claude-code/sonnet). Parent: human (so notifications go to your inbox).
+- `idea-to-pr-4` — **Track B (GEPA optimization data plumbing)**, spec step running. Parent: human.
+
+Both worktrees in `/var/folders/cf/.../flt-wt-idea-to-pr-{3,4}-spec`. Workflow YAML pipeline: spec → architect → coder → reviewer → verifier → human_gate. Approve at gate via `flt workflow approve idea-to-pr-3` (or `-4`). Reject via `flt workflow reject idea-to-pr-3 --reason "..."`.
+
+**Phase 2 closed earlier this session.** All 30 tasks done. Final-verification gates: `flt route check` 11/0/0, `bun test` 407/0 (now), `e2e-harness.sh` 12/12 PASS.
+
+**`flt init` bug fixed this session.** Tim's complaint ("IT SHOULD PUT STUFF IF ITS MISSING NOT FORCE U TO RESET") is resolved:
+- 10 role .md files vendored into `templates/roles/`
+- Orchestrator SOUL vendored into `templates/agents/orchestrator/SOUL.md`
+- `seedFlt()` now restores them when missing on re-init (regression test added at `tests/unit/init.test.ts`)
+- `mergeMissingPresets()` adds new SEED_PRESETS to existing `presets.json` instead of skipping (no more wipe-and-reset to pick up new presets)
+- Tmux pipe-pane logging was already in place from prior session — every agent's pane streams to `~/.flt/logs/<session>.tmux.log` live, so future cc-subagent crashes are diagnosable.
 
 ---
 
