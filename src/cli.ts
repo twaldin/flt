@@ -410,6 +410,34 @@ workflowCmd
     }
   })
 
+const artifactCmd = program
+  .command('artifact')
+  .description('Workflow artifact maintenance')
+
+artifactCmd
+  .command('gc')
+  .description('Run GC tier transitions over workflow runs')
+  .option('--run <id>', 'GC a single run')
+  .option('--older-than <duration>', 'Only consider runs older than this (e.g. 7d, 45d)')
+  .action(async (opts) => {
+    try {
+      const { gcRun, gcAllRuns } = await import('./workflow/gc')
+      if (opts.run) {
+        const join = (await import('path')).join
+        const home = process.env.HOME ?? require('os').homedir()
+        const runDir = join(home, '.flt', 'runs', opts.run)
+        const result = gcRun(runDir)
+        console.log('[' + result.tier + '] ' + opts.run + ': ' + result.actions.join(', '))
+      } else {
+        const results = gcAllRuns({ olderThan: opts.olderThan })
+        for (const r of results) console.log('[' + r.tier + '] ' + r.runId + ': ' + r.actions.join(', '))
+      }
+    } catch (e) {
+      console.error('Error: ' + (e as Error).message)
+      process.exit(1)
+    }
+  })
+
 const controllerCmd = program
   .command('controller')
   .description('Manage the fleet controller daemon')
