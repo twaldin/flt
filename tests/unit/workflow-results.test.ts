@@ -104,6 +104,22 @@ describe('workflow results', () => {
     })
   })
 
+  it('aggregateResults does not match step ids that share a hyphenated prefix', () => {
+    writeResult(runDir, 'code', 'a', 'pass')
+    writeResult(runDir, 'code-2', 'b', 'pass')
+
+    expect(aggregateResults(runDir, 'code', 1)).toEqual({
+      allDone: true,
+      passers: ['a'],
+      failures: [],
+    })
+    expect(aggregateResults(runDir, 'code-2', 1)).toEqual({
+      allDone: true,
+      passers: ['b'],
+      failures: [],
+    })
+  })
+
   it('aggregateResults skips malformed JSON files', () => {
     writeResult(runDir, 'coder', 'a', 'pass')
     writeFileSync(join(runDir, 'results', 'coder-b.json'), '{bad json')

@@ -57,11 +57,13 @@ export function aggregateResults(runDir: string, step: string, expectedN: number
 
     try {
       const parsed = JSON.parse(readFileSync(join(dir, file), 'utf-8')) as {
+        step?: string
         label?: string
         verdict?: string
         failReason?: string
       }
 
+      if (parsed.step !== step) continue
       if (typeof parsed.label !== 'string') continue
       if (parsed.verdict === 'pass') {
         passers.push(parsed.label)
