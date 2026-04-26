@@ -1,8 +1,24 @@
 import type { CliAdapter, SpawnOpts, ReadyState, AgentStatus } from './types'
+import { existsSync, readFileSync } from 'fs'
+import { join } from 'path'
 import { getAdapter as getHarnessAdapter } from '@twaldin/harness-ts'
 
 const harness = getHarnessAdapter('qwen')
-const OAUTH_PROXY = 'http://127.0.0.1:10531/v1'
+
+function loadGeminiKey(): string | undefined {
+  for (const path of [
+    join(process.env.HOME ?? '', '.env'),
+    join(process.env.HOME ?? '', '.config', 'gemini', '.env'),
+  ]) {
+    try {
+      if (!existsSync(path)) continue
+      const content = readFileSync(path, 'utf-8')
+      const match = content.match(/^GEMINI_API_KEY=(.+)$/m)
+      if (match) return match[1].trim()
+    } catch {}
+  }
+  return process.env.GEMINI_API_KEY
+}
 
 export const qwenAdapter: CliAdapter = {
   name: 'qwen',
@@ -11,15 +27,19 @@ export const qwenAdapter: CliAdapter = {
   submitKeys: harness.submitKeys ?? ['Enter'],
 
   spawnArgs(opts: SpawnOpts): string[] {
-    // --yolo auto-accepts; --auth-type openai + --openai-* flags bypass the
-    // OAuth-discontinued dialog and route through the local OAuth proxy.
-    const model = opts.model ?? 'gpt-5.4'
+    // qwen-code's native gemini path always sends thinkingLevel which
+    // free-tier Gemini API rejects ("Thinking level is not supported").
+    // Workaround: use Gemini's OpenAI-compatible endpoint via --auth-type
+    // openai. qwen's openai code path doesn't send thinkingLevel so the
+    // request goes through cleanly.
+    const model = opts.model ?? 'gemini-2.5-flash'
+    const apiKey = loadGeminiKey() ?? 'unused'
     return [
       'qwen',
       '--yolo',
       '--auth-type', 'openai',
-      '--openai-api-key', 'unused',
-      '--openai-base-url', OAUTH_PROXY,
+      '--openai-api-key', apiKey,
+      '--openai-base-url', 'https://generativelanguage.googleapis.com/v1beta/openai',
       '--model', model,
     ]
   },
