@@ -1,44 +1,40 @@
-# flt rewrite — session handoff (2026-04-26 early)
+# flt rewrite — session handoff (2026-04-26 mid)
 
 ## Where we are
 
-**Phase 2 mostly through; harness session-aware refactor + 12-adapter e2e are all green.** All 12 registered flt adapters pass a strict end-to-end probe (spawn → bootstrap "create hi.txt" → idle → send STEP 2 → "delete + flt send parent" → inbox ping → kill) with running/idle status assertions at four checkpoints.
+**Phase 2 DONE.** All three final-verification gates green: `flt route check` 11/0/0, `bun test` 402/0, e2e-harness.sh 12/12 PASS.
 
-**Tasks 20, 20a, 21, 21A, 21B, 21C committed.** Phase 2 still owes: workflow primitives + manifest/gc + ask-oracle + default workflows + system block refinement + tests + final verification.
+**Tasks 22–29 closed.** Phase 2 still owes only Task 30 (P2 polish: tag CC-only skills with `cli-support` frontmatter) — deferred, not blocking.
+
+This session added the autonomy layer: 5 workflow primitives wired (parallel, condition, human_gate, merge_best, collect_artifacts), 4 default workflow templates seeded by `flt init`, `flt workflow approve|reject` + `--n`, `flt ask oracle`, `flt artifact gc`, ArtifactManifest schema, refined system-block guidance.
 
 ## Authoritative documents
 
-- **Plan**: `/Users/twaldin/.claude/plans/cozy-wibbling-kahan.md` — full phase 1 + phase 2 plan with locked decisions, file lists, order. Read first on resume.
-- **harness-ts source (now linked)**: `~/harness/ts/` — flt's `node_modules/@twaldin/harness-ts` is a `bun link` symlink to this dir. Edit harness in place; `bun run build` from `~/harness/ts` after changes.
-- **harness-ts ADAPTER-MATRIX**: `~/harness/ADAPTER-MATRIX.md` — reference for what each CLI emits in cost/tokens.
-- **e2e probe**: `tests/integration/e2e-harness.sh` — runs the full check across all 12.
+- **Plan**: `/Users/twaldin/.claude/plans/cozy-wibbling-kahan.md` — phase 1 + phase 2 plan with locked decisions.
+- **Task 22 design**: see Tasks list (`TaskGet 1`) for the 16 grilled decisions that locked the primitive shapes.
+- **harness-ts source (linked)**: `~/harness/ts/` — flt's `node_modules/@twaldin/harness-ts` is a `bun link` symlink. Edit harness in place; `bun run build` from `~/harness/ts` after changes.
+- **e2e probe**: `tests/integration/e2e-harness.sh` — runs full check across all 12.
 - **GPT roadmap context**: `docs/conversation-with-gpt.md`.
 - **Earlier rewrite plan**: `docs/rewrite-plan-v2.md` (epics A/B/C/D, partly superseded).
 
-## Recent commits (since prior handoff at `2d1daa2`)
+## Workflow primitives (resolved design)
 
-```
-2a57e8a droid + qwen: BYO-key configs unlock both — 12/12 e2e PASS
-4a2b81f continue-cli: display name = model id (was 'flt-model')
-9404085 e2e probe: default to all 12 registered adapters
-668e8ef crush + kilo: env-name fix and button-row dialog detection
-bd622a1 qwen: bypass OAuth-discontinued dialog with --auth-type openai
-e1d41d6 adapters: add yolo flags for crush, continue-cli, qwen, droid
-eb3f615 continue-cli: write workdir config + tighten ready detection
-c5d92e5 adapters: route non-cc harnesses through OAuth proxy with GPT default
-499c43a adapters: register continue-cli, crush, droid, openclaude, qwen, kilo
-cb4b6fe adapters: thin-wrap harness; harness owns detection + session-log + pricing
-b58f62f gemini: pass --yolo so mid-run permission dialogs auto-approve
-1a0223b swe-agent: inject default model so spawn doesn't insta-die
-ea1666f P2: remove aider adapter; nvm-22 wrap for gemini; portable e2e probe
-4dacff8 spawn: multi-line bootstrap auto-redirected to .flt/bootstrap.md + e2e probe
-f68a22b P2: opus[1m] everywhere + cc-opus/cc-sonnet routing-bundle presets (task 20a)
-594b5d1 P2: model resolution smoke + flt route check (task 20)
-```
+| primitive | shape | semantics |
+|---|---|---|
+| `spawn` (default) | preset+task or run | legacy; backcompat via untyped step → `type: 'spawn'` |
+| `parallel` | `{ n, presets?, step }` | spawn N children, treatment_map permutes label→preset (private), >=1 pass = group pass |
+| `condition` | `{ if, then, else? }` | `<lhs> == \|!= <rhs>` grammar; forward-only jumps; self-jump permitted (no-op) |
+| `human_gate` | `{ notify? }` | writes `<runDir>/.gate-pending`, blocks until `flt workflow approve\|reject` writes `.gate-decision` |
+| `merge_best` | `{ candidate_var, target_branch? }` | reads `winner.json` or `.gate-decision`, git merge winner branch into start branch; conflict → fail step |
+| `collect_artifacts` | `{ from, files, into }` | copies files via `<step>-<label>-<filename>` shape; `_` for non-parallel |
 
-`~/harness` repo also got commits: `48acb7a`, `b00ffc2`, `49b5d1b`, `19d007c` etc.
+Run state moved: `~/.flt/runs/<id>/{run.json, manifest.json, results/, handoffs/, logs/}`. Old `~/.flt/workflows/runs/*.json` layout refused at load with clear "upgrade required, cancel and rerun" message.
 
-## Adapter matrix (final state)
+Verdict path unified: every step writes `<runDir>/results/<step>-<label>.json` (single steps use label `_`). `signalWorkflowResult` derives label from `parallelGroups[step].candidates` lookup. Controller poller calls `aggregateResults` which collapses to pass/fail.
+
+`spawnFn` injection (`_setSpawnFnForTest`) on engine for test mocking without tmux.
+
+## Adapter matrix (unchanged from prior handoff)
 
 | harness | flt adapter | model default | auth path | telemetry |
 |---|---|---|---|---|
@@ -55,85 +51,94 @@ f68a22b P2: opus[1m] everywhere + cc-opus/cc-sonnet routing-bundle presets (task
 | qwen | qwen | gemini-2.5-flash | Gemini OpenAI-compat endpoint | n/a |
 | kilo | kilo | provider default | OAuth proxy + button-row auto-handler | n/a |
 
-aider was REMOVED — REPL-driven, no autonomous shell tool, doesn't fit flt.
+aider was REMOVED in phase 2.
 
-## Phase 2 task queue (resume point)
+## Phase 2 task queue (final state)
 
 | # | Task | Status |
 |---|---|---|
-| 18 | Idle/ready detection per new adapter | done (in 21A) |
-| 19 | Model resolution dialect map + routing resolver | done |
-| 20 | Model resolution smoke + `flt route check` | done |
-| 20a | cc-opus/cc-sonnet routing bundles + opus[1m] sweep | done |
-| 21 | 6 new adapters | done |
-| 21A | harness session-aware interface | done |
-| 21B | e2e probe captures cost+tokens+conv-log; 6/6 PASS | done |
-| 21C | unblock crush/droid/qwen/kilo | done |
-| 22 | Workflow primitives (parallel/condition/human_gate/merge_best/collect_artifacts) | **next** |
-| 23 | Workflow manifest.ts + gc.ts (artifact lifecycle) | pending |
-| 24 | workflow command (approve/reject + --n) | pending |
-| 25 | `flt ask oracle` wrapper | pending |
-| 26 | 4 default workflows seeded by init | pending |
-| 27 | System block refinement (parent vs oracle guidance) | pending |
-| 28 | Phase 2 tests | pending |
-| 29 | Final phase 2 verification (`flt route check` + full bun test green + 12/12 e2e) | pending |
-| 30 | P2 polish: tag CC-only skills with `cli-support` frontmatter | pending |
+| 18–21C | (prior session) | done |
+| 22 | Workflow primitives (parallel/condition/human_gate/merge_best/collect_artifacts) | **done** |
+| 23 | Workflow manifest.ts + gc.ts (artifact lifecycle) | **done** |
+| 24 | `flt workflow approve\|reject` + `--n` on run | **done** |
+| 25 | `flt ask oracle` wrapper | **done** |
+| 26 | 4 default workflows seeded by init | **done** |
+| 27 | System block refinement (parent vs oracle guidance) | **done** |
+| 28 | Phase 2 tests sweep | **done** (every chunk shipped its own tests) |
+| 29 | Final phase 2 verification (route check + bun test + 12/12 e2e) | **done** |
+| 30 | P2 polish: tag CC-only skills with `cli-support` frontmatter | deferred |
 
-## Critical gotchas (don't relearn)
+## Test inventory (added in this session)
 
-1. **Restart controller after any spawn/skill/state code change**: long-running bun process. Code edits to `src/commands/{spawn,skills,kill}.ts`, `src/skills.ts`, `src/state.ts` etc. don't take effect until:
-   ```bash
-   flt controller stop && rm -f ~/.flt/controller.{pid,sock} && flt controller start
-   ```
-2. **Multi-line bootstrap auto-redirect**: `spawn.ts` writes multi-line bootstrap to `<workdir>/.flt/bootstrap.md` and sends a one-line redirect — fixed in commit `4dacff8`. Don't undo this; the screenshot bug (each line treated as separate "Steering" message) was the reason.
-3. **`flt kill` nukes the worktree**: capture the diff BEFORE killing a helper agent or the work is lost. Better long-term: have helpers commit before sending done.
-4. **Hard ban on two agents per workdir**: spawn refuses with clear error pointing at kill-or-worktree (commit `c0838a1`).
-5. **`.flt/` and `.claude/` in repo root are gitignored**: spawn artifacts write there. Don't commit.
-6. **State.json shape**: must be `{"agents":{}, "config":{"maxDepth":3}}`. Empty `{}` causes runtime null-deref. Init seed handles this.
-7. **pi + gemini need node 22**: their bundles use Unicode regex /v flag. Adapters wrap `bash -lc "source $HOME/.nvm/nvm.sh && nvm use 22 >/dev/null; <cmd>"`.
-8. **No env isolation on spawn**: dropped CLAUDE_CONFIG_DIR + XDG_CONFIG_HOME — they hid OAuth/provider config.
-9. **`opus[1m]` always**: never plain `opus` anywhere. `force1mOpus(cli, model)` in `src/model-resolution.ts` coerces. See memory `feedback_opus_1m.md`.
-10. **harness-ts is now a `bun link` symlink**: `node_modules/@twaldin/harness-ts → ~/harness/ts`. Edit ~/harness/ts directly, `bun run build` to regen `dist/index.js`. flt picks up changes immediately.
-11. **Per-CLI auth differs**:
-    - claude-code/openclaude: Anthropic Max sub (no env needed)
-    - codex/opencode/swe-agent/crush/kilo/droid: OAuth proxy at `http://127.0.0.1:10531/v1` via OPENAI_BASE_URL/OPENAI_API_KEY (or `OPENAI_API_ENDPOINT` for crush)
-    - gemini: GEMINI_API_KEY from ~/.env
-    - qwen: GEMINI_API_KEY via Gemini's OpenAI-compat endpoint
-    - continue-cli: OAuth proxy via workdir-written config.yaml
-    - droid: OAuth proxy via workdir-written settings.json
-    - pi: pi-coding-agent's own provider config (auto-routed)
-12. **kilo dialog detection uses BUTTON ROW, not title**: titles linger in scrollback after dialog closes. Detect by visible button row in last 12 non-empty lines.
-13. **gemini --yolo + claude-code --dangerously-skip-permissions + codex --dangerously-bypass-approvals-and-sandbox**: each CLI has its own auto-approve flag; use the right one.
+```
+tests/unit/workflow-treatment.test.ts          7 cases  (permuteTreatmentMap)
+tests/unit/workflow-condition.test.ts         10 cases  (evaluateCondition expression parser)
+tests/unit/workflow-results.test.ts           13 cases  (writeResult / aggregateResults; +1 hyphen-prefix bug regression)
+tests/unit/workflow-parser.test.ts            24 cases  (discriminated union dispatch + per-type validation)
+tests/unit/workflow-engine-plumbing.test.ts    8 cases  (run dir migration, refuse old, signal path, parallel collapse)
+tests/unit/workflow-parallel.test.ts           4 cases  (treatment + spawn count + extraEnv + verdict collapse)
+tests/unit/workflow-merge-best.test.ts         5 cases  (winner.json, gate-decision fallback, conflict, missing winner, non-git dir)
+tests/unit/workflow-collect-artifacts.test.ts  4 cases  (parallel + non-parallel, missing files, basename normalization)
+tests/unit/workflow-condition-step.test.ts     5 cases  (true→then, false→else, malformed, self-jump)
+tests/unit/workflow-human-gate.test.ts         4 cases  (gate-pending write, approve, reject, invalid JSON)
+tests/unit/workflow-approve-reject.test.ts     8 cases  (approve, reject, --n, error paths)
+tests/unit/ask-oracle.test.ts                  4 cases  (human reply, agent fire-and-forget, timeout, missing routing)
+tests/unit/init-workflows.test.ts              2 cases  (templates copy, no-overwrite)
+tests/unit/workflow-manifest.test.ts           5 cases  (read/write/add/markConsumed/markExpired)
+tests/unit/workflow-gc.test.ts                 6 cases  (classifyTier, hot/warm/cold, olderThan, keep=true)
+```
+
+109 new tests; 293 (start) → 402 (end).
+
+## Critical gotchas (carryover + new)
+
+(All prior gotchas from previous handoff still apply: restart controller after code changes, `flt kill` nukes worktree, no two agents per workdir, `.flt/.claude` gitignored, state.json shape, pi+gemini need node 22, no env isolation, opus[1m] always, harness-ts symlink, per-CLI auth differs, kilo button-row, per-CLI yolo flags.)
+
+**New phase 2 gotchas:**
+
+14. **Run-dir migration**: any in-flight workflow run from before this session is REFUSED at load. Cancel/rerun.
+15. **claude-code-as-subagent crash (deferred bug)**: `cc-reviewer` and `cc-sonnet` presets crash a few seconds after spawn — produce ~270 tokens then session vanishes (watchdog logs "session gone; cleaning up"). Pi-coder agents are unaffected. Self-review or codex-reviewer for review pattern. Root cause unknown.
+16. **`~/.flt/runs/` is shared**: harness archive files (flat `<name>-<timestamp>.json`) live alongside workflow run subdirs. `listWorkflowRuns` filters by `entry.isDirectory()` so they coexist cleanly.
+17. **Parallel children agent name**: `<runId>-<stepId>-<label>` (e.g., `mywf-1-coder-a`). `signalWorkflowResult` and `getWorkflowForAgent` both check `parallelGroups[step].candidates` to map agentName → label.
+18. **FLT_RUN_DIR / FLT_RUN_LABEL env injection**: `SpawnArgs.extraEnv` (added this session) is plumbed through to tmux session env, after presetEnv but before FLT_AGENT_NAME so system invariants can't be overridden.
+19. **Condition self-jump is a no-op**: `then: <self>` resolves to `target === step.id` and just returns. Avoids infinite recursion. Workflow stalls until cancelled.
+20. **merge_best target defaults to startBranch**: captured at `startWorkflow` from `git rev-parse --abbrev-ref HEAD` in `opts.dir`. Falls back to throw if both step.target_branch and run.startBranch are unset.
+
+## CLI surface added this session
+
+```
+flt workflow approve <run> [--candidate <label>]
+flt workflow reject <run> --reason <text>
+flt workflow run <name> [--n <count>]                     # workflow-level parallel
+flt ask oracle '<question>' [--from <agent>] [--timeout <ms>]
+flt artifact gc [--run <id>] [--older-than <duration>]
+```
+
+## Default workflows (seeded by `flt init`)
+
+`templates/workflows/{idea-to-pr,code-and-review,new-project,fix-bug}.yaml` copied to `~/.flt/workflows/` on init (skipped if user already has a same-named file). Each is single-agent with comments showing how to upgrade a step to `type: parallel` for tournaments.
 
 ## Architectural wins this session
 
-**Harness owns CLI knowledge.** flt's 12 adapters are now thin wrappers that delegate detection/dialog handling to `~/harness/ts` via `getAdapter('<cli>')`. Total flt adapter LOC went from ~414 → ~176 (-238). Adding a new harness = add to ~/harness/ts/src/adapters + register in flt + write a thin wrapper.
+**Pure-function primitives.** `permuteTreatmentMap`, `evaluateCondition`, `writeResult`/`aggregateResults` are pure modules — testable without tmux/state. Engine is a thin orchestrator on top.
 
-**Pure-function design.** harness exposes `detectReady(pane: string): ReadyState` etc. — pure predicates on pane content, no tmux awareness, no async/scheduling. flt drives polling/timing per its tmux runtime. Other consumers (web UIs, CI tools) can capture pane content however they like.
+**Unified verdict path.** Single + parallel both write per-candidate result files (`<runDir>/results/<step>-<label>.json`). No in-memory `run.stepResult` race; controller poller aggregates files.
 
-**Cost is non-null when tokens are non-null.** `~/harness/ts/src/pricing.ts` has per-model rates. `deriveCost(model, in, out)` is a fallback when CLI doesn't emit cost. Used by codex, gemini, qwen, swe-agent.
+**Discriminated union types.** `WorkflowStepDef` narrows by `type` field. Parser dispatches per-type with field-specific validation. Backcompat: untyped legacy steps treated as `type: 'spawn'`.
 
-**Session-log paths per harness** — for the mutator/GEPA conversation-data pipeline:
-- claude-code: `~/.claude/projects/<encoded>/<sid>.jsonl`
-- codex: `~/.codex/sessions/yyyy/mm/dd/rollout-*.jsonl`
-- pi: `~/.pi/agent/sessions/<encoded>/*.jsonl`
-- opencode: SQLite at `~/.local/share/opencode/`
-- swe-agent: `~/Library/Application Support/mini-swe-agent/last_mini_run.traj.json`
-- gemini: `~/.gemini/tmp/<basename>/logs.json` (convlog only, no tokens)
-- crush/kilo: SQLite (parsers exist in harness for headless mode)
-- continue-cli/droid/qwen: not yet wired (TBD; convlog-only is fine for mutator)
+**Anonymized parallel evaluation.** Treatment map (label→preset) lives only in `manifest.json`. Evaluator agents see label-only handoffs (a/b/c.md), no preset hints.
 
-**Encoding canonicalization.** sessionLogPath uses `realpathSync(workdir)` to handle macOS `/var → /private/var` symlinks before applying CLI-specific encoding (claude: `/[\/_]/g → -`; pi: `--<all/>--`).
+**Subagent delegation pattern.** Per-chunk delegation to pi-coder workers in worktrees, with cherry-pick to main + self-review. Saved root context tokens. See `feedback_delegate_to_subagents.md`.
 
 ## Resume checklist on next session
 
 ```bash
 # Sanity
 flt controller status                           # should show running
-flt list                                        # current agents (just flt-rewriter)
-git log --oneline -5                            # recent commits
+flt list                                        # current agents
+git log --oneline d7ffb68..HEAD | wc -l         # 29 commits this session
 cat HANDOFF.md                                  # this file
-bun test 2>&1 | tail -3                         # 293 / 0 fail expected
+bun test 2>&1 | tail -3                         # 402 / 0 fail expected
 
 # Verify clean global skill state
 find ~/.claude -name SKILL.md 2>/dev/null | wc -l   # 0
@@ -144,30 +149,33 @@ cat ~/.flt/routing/policy.yaml
 flt route show coder                            # {"preset":"pi-coder",...}
 flt route check                                 # 11 OK · 0 WARN · 0 FAIL
 
-# Verify harness link
-readlink node_modules/@twaldin/harness-ts       # ../../../harness/ts
+# Verify default workflows present
+ls ~/.flt/workflows/                            # idea-to-pr.yaml + 3 others
 
 # Run e2e probe
 tests/integration/e2e-harness.sh                # 12/12 PASS expected
 
-# Pick up where left off
-# → Task 22: workflow primitives
+# Phase 3 entry points (deferred)
+# - Task 30: tag CC-only skills with cli-support frontmatter
+# - claude-code-as-subagent crash investigation
+# - manifest.json integration (engine doesn't yet write artifact entries; users do it manually)
+# - SQLite/trace_classifier/nightly mutator (phase 3 per plan)
 ```
 
-## Next steps (concrete) — task 22 (workflow primitives)
+## Bug list — captured but deferred
 
-Per the plan in `cozy-wibbling-kahan.md`:
+(All prior bugs from previous handoff still tracked; new ones added.)
 
-1. **Edit** `src/workflow/types.ts`: extend `WorkflowStepDef` with discriminated union `type: 'spawn' | 'parallel' | 'condition' | 'human_gate' | 'merge_best' | 'collect_artifacts'`. Add fields per primitive.
-2. **Edit** `src/workflow/parser.ts`: dispatch by step `type`; backward-compat for legacy untyped steps (treat as `type: 'spawn'`).
-3. **Edit** `src/workflow/engine.ts`: per-type executors. TDD per primitive in this order:
-   - `parallel`: spawn N agents in N worktrees with anonymized labels
-   - `condition`: evaluate `if` expression against last step output
-   - `human_gate`: write `<runDir>/.gate-pending`, block on `flt workflow approve`
-   - `merge_best`: read manifest.candidates, git merge winner
-   - `collect_artifacts`: copy named files from each `from` step's worktree
-
-After 22 → 23 (manifest/gc) → 24 (workflow approve/reject + --n) → 25 (ask-oracle).
+- **claude-code-as-subagent crash**: cc-reviewer + cc-sonnet die ~6s after spawn. Tokens emitted, session vanishes, watchdog reaps. Pi unaffected. Root cause unknown — possibly a claude-code `--print` / one-turn mode interaction with our bootstrap, or auth state. Workaround: use codex-reviewer or self-review.
+- **Engine doesn't auto-populate ArtifactManifest**: `manifest.ts` provides read/write helpers but the engine doesn't yet emit `addArtifact` calls during executeStep / advanceWorkflow. GC works on whatever artifacts the workflow author registers manually. Wire when needed.
+- **Concurrent `advanceWorkflow` race**: predates this session. If two callers load run.json simultaneously and both see allDone, both advance — could double-spawn next step. Bounded by poll interval; rare in practice.
+- **Forced-fail prod path doesn't handle parallel groups**: `executeParallelStep` doesn't auto-prod children that go idle without verdict. The 3-prod logic only fires for the singular agent named `<runId>-<stepId>` which doesn't exist for parallel. Workaround: human cancels stuck parallel runs.
+- (carryover) continue-cli/droid/qwen/kilo session-log parsing not wired in harness; convlog-only is fine for mutator.
+- (carryover) swe-agent OAuth proxy strips token counts.
+- (carryover) codex-proxy doesn't emit `finish_reason: "stop"`.
+- (carryover) `tmux-orchestrator@tmux-orchestrator` JSON entry survives plugin remove.
+- (carryover) `flt plugin audit` writes to cwd; needs `--out`.
+- (carryover) Probe assert_status race for very-fast adapters.
 
 ## Memories worth knowing about
 
@@ -176,16 +184,6 @@ In `/Users/twaldin/.claude/projects/-Users-twaldin-flt/memory/`:
 - `feedback_completion.md` — fix to completion, not "approve with nit"
 - `feedback_flt_kill.md` — capture diffs from helper worktree before kill
 - `feedback_agent_patterns.md` — merge workflow, multi-agent conflict resolution
-- `project_flt_status.md` — older project status (predates this session)
-- `project_harness_ts_usage.md` — harness usage audit + cost/token wiring paths
-
-## Bug list — captured but deferred
-
-- **continue-cli session-log parsing**: not implemented in harness (parseOutput exists for headless; interactive logs at `~/.continue/sessions/...` TBD)
-- **droid/qwen/kilo session-log parsing**: same — convlog access for mutator is the main need; tokens are nice-to-have
-- **swe-agent OAuth proxy strips token counts**: trajectory shows api_calls but tokens=0. Real fix is on proxy or use direct OPENROUTER auth.
-- **codex-proxy doesn't emit `finish_reason: "stop"`**: qwen-code's native gemini path errors. Worked around by using Gemini OpenAI-compat endpoint instead. Proxy fix would unlock more clients.
-- **`tmux-orchestrator@tmux-orchestrator` JSON entry**: `claude plugin remove tmux-orchestrator` succeeded but the JSON entry survives. Phase 2 polish.
-- **TUI poll() null guards**: added `?? {}` for `Object.entries(agents)` (commit 751a151) and similar in `commands/list.ts` (commit 8cd4673). Any other `Object.entries(state.x)` site needs review if state.x can be undefined.
-- **`flt plugin audit` writes to `cwd`**: the markdown report lands in your current directory. `--out <path>` flag eventually.
-- **Probe assert_status race**: very-fast adapters (codex, cn, kilo) finish step 2 in <1s and the `assert running` poll never sees 'running' (records "got idle" but doesn't fail). Cosmetic only — actual e2e flow still verifies hi.txt + parent-ping. Could shrink poll interval to fix.
+- `feedback_delegate_to_subagents.md` — pi-coder for impl + cc-sonnet/codex-reviewer for review pattern (added this session)
+- `project_flt_status.md` — project status (will need refresh)
+- `project_harness_ts_usage.md` — harness usage audit
