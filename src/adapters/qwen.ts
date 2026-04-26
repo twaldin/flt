@@ -11,16 +11,17 @@ export const qwenAdapter: CliAdapter = {
   submitKeys: harness.submitKeys ?? ['Enter'],
 
   spawnArgs(opts: SpawnOpts): string[] {
-    // -y / --yolo: auto-accept all actions (qwen-code, like gemini-cli).
+    // --yolo auto-accepts; --auth-type openai + --openai-* flags bypass the
+    // OAuth-discontinued dialog and route through the local OAuth proxy.
     const model = opts.model ?? 'gpt-5.4'
-    return ['qwen', '--yolo', '--model', model]
-  },
-
-  env(): Record<string, string> {
-    return {
-      OPENAI_BASE_URL: OAUTH_PROXY,
-      OPENAI_API_KEY: 'unused',
-    }
+    return [
+      'qwen',
+      '--yolo',
+      '--auth-type', 'openai',
+      '--openai-api-key', 'unused',
+      '--openai-base-url', OAUTH_PROXY,
+      '--model', model,
+    ]
   },
 
   detectReady(pane: string): ReadyState {
