@@ -10,8 +10,14 @@ describe('adapter registry', () => {
     expect(adapters).toContain('opencode')
     expect(adapters).toContain('swe-agent')
     expect(adapters).toContain('pi')
+    expect(adapters).toContain('continue-cli')
+    expect(adapters).toContain('crush')
+    expect(adapters).toContain('droid')
+    expect(adapters).toContain('openclaude')
+    expect(adapters).toContain('qwen')
+    expect(adapters).toContain('kilo')
     expect(adapters).not.toContain('aider')
-    expect(adapters.length).toBe(6)
+    expect(adapters.length).toBe(12)
   })
 
   it('gets adapter by name', () => {
