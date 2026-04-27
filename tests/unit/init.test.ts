@@ -88,13 +88,19 @@ describe('init: seedFlt', () => {
     seedFlt()
     rmSync(join(testHome, '.flt', 'roles', 'coder.md'), { force: true })
     rmSync(join(testHome, '.flt', 'roles', 'reviewer.md'), { force: true })
+    rmSync(join(testHome, '.flt', 'roles', 'mutator.md'), { force: true })
     rmSync(join(testHome, '.flt', 'agents', 'orchestrator', 'SOUL.md'), { force: true })
 
     seedFlt()
 
     expect(existsSync(join(testHome, '.flt', 'roles', 'coder.md'))).toBe(true)
     expect(existsSync(join(testHome, '.flt', 'roles', 'reviewer.md'))).toBe(true)
+    expect(existsSync(join(testHome, '.flt', 'roles', 'mutator.md'))).toBe(true)
     expect(existsSync(join(testHome, '.flt', 'agents', 'orchestrator', 'SOUL.md'))).toBe(true)
+
+    const mutatorRole = readFileSync(join(testHome, '.flt', 'roles', 'mutator.md'), 'utf-8')
+    expect(mutatorRole.includes('flt ask oracle')).toBe(true)
+    expect(mutatorRole.includes('Currently a stub')).toBe(false)
   })
 
   it('idempotent re-seed does not overwrite routing yamls', () => {
