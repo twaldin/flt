@@ -26,6 +26,16 @@ export interface ParallelStep extends BaseStep {
   step: SpawnStep
 }
 
+export interface DynamicDagStep extends BaseStep {
+  type: 'dynamic_dag'
+  plan_from: string
+  reconciler?: { preset: string; task: string }
+  max_nodes?: number
+  max_depth?: number
+  max_parallel_per_wave?: number
+  node_max_retries?: number
+}
+
 export interface ConditionStep extends BaseStep {
   type: 'condition'
   if: string
@@ -54,6 +64,7 @@ export interface CollectArtifactsStep extends BaseStep {
 export type WorkflowStepDef =
   | SpawnStep
   | ParallelStep
+  | DynamicDagStep
   | ConditionStep
   | HumanGateStep
   | MergeBestStep
@@ -76,6 +87,7 @@ export interface WorkflowRun {
   runDir?: string
   startBranch?: string
   parallelGroups?: Record<string, ParallelGroupState>
+  dynamicDagGroups?: Record<string, DynamicDagState>
 }
 
 export interface WorkflowStepResult {
@@ -106,4 +118,37 @@ export interface ParallelCandidate {
   verdict?: 'pass' | 'fail'
   failReason?: string
   treatment?: Treatment
+}
+
+export interface DagNodeState {
+  id: string
+  task: string
+  dependsOn: string[]
+  preset: string
+  parallel: number
+  baseBranch?: string
+  branch?: string
+  worktree?: string
+  candidates?: ParallelCandidate[]
+  retries: number
+  status: 'pending' | 'running' | 'reviewing' | 'passed' | 'failed' | 'skipped'
+  failReason?: string
+  reviewerAgent?: string
+  reviewerWorktree?: string
+  coderAgent?: string
+  mergeAgent?: string
+  mergeBranch?: string
+  mergeWorktree?: string
+  waitingOnMerge?: boolean
+}
+
+export interface DynamicDagState {
+  nodes: Record<string, DagNodeState>
+  topoOrder: string[]
+  integrationBranch: string
+  integrationWorktree: string
+  skipped: string[]
+  pendingGateNode?: string
+  reconcilerAgent?: string
+  reconcilerPending?: boolean
 }

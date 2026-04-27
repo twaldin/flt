@@ -432,6 +432,22 @@ workflowCmd
   })
 
 workflowCmd
+  .command('node <action> <run> [nodeId]')
+  .description('Resolve a dynamic_dag node failure gate (retry|skip|abort)')
+  .action(async (action, run, nodeId) => {
+    try {
+      if (!['retry', 'skip', 'abort'].includes(action)) {
+        throw new Error('action must be one of: retry, skip, abort')
+      }
+      const { workflowNodeDecision } = await import('./commands/workflow')
+      await workflowNodeDecision(action as 'retry' | 'skip' | 'abort', run, nodeId)
+    } catch (e) {
+      console.error(`Error: ${(e as Error).message}`)
+      process.exit(1)
+    }
+  })
+
+workflowCmd
   .command('pass')
   .description('Signal PASS from inside a workflow step agent')
   .action(() => {

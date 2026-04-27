@@ -5,6 +5,7 @@ import { getPreset } from '../presets'
 import type {
   CollectArtifactsStep,
   ConditionStep,
+  DynamicDagStep,
   HumanGateStep,
   MergeBestStep,
   ParallelStep,
@@ -117,6 +118,47 @@ function parseParallelStep(raw: Record<string, unknown>, stepId: string): Parall
     n: raw.n as number,
     presets: raw.presets as string[] | undefined,
     step: child,
+    on_complete: typeof raw.on_complete === 'string' ? raw.on_complete : undefined,
+    on_fail: typeof raw.on_fail === 'string' ? raw.on_fail : undefined,
+    max_retries: typeof raw.max_retries === 'number' ? raw.max_retries : undefined,
+  }
+}
+
+function positiveInt(raw: unknown, stepId: string, field: string): number | undefined {
+  if (raw === undefined) return undefined
+  if (!Number.isInteger(raw) || (raw as number) <= 0) {
+    throw new Error(`Step "${stepId}": "${field}" must be a positive integer`)
+  }
+  return raw as number
+}
+
+function parseDynamicDagStep(raw: Record<string, unknown>, stepId: string): DynamicDagStep {
+  if (typeof raw.plan_from !== 'string' || !raw.plan_from) {
+    throw new Error(`Step "${stepId}": dynamic_dag requires "plan_from"`)
+  }
+
+  let reconciler: { preset: string; task: string } | undefined
+  if (raw.reconciler !== undefined) {
+    if (!raw.reconciler || typeof raw.reconciler !== 'object' || Array.isArray(raw.reconciler)) {
+      throw new Error(`Step "${stepId}": "reconciler" must be an object`)
+    }
+    const r = raw.reconciler as Record<string, unknown>
+    if (typeof r.preset !== 'string' || !r.preset || typeof r.task !== 'string' || !r.task) {
+      throw new Error(`Step "${stepId}": reconciler requires "preset" and "task"`)
+    }
+    validatePresetName(stepId, r.preset, 'reconciler.preset')
+    reconciler = { preset: r.preset, task: r.task }
+  }
+
+  return {
+    id: stepId,
+    type: 'dynamic_dag',
+    plan_from: raw.plan_from,
+    reconciler,
+    max_nodes: positiveInt(raw.max_nodes, stepId, 'max_nodes') ?? 12,
+    max_depth: positiveInt(raw.max_depth, stepId, 'max_depth') ?? 5,
+    max_parallel_per_wave: positiveInt(raw.max_parallel_per_wave, stepId, 'max_parallel_per_wave') ?? 6,
+    node_max_retries: positiveInt(raw.node_max_retries, stepId, 'node_max_retries') ?? 2,
     on_complete: typeof raw.on_complete === 'string' ? raw.on_complete : undefined,
     on_fail: typeof raw.on_fail === 'string' ? raw.on_fail : undefined,
     max_retries: typeof raw.max_retries === 'number' ? raw.max_retries : undefined,
@@ -301,6 +343,9 @@ export function validateWorkflowDef(raw: unknown): WorkflowDef {
     switch (type) {
       case 'parallel':
         steps.push(parseParallelStep(s, stepId))
+        break
+      case 'dynamic_dag':
+        steps.push(parseDynamicDagStep(s, stepId))
         break
       case 'condition':
         steps.push(parseConditionStep(s, stepId, stepIds, positions))

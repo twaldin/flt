@@ -3,7 +3,21 @@ import { basename, join } from 'path'
 import { execSync } from 'child_process'
 import { loadWorkflowDef, resolveWorkflowYamlPath } from './parser'
 import { getAgent, allAgents } from '../state'
-import type { CollectArtifactsStep, ConditionStep, HumanGateStep, MergeBestStep, ParallelStep, SpawnStep, WorkflowDef, WorkflowRun, WorkflowStepDef } from './types'
+import type {
+  CollectArtifactsStep,
+  ConditionStep,
+  DagNodeState,
+  DynamicDagState,
+  DynamicDagStep,
+  HumanGateStep,
+  MergeBestStep,
+  ParallelCandidate,
+  ParallelStep,
+  SpawnStep,
+  WorkflowDef,
+  WorkflowRun,
+  WorkflowStepDef,
+} from './types'
 import { appendEvent } from '../activity'
 import * as tmux from '../tmux'
 import { sendDirect } from '../commands/send'
@@ -13,16 +27,51 @@ import { evaluateCondition } from './condition'
 import { computeTreatment, permuteTreatmentMap } from './treatment'
 import { writeMetricsForRun } from './metrics'
 import { getPreset } from '../presets'
+import { createWorktree, removeWorktree } from '../worktree'
 
 let _spawnFn: typeof import('../commands/spawn').spawnDirect | null = null
+
+type MergeFn = (repoDir: string, baseBranch: string, mergeBranches: string[], branchName: string) => Promise<{ branch: string; worktree: string; conflicted: boolean }>
+
+let _mergeFn: MergeFn | null = null
 
 export function _setSpawnFnForTest(fn: typeof import('../commands/spawn').spawnDirect | null): void {
   _spawnFn = fn
 }
 
+export function _setMergeFnForTest(fn: MergeFn | null): void {
+  _mergeFn = fn
+}
+
 async function getSpawnFn() {
   if (_spawnFn) return _spawnFn
   return (await import('../commands/spawn')).spawnDirect
+}
+
+async function mergeBranches(repoDir: string, baseBranch: string, mergeBranches: string[], branchName: string): Promise<{ branch: string; worktree: string; conflicted: boolean }> {
+  if (_mergeFn) return _mergeFn(repoDir, baseBranch, mergeBranches, branchName)
+
+  const wt = createWorktree(repoDir, branchName, baseBranch)
+  let conflicted = false
+  for (const depBranch of mergeBranches) {
+    try {
+      execSync(`git merge --no-edit ${depBranch}`, {
+        cwd: wt.path,
+        encoding: 'utf-8',
+        stdio: ['ignore', 'pipe', 'pipe'],
+        timeout: 30_000,
+      })
+    } catch {
+      conflicted = true
+      break
+    }
+  }
+
+  return {
+    branch: wt.branch,
+    worktree: wt.path,
+    conflicted,
+  }
 }
 
 function getRunsDir(): string {
@@ -166,7 +215,7 @@ export async function startWorkflow(name: string, opts?: { parent?: string; task
   return run
 }
 
-export async function advanceWorkflow(runId: string): Promise<void> {
+export async function advanceWorkflow(runId: string, idleAgentName?: string): Promise<void> {
   const run = loadWorkflowRun(runId)
   if (!run || run.status !== 'running') return
 
@@ -177,6 +226,13 @@ export async function advanceWorkflow(runId: string): Promise<void> {
     run.completedAt = new Date().toISOString()
     finalizeRun(run)
     return
+  }
+
+  if (currentStepDef.type === 'dynamic_dag') {
+    await advanceDynamicDag(def, run, currentStepDef, idleAgentName)
+    if (!run.runDir || !existsSync(join(run.runDir, 'results', `${currentStepDef.id}-_.json`))) {
+      return
+    }
   }
 
   // Record current step completion
@@ -218,7 +274,16 @@ export async function advanceWorkflow(runId: string): Promise<void> {
     try { unlinkSync(join(run.runDir, '.gate-pending')) } catch {}
   }
 
-  let aggregated = aggregateResults(run.runDir, run.currentStep, expectedN)
+  let aggregated: { allDone: boolean; passers: string[]; failures: { label: string; reason?: string }[] }
+  if (currentStepDef.type === 'dynamic_dag') {
+    const stepResult = readJsonFile(join(run.runDir, 'results', `${run.currentStep}-_.json`)) as { verdict?: string; failReason?: string } | null
+    if (!stepResult?.verdict) return
+    aggregated = stepResult.verdict === 'pass'
+      ? { allDone: true, passers: ['_'], failures: [] }
+      : { allDone: true, passers: [], failures: [{ label: '_', reason: stepResult.failReason }] }
+  } else {
+    aggregated = aggregateResults(run.runDir, run.currentStep, expectedN)
+  }
   if (!aggregated.allDone) {
     const verdictCount = aggregated.passers.length + aggregated.failures.length
     if (verdictCount === 0) {
@@ -552,6 +617,172 @@ function hashRunStepSeed(runId: string, stepId: string): number {
   return h >>> 0
 }
 
+type DagPlanNode = {
+  id: string
+  task: string
+  depends_on?: string[]
+  preset?: string
+  parallel?: number
+}
+
+type DagPlan = {
+  default_preset?: string
+  nodes?: DagPlanNode[]
+}
+
+function cycleReason(nodes: DagPlanNode[]): string | null {
+  const byId = new Map(nodes.map(n => [n.id, n]))
+  const visiting = new Set<string>()
+  const visited = new Set<string>()
+  const stack: string[] = []
+
+  const dfs = (id: string): string | null => {
+    if (visiting.has(id)) {
+      const idx = stack.indexOf(id)
+      const cycle = [...stack.slice(idx), id]
+      return `cycle: ${cycle.join('→')}`
+    }
+    if (visited.has(id)) return null
+    visiting.add(id)
+    stack.push(id)
+    const deps = byId.get(id)?.depends_on ?? []
+    for (const dep of deps) {
+      const found = dfs(dep)
+      if (found) return found
+    }
+    stack.pop()
+    visiting.delete(id)
+    visited.add(id)
+    return null
+  }
+
+  const ids = [...byId.keys()].sort()
+  for (const id of ids) {
+    const found = dfs(id)
+    if (found) return found
+  }
+  return null
+}
+
+function longestDepth(nodes: DagPlanNode[]): number {
+  const byId = new Map(nodes.map(n => [n.id, n]))
+  const memo = new Map<string, number>()
+  const depth = (id: string): number => {
+    const cached = memo.get(id)
+    if (cached !== undefined) return cached
+    const deps = byId.get(id)?.depends_on ?? []
+    const result = deps.length === 0 ? 1 : 1 + Math.max(...deps.map(depth))
+    memo.set(id, result)
+    return result
+  }
+  return Math.max(...nodes.map(n => depth(n.id)))
+}
+
+export function validatePlan(
+  plan: DagPlan,
+  caps: { max_nodes: number; max_depth: number },
+): { ok: true } | { ok: false; reason: string } {
+  const nodes = plan.nodes
+  if (!Array.isArray(nodes) || nodes.length === 0) return { ok: false, reason: 'empty plan: no nodes' }
+  if (nodes.length > caps.max_nodes) {
+    return { ok: false, reason: `too many nodes: ${nodes.length} > max_nodes(${caps.max_nodes})` }
+  }
+
+  const seen = new Set<string>()
+  for (const node of nodes) {
+    if (typeof node.id !== 'string' || !/^[a-zA-Z0-9_-]+$/.test(node.id)) {
+      return { ok: false, reason: `invalid node id: ${String(node.id)}` }
+    }
+    if (seen.has(node.id)) return { ok: false, reason: `duplicate node id: ${node.id}` }
+    seen.add(node.id)
+    if (typeof node.task !== 'string' || !node.task.trim()) {
+      return { ok: false, reason: `invalid task for node: ${node.id}` }
+    }
+    if (node.parallel !== undefined && (!Number.isInteger(node.parallel) || node.parallel < 1)) {
+      return { ok: false, reason: `invalid parallel for node: ${node.id}` }
+    }
+  }
+
+  for (const node of nodes) {
+    const deps = node.depends_on ?? []
+    if (!Array.isArray(deps) || deps.some(d => typeof d !== 'string')) {
+      return { ok: false, reason: `invalid depends_on for node: ${node.id}` }
+    }
+    for (const dep of deps) {
+      if (!seen.has(dep)) {
+        return { ok: false, reason: `missing dep: ${node.id}.depends_on contains unknown id ${dep}` }
+      }
+    }
+  }
+
+  const cycle = cycleReason(nodes)
+  if (cycle) return { ok: false, reason: cycle }
+
+  const depth = longestDepth(nodes)
+  if (depth > caps.max_depth) {
+    return { ok: false, reason: `depth exceeded: ${depth} > max_depth(${caps.max_depth})` }
+  }
+
+  return { ok: true }
+}
+
+function computeTopoOrder(nodes: DagNodeState[]): string[] {
+  const indeg = new Map<string, number>()
+  const children = new Map<string, string[]>()
+  for (const n of nodes) {
+    indeg.set(n.id, n.dependsOn.length)
+    children.set(n.id, [])
+  }
+  for (const n of nodes) {
+    for (const dep of n.dependsOn) {
+      children.get(dep)?.push(n.id)
+    }
+  }
+  const q = [...nodes.filter(n => n.dependsOn.length === 0).map(n => n.id)].sort()
+  const out: string[] = []
+  while (q.length > 0) {
+    const id = q.shift()!
+    out.push(id)
+    for (const c of (children.get(id) ?? []).sort()) {
+      indeg.set(c, (indeg.get(c) ?? 0) - 1)
+      if (indeg.get(c) === 0) {
+        q.push(c)
+        q.sort()
+      }
+    }
+  }
+  return out
+}
+
+export function topologicalReadyNodes(state: DynamicDagState): string[] {
+  return Object.values(state.nodes)
+    .filter(node => node.status === 'pending')
+    .filter(node => node.dependsOn.every(dep => state.nodes[dep]?.status === 'passed'))
+    .sort((a, b) => a.id.localeCompare(b.id))
+    .map(node => node.id)
+}
+
+export function transitiveDependents(state: DynamicDagState, nodeId: string): Set<string> {
+  const reverse = new Map<string, string[]>()
+  for (const node of Object.values(state.nodes)) {
+    for (const dep of node.dependsOn) {
+      const list = reverse.get(dep) ?? []
+      list.push(node.id)
+      reverse.set(dep, list)
+    }
+  }
+
+  const out = new Set<string>()
+  const queue = [...(reverse.get(nodeId) ?? [])]
+  while (queue.length > 0) {
+    const curr = queue.shift()!
+    if (out.has(curr)) continue
+    out.add(curr)
+    queue.push(...(reverse.get(curr) ?? []))
+  }
+  return out
+}
+
 async function executeParallelStep(def: WorkflowDef, run: WorkflowRun, parallelStep: ParallelStep): Promise<void> {
   const basePreset = parallelStep.step.preset
   if (!parallelStep.presets && !basePreset) {
@@ -616,6 +847,499 @@ async function executeParallelStep(def: WorkflowDef, run: WorkflowRun, parallelS
       saveWorkflowRun(run)
     }
   }
+}
+
+function resolveRepoDir(run: WorkflowRun): string {
+  const cwd = run.vars._input?.dir || process.cwd()
+  return execSync('git rev-parse --show-toplevel', {
+    cwd,
+    encoding: 'utf-8',
+    stdio: ['ignore', 'pipe', 'ignore'],
+    timeout: 5_000,
+  }).trim()
+}
+
+async function prepareMultiDepBase(run: WorkflowRun, step: DynamicDagStep, state: DynamicDagState, node: DagNodeState): Promise<{ ready: boolean; branch?: string }> {
+  const repoDir = resolveRepoDir(run)
+  const deps = [...node.dependsOn].sort()
+  const base = state.nodes[deps[0]]?.branch
+  if (!base) return { ready: false }
+  const mergeList = deps.slice(1).map(dep => state.nodes[dep]?.branch).filter((v): v is string => Boolean(v))
+  const mergeName = `${run.id}-${step.id}-pre-${node.id}-base`
+  const merged = await mergeBranches(repoDir, base, mergeList, mergeName)
+
+  node.mergeBranch = merged.branch
+  node.mergeWorktree = merged.worktree
+
+  if (!merged.conflicted) {
+    return { ready: true, branch: merged.branch }
+  }
+
+  const spawn = await getSpawnFn()
+  const agentName = `${run.id}-${step.id}-${node.id}-merge`
+  await spawn({
+    name: agentName,
+    preset: step.reconciler?.preset ?? 'cc-evaluator',
+    dir: merged.worktree,
+    worktree: false,
+    parent: run.parentName,
+    bootstrap: 'Resolve git merge conflicts and commit. Then flt workflow pass.',
+    workflow: run.workflow,
+    workflowStep: step.id,
+    projectRoot: run.vars._input?.dir,
+    extraEnv: run.runDir
+      ? {
+          FLT_RUN_DIR: run.runDir,
+          FLT_RUN_LABEL: `${node.id}-merge`,
+        }
+      : undefined,
+  })
+  node.mergeAgent = agentName
+  node.waitingOnMerge = true
+  return { ready: false }
+}
+
+async function spawnDagNode(def: WorkflowDef, run: WorkflowRun, step: DynamicDagStep, nodeId: string): Promise<void> {
+  void def
+  const state = run.dynamicDagGroups?.[step.id]
+  if (!state) return
+  const node = state.nodes[nodeId]
+  if (!node) return
+
+  let baseBranch = run.startBranch ?? ''
+  if (node.dependsOn.length === 1) {
+    baseBranch = state.nodes[node.dependsOn[0]]?.branch ?? baseBranch
+  } else if (node.dependsOn.length > 1) {
+    const prepared = await prepareMultiDepBase(run, step, state, node)
+    if (!prepared.ready || !prepared.branch) {
+      saveWorkflowRun(run)
+      return
+    }
+    baseBranch = prepared.branch
+  }
+
+  if (!baseBranch) {
+    baseBranch = run.startBranch ?? 'HEAD'
+  }
+
+  node.baseBranch = baseBranch
+  node.status = 'running'
+  node.failReason = undefined
+
+  const repoDir = resolveRepoDir(run)
+  const spawn = await getSpawnFn()
+
+  if (node.parallel > 1) {
+    const presets = Array(node.parallel).fill(node.preset)
+    const treatmentMap = permuteTreatmentMap(node.parallel, presets, hashRunStepSeed(run.id, `${step.id}:${node.id}`))
+    const labels = Array.from({ length: node.parallel }, (_, i) => String.fromCharCode(97 + i))
+    const candidates: ParallelCandidate[] = []
+
+    for (const label of labels) {
+      const agentName = `${run.id}-${step.id}-${node.id}-${label}`
+      const wt = createWorktree(repoDir, agentName, baseBranch)
+      await spawn({
+        name: agentName,
+        preset: treatmentMap[label] ?? node.preset,
+        dir: wt.path,
+        worktree: false,
+        parent: run.parentName,
+        bootstrap: resolveTemplate(node.task, run),
+        workflow: run.workflow,
+        workflowStep: step.id,
+        projectRoot: run.vars._input?.dir,
+        extraEnv: run.runDir
+          ? {
+              FLT_RUN_DIR: run.runDir,
+              FLT_RUN_LABEL: `${node.id}-${label}`,
+            }
+          : undefined,
+      })
+      candidates.push({
+        label,
+        agentName,
+        preset: treatmentMap[label] ?? node.preset,
+        branch: wt.branch,
+        worktree: wt.path,
+      })
+    }
+    node.candidates = candidates
+  } else {
+    const agentName = `${run.id}-${step.id}-${node.id}-coder`
+    const wt = createWorktree(repoDir, agentName, baseBranch)
+    node.worktree = wt.path
+    node.branch = wt.branch
+    node.coderAgent = agentName
+    await spawn({
+      name: agentName,
+      preset: node.preset,
+      dir: wt.path,
+      worktree: false,
+      parent: run.parentName,
+      bootstrap: resolveTemplate(node.task, run),
+      workflow: run.workflow,
+      workflowStep: step.id,
+      projectRoot: run.vars._input?.dir,
+      extraEnv: run.runDir
+        ? {
+            FLT_RUN_DIR: run.runDir,
+            FLT_RUN_LABEL: `${node.id}-coder`,
+          }
+        : undefined,
+    })
+  }
+
+  saveWorkflowRun(run)
+}
+
+async function scheduleReadyNodes(def: WorkflowDef, run: WorkflowRun, step: DynamicDagStep): Promise<void> {
+  const state = run.dynamicDagGroups?.[step.id]
+  if (!state) return
+  const ready = topologicalReadyNodes(state)
+  const runningCount = Object.values(state.nodes).filter(n => n.status === 'running' || n.status === 'reviewing').length
+  const cap = step.max_parallel_per_wave ?? 6
+  const slots = Math.max(0, cap - runningCount)
+  const chosen = ready.slice(0, slots)
+  for (const id of chosen) {
+    await spawnDagNode(def, run, step, id)
+  }
+}
+
+function openGate(run: WorkflowRun, payload: Record<string, unknown>): void {
+  if (!run.runDir) return
+  const p = join(run.runDir, '.gate-pending')
+  const tmp = `${p}.tmp`
+  writeFileSync(tmp, JSON.stringify(payload) + '\n')
+  renameSync(tmp, p)
+}
+
+async function fireNodeFailGate(run: WorkflowRun, step: DynamicDagStep, node: DagNodeState, reason: string): Promise<void> {
+  const state = run.dynamicDagGroups?.[step.id]
+  if (!state || !run.runDir) return
+  node.status = 'failed'
+  node.failReason = reason
+  state.pendingGateNode = node.id
+  openGate(run, {
+    kind: 'node-fail',
+    step: step.id,
+    nodeId: node.id,
+    options: ['retry', 'skip', 'abort'],
+    reason,
+    at: new Date().toISOString(),
+  })
+  saveWorkflowRun(run)
+}
+
+async function maybeRunFinalReconcile(def: WorkflowDef, run: WorkflowRun, step: DynamicDagStep): Promise<void> {
+  void def
+  const state = run.dynamicDagGroups?.[step.id]
+  if (!state) return
+  if (state.pendingGateNode) return
+  if (state.reconcilerAgent) return
+
+  const nodes = Object.values(state.nodes)
+  if (nodes.some(n => ['pending', 'running', 'reviewing'].includes(n.status))) return
+  const passed = nodes.filter(n => n.status === 'passed')
+  if (passed.length === 0) {
+    if (run.runDir) writeResult(run.runDir, step.id, '_', 'fail', 'all chains skipped')
+    return
+  }
+
+  const depended = new Set<string>()
+  for (const n of nodes) for (const dep of n.dependsOn) depended.add(dep)
+  const leaves = state.topoOrder.filter(id => {
+    const node = state.nodes[id]
+    return node?.status === 'passed' && !depended.has(id)
+  })
+
+  const list = leaves.map((id, i) => `  ${i + 1}. ${state.nodes[id]?.branch ?? ''}`).join('\n')
+  const task = `${resolveTemplate(step.reconciler?.task ?? 'Merge all leaf branches into integration and run flt workflow pass when complete.', run)}\n\nMerge these branches into the current integration branch in this exact order:\n${list}`
+
+  const agentName = `${run.id}-${step.id}-reconcile`
+  const spawn = await getSpawnFn()
+  await spawn({
+    name: agentName,
+    preset: step.reconciler?.preset ?? 'cc-evaluator',
+    dir: state.integrationWorktree,
+    worktree: false,
+    parent: run.parentName,
+    bootstrap: task,
+    workflow: run.workflow,
+    workflowStep: step.id,
+    projectRoot: run.vars._input?.dir,
+    extraEnv: run.runDir
+      ? {
+          FLT_RUN_DIR: run.runDir,
+          FLT_RUN_LABEL: '_',
+        }
+      : undefined,
+  })
+  state.reconcilerAgent = agentName
+  saveWorkflowRun(run)
+}
+
+async function handleNodeFailGate(def: WorkflowDef, run: WorkflowRun, step: DynamicDagStep, decision: Record<string, unknown>): Promise<void> {
+  void def
+  const state = run.dynamicDagGroups?.[step.id]
+  if (!state || !run.runDir) return
+  if (decision.kind !== 'node-fail') return
+  const action = decision.action
+  const nodeId = typeof decision.nodeId === 'string' ? decision.nodeId : state.pendingGateNode
+  if (!nodeId || !state.nodes[nodeId]) return
+  const node = state.nodes[nodeId]
+
+  if (action === 'abort') {
+    writeResult(run.runDir, step.id, '_', 'fail', `aborted at node ${nodeId}`)
+  } else if (action === 'retry') {
+    node.retries = 0
+    node.status = 'pending'
+    node.failReason = undefined
+    state.pendingGateNode = undefined
+    saveWorkflowRun(run)
+    await scheduleReadyNodes(def, run, step)
+  } else if (action === 'skip') {
+    const victims = transitiveDependents(state, nodeId)
+    victims.add(nodeId)
+    for (const id of victims) {
+      state.nodes[id].status = 'skipped'
+      if (!state.skipped.includes(id)) state.skipped.push(id)
+    }
+    state.pendingGateNode = undefined
+    run.vars[step.id] = {
+      ...(run.vars[step.id] ?? {}),
+      skipped: state.skipped.join(','),
+    }
+    saveWorkflowRun(run)
+    await scheduleReadyNodes(def, run, step)
+    await maybeRunFinalReconcile(def, run, step)
+  }
+
+  try { unlinkSync(join(run.runDir, '.gate-pending')) } catch {}
+  try { unlinkSync(join(run.runDir, '.gate-decision')) } catch {}
+}
+
+async function handleReconcileFailGate(run: WorkflowRun, step: DynamicDagStep, decision: Record<string, unknown>): Promise<void> {
+  const state = run.dynamicDagGroups?.[step.id]
+  if (!state || !run.runDir) return
+  if (decision.kind !== 'reconcile-fail') return
+
+  if (decision.action === 'abort') {
+    writeResult(run.runDir, step.id, '_', 'fail', 'reconcile aborted')
+  } else if (decision.action === 'retry-reconcile') {
+    state.reconcilerAgent = undefined
+    saveWorkflowRun(run)
+    await maybeRunFinalReconcile({ name: run.workflow, steps: [] }, run, step)
+  }
+
+  try { unlinkSync(join(run.runDir, '.gate-pending')) } catch {}
+  try { unlinkSync(join(run.runDir, '.gate-decision')) } catch {}
+}
+
+async function advanceDynamicDag(def: WorkflowDef, run: WorkflowRun, step: DynamicDagStep, idleAgentName?: string): Promise<void> {
+  const state = run.dynamicDagGroups?.[step.id]
+  if (!state || !run.runDir) return
+
+  const decisionPath = join(run.runDir, '.gate-decision')
+  if (existsSync(decisionPath)) {
+    const decision = readJsonFile(decisionPath)
+    if (decision?.kind === 'node-fail') {
+      await handleNodeFailGate(def, run, step, decision)
+    }
+    if (decision?.kind === 'reconcile-fail') {
+      await handleReconcileFailGate(run, step, decision)
+    }
+  }
+
+  const candidates: Array<{ node: DagNodeState; role: 'coder' | 'reviewer' | 'merge' | 'candidate'; label?: string; resultLabel: string }> = []
+  for (const node of Object.values(state.nodes)) {
+    if (node.coderAgent) candidates.push({ node, role: 'coder', resultLabel: `${node.id}-coder` })
+    if (node.reviewerAgent) candidates.push({ node, role: 'reviewer', resultLabel: `${node.id}-reviewer` })
+    if (node.mergeAgent) candidates.push({ node, role: 'merge', resultLabel: `${node.id}-merge` })
+    for (const c of node.candidates ?? []) {
+      candidates.push({ node, role: 'candidate', label: c.label, resultLabel: `${node.id}-${c.label}` })
+    }
+  }
+
+  for (const c of candidates) {
+    const agentName = c.role === 'candidate'
+      ? c.node.candidates?.find(v => v.label === c.label)?.agentName
+      : c.role === 'coder'
+        ? c.node.coderAgent
+        : c.role === 'reviewer'
+          ? c.node.reviewerAgent
+          : c.node.mergeAgent
+    if (!agentName) continue
+    if (idleAgentName && agentName !== idleAgentName) continue
+
+    const resultPath = join(run.runDir, 'results', `${step.id}-${c.resultLabel}.json`)
+    if (!existsSync(resultPath)) continue
+    const result = readJsonFile(resultPath) as { verdict?: 'pass' | 'fail'; failReason?: string } | null
+    if (!result?.verdict) continue
+
+    if (c.role === 'coder') {
+      if (result.verdict === 'pass') {
+        const spawn = await getSpawnFn()
+        const reviewerName = `${run.id}-${step.id}-${c.node.id}-reviewer`
+        c.node.reviewerAgent = reviewerName
+        c.node.status = 'reviewing'
+        const task = `Review node ${c.node.id}. If good, run flt workflow pass. Otherwise flt workflow fail \"reason\".`
+        await spawn({
+          name: reviewerName,
+          preset: 'cc-evaluator',
+          dir: c.node.worktree,
+          worktree: false,
+          parent: run.parentName,
+          bootstrap: task,
+          workflow: run.workflow,
+          workflowStep: step.id,
+          projectRoot: run.vars._input?.dir,
+          extraEnv: {
+            FLT_RUN_DIR: run.runDir,
+            FLT_RUN_LABEL: `${c.node.id}-reviewer`,
+          },
+        })
+      } else {
+        c.node.retries += 1
+        if (c.node.retries >= (step.node_max_retries ?? 2)) {
+          await fireNodeFailGate(run, step, c.node, result.failReason ?? 'node failed')
+        } else {
+          c.node.status = 'pending'
+          saveWorkflowRun(run)
+          await spawnDagNode(def, run, step, c.node.id)
+        }
+      }
+    } else if (c.role === 'reviewer') {
+      if (result.verdict === 'pass') {
+        c.node.status = 'passed'
+        c.node.reviewerAgent = undefined
+        await scheduleReadyNodes(def, run, step)
+        await maybeRunFinalReconcile(def, run, step)
+      } else {
+        c.node.retries += 1
+        if (c.node.retries >= (step.node_max_retries ?? 2)) {
+          await fireNodeFailGate(run, step, c.node, result.failReason ?? 'review failed')
+        } else {
+          c.node.status = 'pending'
+          saveWorkflowRun(run)
+          await spawnDagNode(def, run, step, c.node.id)
+        }
+      }
+    } else if (c.role === 'merge') {
+      if (result.verdict === 'pass') {
+        c.node.waitingOnMerge = false
+        c.node.mergeAgent = undefined
+        c.node.status = 'pending'
+        c.node.baseBranch = c.node.mergeBranch
+        saveWorkflowRun(run)
+        await spawnDagNode(def, run, step, c.node.id)
+      } else {
+        await fireNodeFailGate(run, step, c.node, result.failReason ?? 'merge conflict unresolved')
+      }
+    } else if (c.role === 'candidate') {
+      const candidate = c.node.candidates?.find(v => v.label === c.label)
+      if (!candidate) continue
+      candidate.verdict = result.verdict
+      candidate.failReason = result.failReason
+      if ((c.node.candidates ?? []).every(v => v.verdict)) {
+        const winner = (c.node.candidates ?? []).find(v => v.verdict === 'pass')
+        if (winner) {
+          c.node.branch = winner.branch
+          c.node.worktree = winner.worktree
+          c.node.status = 'passed'
+          await scheduleReadyNodes(def, run, step)
+          await maybeRunFinalReconcile(def, run, step)
+        } else {
+          c.node.retries += 1
+          if (c.node.retries >= (step.node_max_retries ?? 2)) {
+            await fireNodeFailGate(run, step, c.node, 'all tournament candidates failed')
+          } else {
+            c.node.status = 'pending'
+            c.node.candidates = undefined
+            await spawnDagNode(def, run, step, c.node.id)
+          }
+        }
+      }
+    }
+
+    saveWorkflowRun(run)
+  }
+
+  if (idleAgentName && state.reconcilerAgent === idleAgentName) {
+    const resultPath = join(run.runDir, 'results', `${step.id}-_.json`)
+    if (!existsSync(resultPath)) return
+    const result = readJsonFile(resultPath) as { verdict?: 'pass' | 'fail'; failReason?: string } | null
+    if (!result?.verdict) return
+
+    if (result.verdict === 'fail') {
+      state.reconcilerAgent = undefined
+      state.reconcilerPending = true
+      openGate(run, {
+        kind: 'reconcile-fail',
+        step: step.id,
+        options: ['retry-reconcile', 'abort'],
+        reason: result.failReason ?? 'reconcile failed',
+        at: new Date().toISOString(),
+      })
+      saveWorkflowRun(run)
+      return
+    }
+
+    run.vars[step.id] = {
+      ...(run.vars[step.id] ?? {}),
+      branch: state.integrationBranch,
+      worktree: state.integrationWorktree,
+      dir: state.integrationWorktree,
+    }
+    saveWorkflowRun(run)
+  }
+}
+
+async function executeDynamicDagStep(def: WorkflowDef, run: WorkflowRun, step: DynamicDagStep): Promise<void> {
+  if (!run.runDir) throw new Error(`workflow run "${run.id}" is missing runDir`)
+
+  const planPath = resolveTemplate(step.plan_from, run)
+  let parsed: DagPlan
+  try {
+    parsed = JSON.parse(readFileSync(planPath, 'utf-8')) as DagPlan
+  } catch (e) {
+    writeResult(run.runDir, step.id, '_', 'fail', `failed to parse plan: ${(e as Error).message}`)
+    return
+  }
+
+  const valid = validatePlan(parsed, {
+    max_nodes: step.max_nodes ?? 12,
+    max_depth: step.max_depth ?? 5,
+  })
+  if (!valid.ok) {
+    writeResult(run.runDir, step.id, '_', 'fail', valid.reason)
+    return
+  }
+
+  const defaultPreset = parsed.default_preset ?? 'pi-coder'
+  const nodes: DagNodeState[] = (parsed.nodes ?? []).map(node => ({
+    id: node.id,
+    task: node.task,
+    dependsOn: [...(node.depends_on ?? [])],
+    preset: node.preset ?? defaultPreset,
+    parallel: node.parallel ?? 1,
+    retries: 0,
+    status: 'pending',
+  }))
+
+  const repoDir = resolveRepoDir(run)
+  const integration = createWorktree(repoDir, `${run.id}-${step.id}-integration`, run.startBranch || 'HEAD')
+
+  run.dynamicDagGroups = run.dynamicDagGroups ?? {}
+  run.dynamicDagGroups[step.id] = {
+    nodes: Object.fromEntries(nodes.map(n => [n.id, n])),
+    topoOrder: computeTopoOrder(nodes),
+    integrationBranch: integration.branch,
+    integrationWorktree: integration.path,
+    skipped: [],
+  }
+  saveWorkflowRun(run)
+
+  await scheduleReadyNodes(def, run, step)
 }
 
 function readJsonFile(path: string): Record<string, unknown> | null {
@@ -868,6 +1592,10 @@ async function executeStep(def: WorkflowDef, run: WorkflowRun, step: WorkflowSte
     await executeParallelStep(def, run, step)
     return
   }
+  if (step.type === 'dynamic_dag') {
+    await executeDynamicDagStep(def, run, step)
+    return
+  }
   if (step.type === 'merge_best') {
     executeMergeBestStep(def, run, step)
     return
@@ -1002,16 +1730,52 @@ export function workflowAgentName(runId: string, stepId: string): string {
 }
 
 function cleanupWorkflowWorktrees(run: WorkflowRun): void {
-  for (const [stepId, vars] of Object.entries(run.vars)) {
+  for (const vars of Object.values(run.vars)) {
     const wtPath = vars.worktree
     const branch = vars.branch
     if (!wtPath || !wtPath.includes('flt-wt-') || !branch) continue
     try {
-      const { removeWorktree } = require('../worktree') as typeof import('../worktree')
       const repoDir = execSync('git rev-parse --show-toplevel', {
         cwd: wtPath, encoding: 'utf-8', timeout: 5000,
       }).trim()
       removeWorktree(repoDir, wtPath, branch)
+    } catch {}
+  }
+
+  for (const group of Object.values(run.dynamicDagGroups ?? {})) {
+    for (const node of Object.values(group.nodes)) {
+      if (node.worktree && node.branch) {
+        try {
+          const repoDir = execSync('git rev-parse --show-toplevel', {
+            cwd: node.worktree, encoding: 'utf-8', timeout: 5000,
+          }).trim()
+          removeWorktree(repoDir, node.worktree, node.branch)
+        } catch {}
+      }
+      for (const c of node.candidates ?? []) {
+        if (!c.worktree || !c.branch) continue
+        try {
+          const repoDir = execSync('git rev-parse --show-toplevel', {
+            cwd: c.worktree, encoding: 'utf-8', timeout: 5000,
+          }).trim()
+          removeWorktree(repoDir, c.worktree, c.branch)
+        } catch {}
+      }
+      if (node.mergeWorktree && node.mergeBranch) {
+        try {
+          const repoDir = execSync('git rev-parse --show-toplevel', {
+            cwd: node.mergeWorktree, encoding: 'utf-8', timeout: 5000,
+          }).trim()
+          removeWorktree(repoDir, node.mergeWorktree, node.mergeBranch)
+        } catch {}
+      }
+    }
+
+    try {
+      const repoDir = execSync('git rev-parse --show-toplevel', {
+        cwd: group.integrationWorktree, encoding: 'utf-8', timeout: 5000,
+      }).trim()
+      removeWorktree(repoDir, group.integrationWorktree, group.integrationBranch)
     } catch {}
   }
 }
@@ -1051,11 +1815,29 @@ export function signalWorkflowResult(result: 'pass' | 'fail', reason?: string): 
     const expected = workflowAgentName(run.id, run.currentStep)
     const group = run.parallelGroups?.[run.currentStep]
     const candidate = group?.candidates.find(c => c.agentName === caller)
-    if (caller !== expected && !candidate) continue
+
+    let dagLabel: string | null = null
+    const dag = run.dynamicDagGroups?.[run.currentStep]
+    if (dag) {
+      if (dag.reconcilerAgent === caller) {
+        dagLabel = '_'
+      } else {
+        for (const node of Object.values(dag.nodes)) {
+          if (node.coderAgent === caller) dagLabel = `${node.id}-coder`
+          if (node.reviewerAgent === caller) dagLabel = `${node.id}-reviewer`
+          if (node.mergeAgent === caller) dagLabel = `${node.id}-merge`
+          const c = node.candidates?.find(v => v.agentName === caller)
+          if (c) dagLabel = `${node.id}-${c.label}`
+          if (dagLabel) break
+        }
+      }
+    }
+
+    if (caller !== expected && !candidate && !dagLabel) continue
     if (!run.runDir) {
       throw new Error(`workflow run "${run.id}" is missing runDir`)
     }
-    const label = candidate?.label ?? '_'
+    const label = dagLabel ?? candidate?.label ?? '_'
     writeResult(run.runDir, run.currentStep, label, result, reason)
     return
   }
@@ -1071,6 +1853,17 @@ export function getWorkflowForAgent(agentName: string): string | null {
     if (agentName === expectedAgent) return run.id
     const candidate = run.parallelGroups?.[run.currentStep]?.candidates.find(c => c.agentName === agentName)
     if (candidate) return run.id
+
+    const dag = run.dynamicDagGroups?.[run.currentStep]
+    if (dag) {
+      if (dag.reconcilerAgent === agentName) return run.id
+      for (const node of Object.values(dag.nodes)) {
+        if (node.coderAgent === agentName || node.reviewerAgent === agentName || node.mergeAgent === agentName) {
+          return run.id
+        }
+        if (node.candidates?.some(c => c.agentName === agentName)) return run.id
+      }
+    }
   }
   return null
 }

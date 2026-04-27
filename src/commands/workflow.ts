@@ -197,6 +197,41 @@ export async function workflowCancel(name: string): Promise<void> {
   console.log(`Cancelled workflow "${name}".`)
 }
 
+export async function workflowNodeDecision(action: 'retry' | 'skip' | 'abort', runId: string, nodeId?: string): Promise<void> {
+  const run = loadWorkflowRun(runId)
+  if (!run) throw new Error(`No workflow run found for "${runId}"`)
+  if (run.status !== 'running') throw new Error(`Workflow "${runId}" is not running (status: ${run.status})`)
+
+  const def = loadWorkflowDef(run.workflow)
+  const currentStepDef = def.steps.find(s => s.id === run.currentStep)
+  if (currentStepDef?.type !== 'dynamic_dag') {
+    throw new Error(`Workflow "${runId}" current step "${run.currentStep}" is not a dynamic_dag step`)
+  }
+  if (!run.runDir) throw new Error(`workflow run "${run.id}" is missing runDir`)
+
+  const group = run.dynamicDagGroups?.[run.currentStep]
+  if (!group) throw new Error(`Workflow "${runId}" has no dynamic DAG state for step "${run.currentStep}"`)
+
+  if (action !== 'abort') {
+    if (!nodeId) throw new Error(`workflow node ${action} requires <node-id>`)
+    if (!group.nodes[nodeId]) throw new Error(`Unknown node id "${nodeId}"`) 
+  }
+
+  const decisionPath = join(run.runDir, '.gate-decision')
+  const tmp = `${decisionPath}.tmp`
+  writeFileSync(tmp, JSON.stringify({
+    kind: 'node-fail',
+    step: run.currentStep,
+    ...(nodeId ? { nodeId } : {}),
+    action,
+    at: new Date().toISOString(),
+  }) + '\n')
+  renameSync(tmp, decisionPath)
+
+  console.log(`Queued node gate decision for ${runId}: ${action}${nodeId ? ` ${nodeId}` : ''}`)
+  await advanceWorkflow(runId)
+}
+
 export function workflowPass(): void {
   const { signalWorkflowResult } = require('../workflow/engine') as typeof import('../workflow/engine')
   signalWorkflowResult('pass')
