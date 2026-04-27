@@ -139,10 +139,10 @@ describe('trace export', () => {
     const rows = readTranscript(result.outPath)
     expect(rows.length).toBe(1)
     const content = String(rows[0].content)
-    expect(content).toContain('<REDACTED:OPENAI_KEY>')
+    expect(content).toContain('<REDACTED:SK>')
     expect(content).toContain('<REDACTED:BEARER>')
     expect(content).toContain('<REDACTED:EMAIL>')
-    expect(content).toContain('<REDACTED:TOKEN_LIKE>')
+    expect(content).toContain('<REDACTED:RANDOM>')
   })
 
   it('errors for missing run and run with no agents', async () => {

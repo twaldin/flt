@@ -1,11 +1,11 @@
 import { existsSync, readFileSync, renameSync, writeFileSync } from 'fs'
 import { homedir } from 'os'
 import { basename, join } from 'path'
-import { execSync } from 'child_process'
 import { loadWorkflowDef } from '../workflow/parser'
 import { loadWorkflowRun, workflowAgentName } from '../workflow/engine'
 import { getAgent } from '../state'
 import { getPreset } from '../presets'
+import { redactSecrets } from '../redact'
 
 type TranscriptRole = 'user' | 'assistant' | 'tool'
 
@@ -210,44 +210,6 @@ function fallbackEntry(agent: string, ts: string): TranscriptEntry[] {
   return [{ ts, agent, role: 'assistant', content }]
 }
 
-function committerEmail(cwd: string): string | null {
-  try {
-    const value = execSync('git config user.email', {
-      cwd,
-      encoding: 'utf-8',
-      stdio: ['ignore', 'pipe', 'ignore'],
-      timeout: 2000,
-    }).trim()
-    return value || null
-  } catch {
-    return null
-  }
-}
-
-function redact(content: string, allowEmail: string | null): string {
-  const specs: Array<{ kind: string; re: RegExp }> = [
-    { kind: 'API_KEY', re: /\bAPI_KEY\b\s*[=:]\s*\S+/g },
-    { kind: 'AUTH_TOKEN', re: /\bAUTH_TOKEN\b\s*[=:]\s*\S+/g },
-    { kind: 'BEARER', re: /\bBearer\s+[A-Za-z0-9._\-]+/g },
-    { kind: 'OPENAI_KEY', re: /\bsk-[A-Za-z0-9_\-]{16,}/g },
-    { kind: 'STRIPE_KEY', re: /\bpk-[A-Za-z0-9_\-]{16,}/g },
-    { kind: 'GITHUB_PAT', re: /\bghp_[A-Za-z0-9]{20,}/g },
-    { kind: 'GITHUB_PAT', re: /\bgithub_pat_[A-Za-z0-9_]{20,}/g },
-    { kind: 'AWS_KEY', re: /\bAKIA[A-Z0-9]+/g },
-    { kind: 'EMAIL', re: /[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}/g },
-    { kind: 'TOKEN_LIKE', re: /\b[a-zA-Z0-9_-]{32,}\b/g },
-  ]
-
-  let redacted = content
-  for (const spec of specs) {
-    redacted = redacted.replace(spec.re, (match: string) => {
-      if (spec.kind === 'EMAIL' && allowEmail && match === allowEmail) return match
-      return `<REDACTED:${spec.kind}>`
-    })
-  }
-  return redacted
-}
-
 function collectAgents(run: NonNullable<ReturnType<typeof loadWorkflowRun>>): AgentRef[] {
   const byName = new Map<string, AgentRef>()
   for (const group of Object.values(run.parallelGroups ?? {})) {
@@ -347,9 +309,8 @@ export async function traceExport(runId: string): Promise<{ outPath: string; ent
     }
   }
 
-  const allowEmail = committerEmail(run.vars._input?.dir ?? process.cwd())
   const redacted = out
-    .map(entry => ({ ...entry, content: redact(entry.content, allowEmail), ts: toIso(entry.ts, fallbackTs) }))
+    .map(entry => ({ ...entry, content: redactSecrets(entry.content), ts: toIso(entry.ts, fallbackTs) }))
     .sort((a, b) => a.ts.localeCompare(b.ts))
 
   const outPath = join(run.runDir, 'transcript.jsonl')
