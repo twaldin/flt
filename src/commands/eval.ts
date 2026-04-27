@@ -2,7 +2,19 @@ import { cpSync, existsSync, mkdtempSync, readdirSync, readFileSync, statSync } 
 import { execFileSync } from 'child_process'
 import { join, resolve } from 'path'
 import { tmpdir } from 'os'
-import { startWorkflow } from '../workflow/engine'
+import { startWorkflow as realStartWorkflow } from '../workflow/engine'
+import type { WorkflowRun } from '../workflow/types'
+
+type StartWorkflowFn = (
+  workflow: string,
+  opts?: { task?: string; dir?: string; parent?: string; slug?: string },
+) => Promise<WorkflowRun>
+
+let startWorkflowFn: StartWorkflowFn = realStartWorkflow
+
+export function _setStartWorkflowFnForTest(fn: StartWorkflowFn | null): void {
+  startWorkflowFn = fn ?? realStartWorkflow
+}
 
 export interface EvalFixture {
   name: string
@@ -127,7 +139,7 @@ export async function evalSuiteRun(
   const task = readFileSync(join(fixture.path, 'task.md'), 'utf-8')
   const workflow = opts?.workflow ?? fixture.workflow
 
-  const run = await startWorkflow(workflow, {
+  const run = await startWorkflowFn(workflow, {
     task,
     dir: tempDir,
     parent: opts?.parent ?? 'human',

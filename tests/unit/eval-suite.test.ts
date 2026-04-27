@@ -1,8 +1,9 @@
-import { afterAll, afterEach, beforeEach, describe, expect, it, mock, spyOn } from 'bun:test'
+import { afterEach, beforeEach, describe, expect, it, mock, spyOn } from 'bun:test'
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'fs'
 import { tmpdir } from 'os'
 import { join } from 'path'
 import type { WorkflowRun } from '../../src/workflow/types'
+import { _setStartWorkflowFnForTest, evalSuiteList, evalSuiteRun, listEvalFixtures } from '../../src/commands/eval'
 
 const mockStartWorkflow = mock(async (_workflow: string, _opts?: { task?: string; dir?: string; parent?: string; slug?: string }): Promise<WorkflowRun> => ({
   id: 'eval-run-1',
@@ -16,12 +17,6 @@ const mockStartWorkflow = mock(async (_workflow: string, _opts?: { task?: string
   startedAt: new Date().toISOString(),
   runDir: '/tmp/eval-run-1',
 }))
-
-mock.module('../../src/workflow/engine', () => ({
-  startWorkflow: mockStartWorkflow,
-}))
-
-import { evalSuiteList, evalSuiteRun, listEvalFixtures } from '../../src/commands/eval'
 
 function writeFixture(root: string, name: string, opts?: { source?: 'clone-cmd' | 'snapshot'; workflow?: string }): void {
   const fixturePath = join(root, name)
@@ -49,9 +44,11 @@ describe('eval suite', () => {
   beforeEach(() => {
     root = mkdtempSync(join(tmpdir(), 'flt-eval-suite-'))
     mockStartWorkflow.mockClear()
+    _setStartWorkflowFnForTest(mockStartWorkflow)
   })
 
   afterEach(() => {
+    _setStartWorkflowFnForTest(null)
     rmSync(root, { recursive: true, force: true })
   })
 
@@ -112,6 +109,4 @@ describe('eval suite', () => {
   it('evalSuiteRun throws a clear error for unknown fixture names', async () => {
     await expect(evalSuiteRun('missing-fixture', { root })).rejects.toThrow('Unknown eval fixture: missing-fixture')
   })
-
-  afterAll(() => { mock.restore() })
 })
