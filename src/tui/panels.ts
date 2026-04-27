@@ -202,7 +202,7 @@ function renderSidebar(screen: Screen, state: AppState, top: number, left: numbe
 
   const entryMeta = ordered.map(entry => {
     const backfilled = backfillFromRuns(entry.agent)
-    const wfText = workflowLabel(entry.agent.workflow ?? backfilled.workflow)
+    const wfText = workflowLabel(entry.agent.workflow)
     const showWfRow = shouldRenderWorkflowRow(wfText)
     return { entry, backfilled, wfText, showWfRow, rowCount: sidebarEntryRows(wfText) }
   })

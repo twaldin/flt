@@ -11,11 +11,11 @@ describe('computeColumnWidths', () => {
   })
 
   it('grows widest first', () => {
-    expect(computeColumnWidths([5, 8, 3], 30, 2)).toEqual([5, 20, 3])
+    expect(computeColumnWidths([5, 8, 3], 30, 2)).toEqual([9, 12, 7])
   })
 
   it('breaks ties by lower index', () => {
-    expect(computeColumnWidths([4, 4, 4], 24, 2)).toEqual([14, 4, 4])
+    expect(computeColumnWidths([4, 4, 4], 18, 2)).toEqual([6, 5, 5])
   })
 })
 

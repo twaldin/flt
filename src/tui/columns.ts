@@ -8,17 +8,22 @@ export function computeColumnWidths(
   separatorOverhead = Math.max(0, minWidths.length - 1),
 ): number[] {
   const widths = minWidths.map(v => Math.max(0, Math.floor(v)))
+  if (widths.length === 0) return widths
+
   const available = Math.max(0, Math.floor(terminalWidth) - Math.max(0, Math.floor(separatorOverhead)))
   const sum = widths.reduce((s, w) => s + w, 0)
   let slack = available - sum
   if (slack <= 0) return widths
 
+  const order = widths
+    .map((width, index) => ({ width, index }))
+    .sort((a, b) => b.width - a.width || a.index - b.index)
+    .map(item => item.index)
+
+  let cursor = 0
   while (slack > 0) {
-    let target = 0
-    for (let i = 1; i < widths.length; i += 1) {
-      if (widths[i] > widths[target]) target = i
-    }
-    widths[target] += 1
+    widths[order[cursor]] += 1
+    cursor = (cursor + 1) % order.length
     slack -= 1
   }
 

@@ -13,4 +13,5 @@ describe('sidebar wf row gating', () => {
     expect(shouldRenderWorkflowRow('idea-to-pr')).toBe(true)
     expect(sidebarEntryRows('idea-to-pr')).toBe(6)
   })
+
 })
