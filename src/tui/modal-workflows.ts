@@ -34,11 +34,15 @@ function truncate(text: string, max: number): string {
   if (max <= 0) return ''
   const chars = Array.from(text)
   if (chars.length <= max) return text
-  return chars.slice(0, max).join('')
+  if (max <= 1) return '…'
+  return chars.slice(0, max - 1).join('') + '…'
 }
 
 function padRight(text: string, width: number): string {
-  const clipped = truncate(text, width)
+  if (width <= 0) return ''
+  // Reserve the rightmost cell for separation so columns don't bleed.
+  const reserved = Math.max(0, width - 1)
+  const clipped = truncate(text, reserved)
   return `${clipped}${' '.repeat(Math.max(0, width - widthOf(clipped)))}`
 }
 

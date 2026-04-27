@@ -25,10 +25,12 @@ function entry(overrides: Partial<ArchiveEntry> = {}): ArchiveEntry {
 
 describe('metrics aggregateRuns', () => {
   it('returns zero totals and zeroed sparkline for empty input', () => {
-    const result = aggregateRuns([], { period: 'all', groupBy: 'model', now: NOW })
+    const result = aggregateRuns([], { period: 'today', groupBy: 'model', now: NOW })
     expect(result.rows).toEqual([])
     expect(result.total).toEqual({ label: 'TOTAL', cost: 0, tokensIn: 0, tokensOut: 0, runs: 0, avgCost: 0 })
+    // today period uses 24 hourly buckets; other periods use different bucket counts.
     expect(result.sparkline24h).toHaveLength(24)
+    expect(result.sparklineUnit).toBe('1h')
     expect(result.sparkline24h.every(v => v === 0)).toBe(true)
   })
 

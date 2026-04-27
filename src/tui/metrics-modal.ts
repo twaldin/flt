@@ -47,11 +47,17 @@ function truncate(text: string, max: number): string {
   if (max <= 0) return ''
   const chars = Array.from(text)
   if (chars.length <= max) return text
-  return chars.slice(0, max).join('')
+  // Hard-cap with single-char ellipsis so columns don't bleed into the next.
+  if (max <= 1) return '…'
+  return chars.slice(0, max - 1).join('') + '…'
 }
 
 function padRight(text: string, width: number): string {
-  const clipped = truncate(text, width)
+  if (width <= 0) return ''
+  // Reserve the rightmost cell of every column for inter-column spacing so
+  // content never touches the next column's first char (truncates with `…`).
+  const reserved = Math.max(0, width - 1)
+  const clipped = truncate(text, reserved)
   return `${clipped}${' '.repeat(Math.max(0, width - widthOf(clipped)))}`
 }
 
@@ -423,8 +429,13 @@ export function renderMetricsModal(screen: Screen, state: MetricsModalState, ter
   }
   row += 1
 
-  // ── Section 2: 24h sparkline ───────────────────────────────────────────────
-  putLine(screen, row, innerLeft, innerWidth, 'cost over last 24h (1 bar = 1h, leftmost = 24h ago)', t.sidebarMuted)
+  // ── Section 2: period-aware sparkline ──────────────────────────────────────
+  const sparkLabel =
+    state.period === 'today' ? 'cost over last 24h (1 bar = 1h, leftmost = 24h ago)'
+    : state.period === 'week' ? 'cost over last 7d (1 bar = 6h, leftmost = 7d ago)'
+    : state.period === 'month' ? 'cost over last 30d (1 bar = 1d, leftmost = 30d ago)'
+    : 'cost over last 60d (1 bar = 1d, leftmost = 60d ago)'
+  putLine(screen, row, innerLeft, innerWidth, sparkLabel, t.sidebarMuted)
   row += 1
   putLine(screen, row, innerLeft, innerWidth, sparkline(grouped.sparkline24h), t.commandPrefix, ATTR_BOLD)
   row += 2

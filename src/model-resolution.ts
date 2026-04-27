@@ -79,6 +79,13 @@ const PRESERVE_EXPLICIT_PROVIDER_HARNESSES = new Set([
   'crush',
 ])
 
+/** Strip provider prefix(es) from a model id. Used by model resolution AND
+ * metrics aggregation, so e.g. `gpt-5.3-codex` and `openai-codex/gpt-5.3-codex`
+ * fold into the same group. */
+export function canonicalModelName(model: string): string {
+  return stripKnownProviderPrefixes(model)
+}
+
 function stripKnownProviderPrefixes(model: string): string {
   let normalized = model.trim()
   while (true) {

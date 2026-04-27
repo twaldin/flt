@@ -456,14 +456,14 @@ export class App {
 
   private metricsScrollDown(): void {
     const modal = this.state.metrics
-    if (!modal || this.state.mode !== 'metrics' || !modal.runsListFocused) return
+    if (!modal || this.state.mode !== 'metrics') return
     modal.runsScrollOffset += 1
     this.requestRender()
   }
 
   private metricsScrollUp(): void {
     const modal = this.state.metrics
-    if (!modal || this.state.mode !== 'metrics' || !modal.runsListFocused) return
+    if (!modal || this.state.mode !== 'metrics') return
     modal.runsScrollOffset = Math.max(0, modal.runsScrollOffset - 1)
     this.requestRender()
   }
