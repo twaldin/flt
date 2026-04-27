@@ -1230,9 +1230,25 @@ async function advanceDynamicDag(def: WorkflowDef, run: WorkflowRun, step: Dynam
 
     if (c.role === 'coder') {
       if (result.verdict === 'pass') {
+        // Auto-commit + push the coder's work BEFORE killing it, so the
+        // reviewer (and any retry) can see what was done. Then kill the
+        // coder with preserveWorktree=true so the reviewer can take over
+        // the same workdir (worktree:false, dir: c.node.worktree).
+        if (c.node.coderAgent) {
+          const coderAgent = getAgent(c.node.coderAgent)
+          if (coderAgent) {
+            applyAutoCommit(coderAgent, run, step.id)
+          }
+          try {
+            const { killDirect } = await import('../commands/kill')
+            await killDirect({ name: c.node.coderAgent, preserveWorktree: true, fromWorkflow: true })
+          } catch {}
+        }
+
         const spawn = await getSpawnFn()
         const reviewerName = `${run.id}-${step.id}-${c.node.id}-reviewer`
         c.node.reviewerAgent = reviewerName
+        c.node.coderAgent = undefined
         c.node.status = 'reviewing'
         const task = `Review node ${c.node.id}. If good, run flt workflow pass. Otherwise flt workflow fail \"reason\".`
         await spawn({
@@ -1261,12 +1277,22 @@ async function advanceDynamicDag(def: WorkflowDef, run: WorkflowRun, step: Dynam
         }
       }
     } else if (c.role === 'reviewer') {
+      // Kill reviewer (preserveWorktree) so the next agent — coder retry on
+      // fail, or no successor on pass — doesn't collide with it.
+      if (c.node.reviewerAgent) {
+        try {
+          const { killDirect } = await import('../commands/kill')
+          await killDirect({ name: c.node.reviewerAgent, preserveWorktree: true, fromWorkflow: true })
+        } catch {}
+      }
+
       if (result.verdict === 'pass') {
         c.node.status = 'passed'
         c.node.reviewerAgent = undefined
         await scheduleReadyNodes(def, run, step)
         await maybeRunFinalReconcile(def, run, step)
       } else {
+        c.node.reviewerAgent = undefined
         c.node.retries += 1
         if (c.node.retries >= (step.node_max_retries ?? 2)) {
           await fireNodeFailGate(run, step, c.node, result.failReason ?? 'review failed')

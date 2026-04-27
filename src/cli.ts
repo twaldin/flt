@@ -133,9 +133,10 @@ program
 program
   .command('kill <name>')
   .description('Kill an agent and clean up')
-  .action(async (name) => {
+  .option('--preserve-worktree', 'Keep the worktree dir (next workflow step / manual recovery may need it)')
+  .action(async (name, opts) => {
     try {
-      await kill({ name })
+      await kill({ name, preserveWorktree: opts.preserveWorktree })
     } catch (e) {
       console.error(`Error: ${(e as Error).message}`)
       process.exit(1)
