@@ -1,7 +1,9 @@
 import { existsSync, readdirSync, readFileSync } from 'fs'
 import { homedir } from 'os'
 import { join } from 'path'
+import { getOrchestrator } from '../state'
 import { aggregateRuns, type ArchiveEntry, type Period } from '../metrics'
+import { computeColumnWidths, formatTokenPair, truncateEllipsis } from './columns'
 import { ATTR_BOLD, ATTR_DIM, type Screen } from './screen'
 import { getTheme } from './theme'
 import type { MetricsModalState } from './types'
@@ -10,8 +12,10 @@ interface RunJsonHistory {
   agent?: string
 }
 
-interface RunJson {
+export interface RunJson {
+  id?: string
   workflow?: string
+  parentName?: string
   history?: RunJsonHistory[]
 }
 
@@ -33,6 +37,25 @@ interface TreeNode {
   children: TreeNode[]
 }
 
+export interface RunsTreeRow {
+  depth: number
+  connector: '' | '├─ ' | '└─ '
+  continuation: string
+  label: string
+  archive: ArchiveEntry | null
+  isWorkflowNode: boolean
+}
+
+interface RunTreeNode {
+  id: string
+  label: string
+  archive: ArchiveEntry | null
+  isWorkflowNode: boolean
+  children: RunTreeNode[]
+  cost: number
+  spawnedMs: number
+}
+
 const HOURS_24_MS = 24 * 60 * 60 * 1000
 const BARS = ['▁', '▂', '▃', '▄', '▅', '▆', '▇', '█']
 const CACHE_TTL_MS = 2000
@@ -43,27 +66,37 @@ function widthOf(text: string): number {
   return Array.from(text).length
 }
 
-function truncate(text: string, max: number): string {
-  if (max <= 0) return ''
-  const chars = Array.from(text)
-  if (chars.length <= max) return text
-  // Hard-cap with single-char ellipsis so columns don't bleed into the next.
-  if (max <= 1) return '…'
-  return chars.slice(0, max - 1).join('') + '…'
-}
-
 function padRight(text: string, width: number): string {
   if (width <= 0) return ''
-  // Reserve the rightmost cell of every column for inter-column spacing so
-  // content never touches the next column's first char (truncates with `…`).
-  const reserved = Math.max(0, width - 1)
-  const clipped = truncate(text, reserved)
+  const clipped = truncateEllipsis(text, width)
   return `${clipped}${' '.repeat(Math.max(0, width - widthOf(clipped)))}`
 }
 
 function putLine(screen: Screen, row: number, col: number, width: number, text: string, fg = '', attrs = 0): void {
   if (row < 0 || row >= screen.rows || width <= 0) return
   screen.put(row, col, padRight(text, width), fg, '', attrs)
+}
+
+function putSeparatedRow(
+  screen: Screen,
+  row: number,
+  col: number,
+  widths: readonly number[],
+  cells: readonly string[],
+  fg: string,
+  separatorFg: string,
+  attrs = 0,
+): void {
+  if (row < 0 || row >= screen.rows) return
+  let x = col
+  for (let i = 0; i < widths.length; i += 1) {
+    screen.put(row, x, padRight(cells[i] ?? '', widths[i]), fg, '', attrs)
+    x += widths[i]
+    if (i < widths.length - 1) {
+      screen.put(row, x, '│', separatorFg)
+      x += 1
+    }
+  }
 }
 
 function num(value: number | null | undefined): number {
@@ -339,6 +372,189 @@ function buildAgentTree(archives: ArchiveEntry[], period: Period, runs: RunJson[
   return flattenTree(roots)
 }
 
+function sortAgentsBySpawnedDesc(names: string[], byArchive: Map<string, ArchiveEntry>): string[] {
+  return [...names].sort((a, b) => {
+    const aMs = parseMs(byArchive.get(a)?.spawnedAt ?? '')
+    const bMs = parseMs(byArchive.get(b)?.spawnedAt ?? '')
+    if (Number.isFinite(aMs) || Number.isFinite(bMs)) {
+      const safeA = Number.isFinite(aMs) ? aMs : -Infinity
+      const safeB = Number.isFinite(bMs) ? bMs : -Infinity
+      if (safeB !== safeA) return safeB - safeA
+    }
+    return a.localeCompare(b)
+  })
+}
+
+function flattenRunsTree(roots: RunTreeNode[]): RunsTreeRow[] {
+  const out: RunsTreeRow[] = []
+
+  function walk(node: RunTreeNode, depth: number, ancestryContinues: boolean[], isLast: boolean): void {
+    const continuation = ancestryContinues.map(v => (v ? '│  ' : '   ')).join('')
+    const connector: '' | '├─ ' | '└─ ' = depth === 0 ? '' : (isLast ? '└─ ' : '├─ ')
+    out.push({
+      depth,
+      connector,
+      continuation,
+      label: node.label,
+      archive: node.archive,
+      isWorkflowNode: node.isWorkflowNode,
+    })
+
+    node.children.forEach((child, idx) => {
+      walk(child, depth + 1, [...ancestryContinues, idx < node.children.length - 1], idx === node.children.length - 1)
+    })
+  }
+
+  roots.forEach((root, idx) => walk(root, 0, [], idx === roots.length - 1))
+  return out
+}
+
+export function buildRunsTree(
+  archives: ArchiveEntry[],
+  runs: RunJson[],
+  parents: Record<string, string>,
+  orchestratorName: string | null,
+): RunsTreeRow[] {
+  const archiveByName = new Map(archives.map(a => [a.name, a]))
+  const childrenByParent = new Map<string, Set<string>>()
+  const allKnown = new Set<string>(archives.map(a => a.name))
+
+  for (const [child, parent] of Object.entries(parents)) {
+    allKnown.add(child)
+    allKnown.add(parent)
+    const bucket = childrenByParent.get(parent) ?? new Set<string>()
+    bucket.add(child)
+    childrenByParent.set(parent, bucket)
+  }
+
+  for (const run of runs) {
+    for (const step of run.history ?? []) {
+      if (typeof step.agent === 'string' && step.agent) allKnown.add(step.agent)
+    }
+  }
+
+  const placed = new Set<string>()
+
+  const buildAgentNode = (name: string, stack: Set<string>): RunTreeNode | null => {
+    if (stack.has(name) || placed.has(name)) return null
+    stack.add(name)
+
+    const childNames = sortAgentsBySpawnedDesc(Array.from(childrenByParent.get(name) ?? []), archiveByName)
+    const children: RunTreeNode[] = []
+    for (const child of childNames) {
+      const node = buildAgentNode(child, new Set(stack))
+      if (node) children.push(node)
+    }
+
+    const archive = archiveByName.get(name) ?? null
+    if (!archive && children.length === 0) return null
+
+    placed.add(name)
+    const ownCost = archive ? num(archive.cost_usd) : 0
+    const cost = ownCost + children.reduce((s, c) => s + c.cost, 0)
+    const spawnedMs = archive ? parseMs(archive.spawnedAt) : Math.max(Number.NaN, ...children.map(c => c.spawnedMs))
+
+    return {
+      id: name,
+      label: name,
+      archive,
+      isWorkflowNode: false,
+      children,
+      cost,
+      spawnedMs,
+    }
+  }
+
+  const roots: RunTreeNode[] = []
+
+  if (orchestratorName) {
+    const workflowNodes: RunTreeNode[] = []
+    for (const run of runs.filter(r => r.parentName === orchestratorName)) {
+      const historyAgents = Array.from(new Set((run.history ?? [])
+        .map(h => h.agent)
+        .filter((name): name is string => typeof name === 'string' && name)))
+      const inWorkflow = new Set(historyAgents)
+      const directRoots = historyAgents.filter(name => {
+        const parent = parents[name]
+        return !parent || !inWorkflow.has(parent)
+      })
+
+      const children: RunTreeNode[] = []
+      for (const rootName of sortAgentsBySpawnedDesc(directRoots, archiveByName)) {
+        const node = buildAgentNode(rootName, new Set())
+        if (node) children.push(node)
+      }
+
+      const cost = children.reduce((s, c) => s + c.cost, 0)
+      const spawnedMs = Math.max(Number.NaN, ...children.map(c => c.spawnedMs))
+      workflowNodes.push({
+        id: run.id ?? `${run.workflow ?? 'workflow'}:${workflowNodes.length}`,
+        label: run.workflow ?? run.id ?? '(workflow)',
+        archive: null,
+        isWorkflowNode: true,
+        children,
+        cost,
+        spawnedMs,
+      })
+    }
+
+    workflowNodes.sort((a, b) => b.cost - a.cost || b.spawnedMs - a.spawnedMs || a.label.localeCompare(b.label))
+
+    const orchestratorArchive = archiveByName.get(orchestratorName) ?? null
+    if (orchestratorArchive) placed.add(orchestratorName)
+    roots.push({
+      id: orchestratorName,
+      label: orchestratorName,
+      archive: orchestratorArchive,
+      isWorkflowNode: true,
+      children: workflowNodes,
+      cost: (orchestratorArchive ? num(orchestratorArchive.cost_usd) : 0) + workflowNodes.reduce((s, c) => s + c.cost, 0),
+      spawnedMs: orchestratorArchive ? parseMs(orchestratorArchive.spawnedAt) : Math.max(Number.NaN, ...workflowNodes.map(c => c.spawnedMs)),
+    })
+  }
+
+  const unplacedArchives = archives.filter(a => !placed.has(a.name)).map(a => a.name)
+  const rootCandidates = new Set<string>()
+
+  for (const name of unplacedArchives) {
+    let root = name
+    const seen = new Set<string>([name])
+    let parent = parents[root]
+    while (parent && !seen.has(parent) && !placed.has(parent)) {
+      seen.add(parent)
+      if (!allKnown.has(parent)) break
+      root = parent
+      parent = parents[root]
+    }
+    rootCandidates.add(root)
+  }
+
+  const floatingRoots: RunTreeNode[] = []
+  for (const rootName of rootCandidates) {
+    const node = buildAgentNode(rootName, new Set())
+    if (node) floatingRoots.push(node)
+  }
+
+  floatingRoots.sort((a, b) => b.cost - a.cost || b.spawnedMs - a.spawnedMs || a.label.localeCompare(b.label))
+  roots.push(...floatingRoots)
+
+  for (const archive of archives) {
+    if (placed.has(archive.name)) continue
+    placed.add(archive.name)
+    roots.push({
+      id: archive.name,
+      label: archive.name,
+      archive,
+      isWorkflowNode: false,
+      children: [],
+      cost: num(archive.cost_usd),
+      spawnedMs: parseMs(archive.spawnedAt),
+    })
+  }
+
+  return flattenRunsTree(roots)
+}
+
 function formatTime(iso: string): string {
   const date = new Date(iso)
   if (!Number.isFinite(date.getTime())) return '--:--'
@@ -355,10 +571,10 @@ export function invalidateMetricsModalCache(): void {
 
 export function renderMetricsModal(screen: Screen, state: MetricsModalState, term: { width: number; height: number }): void {
   const t = getTheme()
+  // Always render with the live terminal size passed by caller.
   const width = term.width
   const height = term.height
 
-  // Fill modal area with blank cells so underlying panes can't bleed through.
   for (let r = 0; r < height; r += 1) {
     screen.put(r, 0, ' '.repeat(width), t.sidebarText, '')
   }
@@ -382,25 +598,33 @@ export function renderMetricsModal(screen: Screen, state: MetricsModalState, ter
   const rows = state.groupBy === 'agent'
     ? buildAgentTree(data.archives, state.period, data.runs, data.parents, now)
     : grouped.rows
+  const totalCost = filtered.reduce((s, r) => s + num(r.cost_usd), 0)
 
-  // Three sections, each given a generous fixed share of vertical space:
-  //   - top: header (period/group)
-  //   - groupTable: 'by <groupBy>' with bars (~40% of inner)
-  //   - sparkline: 24h cost bars (3 rows)
-  //   - recentRuns: scrollable runs list (remaining)
   let row = innerTop
-  putLine(screen, row, innerLeft, innerWidth, `Period: ${state.period}    Group: ${state.groupBy}    Total: ${fmtCost(filtered.reduce((s, r) => s + num(r.cost_usd), 0))}    Runs: ${filtered.length}`, t.sidebarTitle, ATTR_BOLD)
+  putLine(screen, row, innerLeft, innerWidth, `Period: ${state.period}    Group: ${state.groupBy}    Total: ${fmtCost(totalCost)}    Runs: ${filtered.length}`, t.sidebarTitle, ATTR_BOLD)
   row += 2
 
-  // ── Section 1: by-group breakdown ──────────────────────────────────────────
   const groupSectionMax = Math.max(6, Math.floor(innerHeight * 0.4))
-  const groupHeader = padRight(`by ${state.groupBy}`, 26) + padRight('cost', 10) + padRight('tokens in', 10) + padRight('tokens out', 11) + padRight('runs', 6) + padRight('avg cost', 10) + 'share'
-  putLine(screen, row, innerLeft, innerWidth, groupHeader, t.sidebarMuted, ATTR_BOLD | 0)
+  const groupCols = ['by ' + state.groupBy, 'cost', 'tokens', 'runs', 'avg cost', 'share']
+  const groupData = rows.map(item => {
+    const sharePct = (item.cost / Math.max(0.0001, totalCost)) * 100
+    return [
+      item.label,
+      fmtCost(item.cost),
+      formatTokenPair(item.tokensIn, item.tokensOut),
+      String(item.runs),
+      fmtCost(item.runs > 0 ? item.cost / item.runs : 0),
+      `${sharePct.toFixed(1)}%`,
+    ]
+  })
+  const groupMinWidths = groupCols.map((header, i) => Math.max(widthOf(header), ...groupData.map(cells => widthOf(cells[i]))))
+  const groupWidths = computeColumnWidths(groupMinWidths, innerWidth)
+
+  putSeparatedRow(screen, row, innerLeft, groupWidths, groupCols, t.sidebarMuted, t.sidebarBorder, ATTR_BOLD)
   row += 1
   putLine(screen, row, innerLeft, innerWidth, '─'.repeat(Math.max(0, innerWidth)), t.sidebarMuted)
   row += 1
 
-  // Each group entry takes 2 rows (data + bar). Cap to fit the section.
   const groupCapRows = Math.max(2, groupSectionMax - 2)
   const groupRowsToShow = Math.floor(groupCapRows / 2)
   const shown = rows.slice(0, groupRowsToShow)
@@ -409,16 +633,23 @@ export function renderMetricsModal(screen: Screen, state: MetricsModalState, ter
   const barWidth = Math.max(20, Math.floor(innerWidth * 0.55))
 
   for (const item of shown) {
-    const sharePct = (item.cost / Math.max(0.0001, filtered.reduce((s, r) => s + num(r.cost_usd), 0))) * 100
-    const line =
-      padRight(item.label, 26) +
-      padRight(fmtCost(item.cost), 10) +
-      padRight(fmtTokens(item.tokensIn), 10) +
-      padRight(fmtTokens(item.tokensOut), 11) +
-      padRight(String(item.runs), 6) +
-      padRight(fmtCost(item.runs > 0 ? item.cost / item.runs : 0), 10) +
-      `${sharePct.toFixed(1)}%`
-    putLine(screen, row, innerLeft, innerWidth, line, t.sidebarText)
+    const sharePct = (item.cost / Math.max(0.0001, totalCost)) * 100
+    putSeparatedRow(
+      screen,
+      row,
+      innerLeft,
+      groupWidths,
+      [
+        item.label,
+        fmtCost(item.cost),
+        formatTokenPair(item.tokensIn, item.tokensOut),
+        String(item.runs),
+        fmtCost(item.runs > 0 ? item.cost / item.runs : 0),
+        `${sharePct.toFixed(1)}%`,
+      ],
+      t.sidebarText,
+      t.sidebarBorder,
+    )
     row += 1
     putLine(screen, row, innerLeft + 2, Math.max(1, innerWidth - 2), bar(item.cost, maxCost, Math.min(barWidth, innerWidth - 2)), t.commandPrefix)
     row += 1
@@ -429,7 +660,6 @@ export function renderMetricsModal(screen: Screen, state: MetricsModalState, ter
   }
   row += 1
 
-  // ── Section 2: period-aware sparkline ──────────────────────────────────────
   const sparkLabel =
     state.period === 'today' ? 'cost over last 24h (1 bar = 1h, leftmost = 24h ago)'
     : state.period === 'week' ? 'cost over last 7d (1 bar = 6h, leftmost = 7d ago)'
@@ -440,32 +670,50 @@ export function renderMetricsModal(screen: Screen, state: MetricsModalState, ter
   putLine(screen, row, innerLeft, innerWidth, sparkline(grouped.sparkline24h), t.commandPrefix, ATTR_BOLD)
   row += 2
 
-  // ── Section 3: recent runs, scrollable via j/k ─────────────────────────────
-  putLine(screen, row, innerLeft, innerWidth, `recent runs (by cost desc, ${filtered.length} total) — j/k scroll`, t.sidebarMuted)
+  putLine(screen, row, innerLeft, innerWidth, `recent runs (tree, ${filtered.length} total) — j/k scroll`, t.sidebarMuted)
   row += 1
-  const runsHeader = padRight('ts', 7) + padRight('agent', 36) + padRight('model', 22) + padRight('cost', 10) + padRight('tokens in', 10) + 'tokens out'
-  putLine(screen, row, innerLeft, innerWidth, runsHeader, t.sidebarMuted, ATTR_BOLD)
+
+  const orchestrator = getOrchestrator()
+  const orchestratorName = orchestrator ? (orchestrator.type === 'human' ? 'human' : 'orchestrator') : 'human'
+  const runRows = buildRunsTree(filtered, data.runs, data.parents, orchestratorName)
+  const runCols = ['ts', 'run', 'model', 'cost', 'tokens']
+  const runData = runRows.map(item => [
+    item.archive ? formatTime(item.archive.spawnedAt) : '—',
+    `${item.continuation}${item.connector}${item.label}`,
+    item.archive ? (item.archive.actualModel || item.archive.model || '(unknown)') : '—',
+    item.archive ? fmtCost(num(item.archive.cost_usd)) : '—',
+    item.archive ? formatTokenPair(num(item.archive.tokens_in), num(item.archive.tokens_out)) : '—',
+  ])
+  const runMinWidths = runCols.map((header, i) => Math.max(widthOf(header), ...runData.map(cells => widthOf(cells[i]))))
+  const runWidths = computeColumnWidths(runMinWidths, innerWidth)
+
+  putSeparatedRow(screen, row, innerLeft, runWidths, runCols, t.sidebarMuted, t.sidebarBorder, ATTR_BOLD)
   row += 1
   putLine(screen, row, innerLeft, innerWidth, '─'.repeat(Math.max(0, innerWidth)), t.sidebarMuted)
   row += 1
 
-  const runs = [...filtered].sort((a, b) => num(b.cost_usd) - num(a.cost_usd))
   const maxRunRows = Math.max(0, innerTop + innerHeight - 2 - row)
-  const offset = Math.max(0, Math.min(state.runsScrollOffset, Math.max(0, runs.length - maxRunRows)))
-  const visible = runs.slice(offset, offset + maxRunRows)
+  const offset = Math.max(0, Math.min(state.runsScrollOffset, Math.max(0, runRows.length - maxRunRows)))
+  const visible = runRows.slice(offset, offset + maxRunRows)
   for (const run of visible) {
-    const model = run.actualModel || run.model || '(unknown)'
-    const line =
-      padRight(formatTime(run.spawnedAt), 7) +
-      padRight(run.name, 36) +
-      padRight(model, 22) +
-      padRight(fmtCost(num(run.cost_usd)), 10) +
-      padRight(fmtTokens(num(run.tokens_in)), 10) +
-      fmtTokens(num(run.tokens_out))
-    putLine(screen, row, innerLeft, innerWidth, line, t.sidebarText)
+    putSeparatedRow(
+      screen,
+      row,
+      innerLeft,
+      runWidths,
+      [
+        run.archive ? formatTime(run.archive.spawnedAt) : '—',
+        `${run.continuation}${run.connector}${run.label}`,
+        run.archive ? (run.archive.actualModel || run.archive.model || '(unknown)') : '—',
+        run.archive ? fmtCost(num(run.archive.cost_usd)) : '—',
+        run.archive ? formatTokenPair(num(run.archive.tokens_in), num(run.archive.tokens_out)) : '—',
+      ],
+      t.sidebarText,
+      t.sidebarBorder,
+    )
     row += 1
   }
 
-  const footer = `m group │ t period │ j/k scroll runs │ Esc close   (showing ${visible.length}/${runs.length})`
+  const footer = `m group │ t period │ j/k scroll runs │ Esc close   (showing ${visible.length}/${runRows.length})`
   putLine(screen, height - 2, 2, Math.max(1, width - 4), footer, t.sidebarMuted, ATTR_DIM)
 }

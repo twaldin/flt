@@ -9,6 +9,7 @@ import {
   type WorkflowRow,
   type WorkflowStepRow,
 } from '../metrics-workflows'
+import { computeColumnWidths, truncateEllipsis } from './columns'
 import { ATTR_BOLD, ATTR_DIM, ATTR_INVERSE, ATTR_UNDERLINE, type Screen } from './screen'
 import { COLORS, getTheme } from './theme'
 
@@ -30,25 +31,38 @@ function widthOf(text: string): number {
   return Array.from(text).length
 }
 
-function truncate(text: string, max: number): string {
-  if (max <= 0) return ''
-  const chars = Array.from(text)
-  if (chars.length <= max) return text
-  if (max <= 1) return '…'
-  return chars.slice(0, max - 1).join('') + '…'
-}
-
 function padRight(text: string, width: number): string {
   if (width <= 0) return ''
-  // Reserve the rightmost cell for separation so columns don't bleed.
-  const reserved = Math.max(0, width - 1)
-  const clipped = truncate(text, reserved)
+  const clipped = truncateEllipsis(text, width)
   return `${clipped}${' '.repeat(Math.max(0, width - widthOf(clipped)))}`
 }
 
 function putLine(screen: Screen, row: number, col: number, width: number, text: string, fg = '', bg = '', attrs = 0): void {
   if (width <= 0 || row < 0 || row >= screen.rows) return
   screen.put(row, col, padRight(text, width), fg, bg, attrs)
+}
+
+function putSeparatedRow(
+  screen: Screen,
+  row: number,
+  col: number,
+  widths: readonly number[],
+  cells: readonly string[],
+  fg: string,
+  sepFg: string,
+  bg = '',
+  attrs = 0,
+): void {
+  if (row < 0 || row >= screen.rows) return
+  let x = col
+  for (let i = 0; i < widths.length; i += 1) {
+    screen.put(row, x, padRight(cells[i] ?? '', widths[i]), fg, bg, attrs)
+    x += widths[i]
+    if (i < widths.length - 1) {
+      screen.put(row, x, '│', sepFg, bg, attrs)
+      x += 1
+    }
+  }
 }
 
 function rowTitle(row: WorkflowRow): string {
@@ -70,20 +84,6 @@ export function initialWorkflowModalState(filter: WorkflowFilter = 'all'): Workf
   }
 }
 
-const LIST_COLS = {
-  workflow: 12,
-  slug: 26,
-  stage: 9,
-  start: 11,
-  cost: 8,
-  tokens: 12,
-  parent: 12,
-} as const
-
-function listHeaderRow(): string {
-  return ` ${padRight('workflow', LIST_COLS.workflow)} ${padRight('slug', LIST_COLS.slug)} ${padRight('stage', LIST_COLS.stage)} ${padRight('started', LIST_COLS.start)} ${padRight('cost', LIST_COLS.cost)} ${padRight('tokens', LIST_COLS.tokens)} ${padRight('parent', LIST_COLS.parent)}`
-}
-
 function renderListView(state: WorkflowModalState, screen: Screen, top: number, left: number, width: number, height: number): void {
   const t = getTheme()
   const innerWidth = width - 2
@@ -94,17 +94,30 @@ function renderListView(state: WorkflowModalState, screen: Screen, top: number, 
   const past = state.rows.filter(r => r.status !== 'running')
   const items: WorkflowRow[] = [...running, ...past]
 
+  const headers = ['workflow', 'slug', 'stage', 'started', 'cost', 'tokens', 'parent']
+  const data = items.map(item => {
+    const slug = deriveSlug(item.id, item.workflow)
+    return [
+      item.workflow,
+      slug,
+      item.currentStep,
+      item.startedAtDisplay,
+      formatUsd(item.cost),
+      formatTokens(item.cost),
+      item.parentName,
+    ]
+  })
+  const minWidths = headers.map((header, i) => Math.max(widthOf(header), ...data.map(cells => widthOf(cells[i]))))
+  const widths = computeColumnWidths(minWidths, innerWidth)
+
   let row = innerTop
-  // Column header
-  putLine(screen, row, left + 1, innerWidth, listHeaderRow(), t.sidebarMuted, '', ATTR_BOLD | ATTR_UNDERLINE)
+  putSeparatedRow(screen, row, left + 1, widths, headers, t.sidebarMuted, t.sidebarBorder, '', ATTR_BOLD | ATTR_UNDERLINE)
   row += 1
 
-  // Section heading: RUNNING
   putLine(screen, row, left + 1, innerWidth, ` RUNNING (${running.length})`, running.length > 0 ? t.commandPrefix : t.sidebarMuted, '', ATTR_BOLD)
   row += 1
 
   const maxRows = Math.max(0, innerBottom - innerTop + 1)
-  // Reserve rows for header + RUNNING heading + (PAST heading) + footer.
   const maxDataRows = Math.max(0, maxRows - 5)
 
   const selectedIndex = clamp(state.selectedIndex, 0, Math.max(0, items.length - 1))
@@ -123,10 +136,27 @@ function renderListView(state: WorkflowModalState, screen: Screen, top: number, 
     const fg = selected ? t.sidebarSelected : t.sidebarText
     const bg = selected ? t.sidebarSelectedBg : ''
     const attrs = selected ? ATTR_INVERSE : 0
-
     const slug = deriveSlug(item.id, item.workflow)
-    const cells = ` ${padRight(item.workflow, LIST_COLS.workflow)} ${padRight(slug, LIST_COLS.slug)} ${padRight(item.currentStep, LIST_COLS.stage)} ${padRight(item.startedAtDisplay, LIST_COLS.start)} ${padRight(formatUsd(item.cost), LIST_COLS.cost)} ${padRight(formatTokens(item.cost), LIST_COLS.tokens)} ${padRight(item.parentName, LIST_COLS.parent)}`
-    putLine(screen, row, left + 1, innerWidth, cells, fg, bg, attrs)
+
+    putSeparatedRow(
+      screen,
+      row,
+      left + 1,
+      widths,
+      [
+        item.workflow,
+        slug,
+        item.currentStep,
+        item.startedAtDisplay,
+        formatUsd(item.cost),
+        formatTokens(item.cost),
+        item.parentName,
+      ],
+      fg,
+      t.sidebarBorder,
+      bg,
+      attrs,
+    )
     row += 1
     drawn += 1
   }
@@ -138,20 +168,6 @@ function renderListView(state: WorkflowModalState, screen: Screen, top: number, 
 
   const footer = `filter: ${state.filter}  [a]all [r]running [c]completed [f]failed   ESC`
   putLine(screen, top + height - 2, left + 2, width - 4, footer, t.sidebarMuted, '', ATTR_DIM)
-}
-
-const STEP_COLS = {
-  step: 12,
-  agent: 28,
-  status: 6,
-  at: 9,
-  dur: 8,
-  cost: 8,
-  tokens: 12,
-} as const
-
-function stepHeaderRow(): string {
-  return ` ${padRight('step', STEP_COLS.step)} ${padRight('agent', STEP_COLS.agent)} ${padRight('status', STEP_COLS.status)} ${padRight('at', STEP_COLS.at)} ${padRight('dur', STEP_COLS.dur)} ${padRight('cost', STEP_COLS.cost)} ${padRight('tokens', STEP_COLS.tokens)}`
 }
 
 function renderDrilldownView(state: WorkflowModalState, screen: Screen, top: number, left: number, width: number, height: number): void {
@@ -167,33 +183,45 @@ function renderDrilldownView(state: WorkflowModalState, screen: Screen, top: num
     const slug = deriveSlug(meta.id, meta.workflow)
     const headerLine1 = ` workflow: ${meta.workflow}    slug: ${slug || '—'}    parent: ${meta.parentName}`
     const headerLine2 = ` status: ${meta.status}    stage: ${meta.currentStep}    started: ${meta.startedAtDisplay}    cost: ${formatUsd(meta.cost)}    tokens: ${formatTokens(meta.cost)}`
-    const taskLine = meta.task ? ` task: ${truncate(meta.task.replace(/\s+/g, ' ').trim(), innerWidth - 8)}` : ''
+    const taskLine = meta.task ? ` task: ${truncateEllipsis(meta.task.replace(/\s+/g, ' ').trim(), innerWidth - 8)}` : ''
     putLine(screen, row, left + 1, innerWidth, headerLine1, t.sidebarText, '', ATTR_BOLD); row += 1
     putLine(screen, row, left + 1, innerWidth, headerLine2, t.sidebarText); row += 1
     if (taskLine) { putLine(screen, row, left + 1, innerWidth, taskLine, t.sidebarMuted, '', ATTR_DIM); row += 1 }
     putLine(screen, row, left + 1, innerWidth, '', t.sidebarText); row += 1
   }
 
-  // Step column header
-  putLine(screen, row, left + 1, innerWidth, stepHeaderRow(), t.sidebarMuted, '', ATTR_BOLD | ATTR_UNDERLINE)
+  const headers = ['step', 'agent', 'status', 'at', 'dur', 'cost', 'tokens']
+  const data = steps.map(step => {
+    const agentState = step.agent ? getAgent(step.agent) : undefined
+    const agentDisplay = agentState ? `${step.agent} (${agentState.model})` : (step.agent ?? '—')
+    const statusText = step.status === 'completed' ? 'pass' : (step.status === 'failed' ? 'fail' : 'skip')
+    return [step.name, agentDisplay, statusText, step.atDisplay, step.duration, formatUsd(step.cost), formatTokens(step.cost)]
+  })
+  const minWidths = headers.map((header, i) => Math.max(widthOf(header), ...data.map(cells => widthOf(cells[i]))))
+  const widths = computeColumnWidths(minWidths, innerWidth)
+
+  putSeparatedRow(screen, row, left + 1, widths, headers, t.sidebarMuted, t.sidebarBorder, '', ATTR_BOLD | ATTR_UNDERLINE)
   row += 1
+
+  const statusCol = left + 1 + widths[0] + 1 + widths[1] + 1
 
   for (let i = 0; i < steps.length && row <= endRow; i += 1) {
     const step = steps[i]
     const agentState = step.agent ? getAgent(step.agent) : undefined
-    const agentDisplay = agentState
-      ? `${step.agent} (${agentState.model})`
-      : (step.agent ?? '—')
-
+    const agentDisplay = agentState ? `${step.agent} (${agentState.model})` : (step.agent ?? '—')
     const statusText = step.status === 'completed' ? 'pass' : (step.status === 'failed' ? 'fail' : 'skip')
     const statusColor = step.status === 'completed' ? COLORS.green : (step.status === 'failed' ? COLORS.red : t.sidebarMuted)
 
-    const line = ` ${padRight(step.name, STEP_COLS.step)} ${padRight(agentDisplay, STEP_COLS.agent)} ${padRight(statusText, STEP_COLS.status)} ${padRight(step.atDisplay, STEP_COLS.at)} ${padRight(step.duration, STEP_COLS.dur)} ${padRight(formatUsd(step.cost), STEP_COLS.cost)} ${padRight(formatTokens(step.cost), STEP_COLS.tokens)}`
-    putLine(screen, row, left + 1, innerWidth, line, t.sidebarText)
-    // Re-paint just the status cell with its color (the row above wrote it
-    // grey; re-coloring keeps the rest of the row uniform).
-    const statusCol = left + 1 + 1 + STEP_COLS.step + 1 + STEP_COLS.agent + 1
-    screen.put(row, statusCol, padRight(statusText, STEP_COLS.status), statusColor, '', step.status === 'skipped' ? ATTR_DIM : ATTR_BOLD)
+    putSeparatedRow(
+      screen,
+      row,
+      left + 1,
+      widths,
+      [step.name, agentDisplay, statusText, step.atDisplay, step.duration, formatUsd(step.cost), formatTokens(step.cost)],
+      t.sidebarText,
+      t.sidebarBorder,
+    )
+    screen.put(row, statusCol, padRight(statusText, widths[2]), statusColor, '', step.status === 'skipped' ? ATTR_DIM : ATTR_BOLD)
     row += 1
   }
 
@@ -214,11 +242,10 @@ function renderDrilldownView(state: WorkflowModalState, screen: Screen, top: num
 export function renderWorkflowModal(state: WorkflowModalState, screen: Screen, cols: number, rows: number): void {
   const t = getTheme()
 
-  const modalWidth = clamp(Math.floor(cols * 0.85), 90, cols - 4)
-  const modalHeight = clamp(Math.floor(rows * 0.75), 12, rows - 2)
-
-  const left = Math.floor((cols - modalWidth) / 2)
-  const top = Math.floor((rows - modalHeight) / 2)
+  const modalWidth = cols
+  const modalHeight = rows
+  const left = 0
+  const top = 0
 
   for (let r = top; r < top + modalHeight; r += 1) {
     screen.put(r, left, ' '.repeat(modalWidth), t.sidebarText, '')
@@ -227,7 +254,7 @@ export function renderWorkflowModal(state: WorkflowModalState, screen: Screen, c
   screen.box(top, left, modalWidth, modalHeight, 'round', t.sidebarBorder)
 
   const title = state.drilldown
-    ? ` Workflows › ${truncate(state.drilldownTitle ?? state.drilldownId ?? '', modalWidth - 16)} `
+    ? ` Workflows › ${truncateEllipsis(state.drilldownTitle ?? state.drilldownId ?? '', modalWidth - 16)} `
     : ' Workflows '
   const titleCol = left + Math.max(1, Math.floor((modalWidth - widthOf(title)) / 2))
   screen.put(top, titleCol, title, t.sidebarBorder, '', ATTR_BOLD)
