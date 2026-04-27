@@ -449,6 +449,23 @@ workflowCmd
   })
 
 workflowCmd
+  .command('reconcile <action> <run>')
+  .description('Resolve a dynamic_dag reconcile failure gate (retry|abort)')
+  .action(async (action, run) => {
+    try {
+      if (!['retry', 'abort'].includes(action)) {
+        throw new Error('action must be one of: retry, abort')
+      }
+      const { workflowReconcileDecision } = await import('./commands/workflow')
+      const mappedAction = action === 'retry' ? 'retry-reconcile' : 'abort'
+      await workflowReconcileDecision(mappedAction, run)
+    } catch (e) {
+      console.error(`Error: ${(e as Error).message}`)
+      process.exit(1)
+    }
+  })
+
+workflowCmd
   .command('pass')
   .description('Signal PASS from inside a workflow step agent')
   .action(() => {

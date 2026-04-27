@@ -1054,7 +1054,10 @@ async function maybeRunFinalReconcile(def: WorkflowDef, run: WorkflowRun, step: 
   }
 
   const depended = new Set<string>()
-  for (const n of nodes) for (const dep of n.dependsOn) depended.add(dep)
+  for (const n of nodes) {
+    if (n.status === 'skipped') continue
+    for (const dep of n.dependsOn) depended.add(dep)
+  }
   const leaves = state.topoOrder.filter(id => {
     const node = state.nodes[id]
     return node?.status === 'passed' && !depended.has(id)
@@ -1108,6 +1111,7 @@ async function handleNodeFailGate(def: WorkflowDef, run: WorkflowRun, step: Dyna
     node.candidates = undefined
     state.pendingGateNode = undefined
     try { unlinkSync(join(run.runDir, 'results', `${step.id}-${node.id}-coder.json`)) } catch {}
+    try { unlinkSync(join(run.runDir, 'results', `${step.id}-${node.id}-reviewer.json`)) } catch {}
     saveWorkflowRun(run)
     await scheduleReadyNodes(def, run, step)
   } else if (action === 'skip') {
@@ -1140,6 +1144,7 @@ async function handleReconcileFailGate(run: WorkflowRun, step: DynamicDagStep, d
     writeResult(run.runDir, step.id, '_', 'fail', 'reconcile aborted')
   } else if (decision.action === 'retry-reconcile') {
     state.reconcilerAgent = undefined
+    try { unlinkSync(join(run.runDir, 'results', `${step.id}-_.json`)) } catch {}
     saveWorkflowRun(run)
     await maybeRunFinalReconcile({ name: run.workflow, steps: [] }, run, step)
   }

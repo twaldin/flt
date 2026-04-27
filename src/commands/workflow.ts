@@ -255,6 +255,32 @@ export async function workflowNodeDecision(action: 'retry' | 'skip' | 'abort', r
   await advanceWorkflow(runId)
 }
 
+export async function workflowReconcileDecision(action: 'retry-reconcile' | 'abort', runId: string): Promise<void> {
+  const run = loadWorkflowRun(runId)
+  if (!run) throw new Error(`No workflow run found for "${runId}"`)
+  if (run.status !== 'running') throw new Error(`Workflow "${runId}" is not running (status: ${run.status})`)
+
+  const def = loadWorkflowDef(run.workflow)
+  const currentStepDef = def.steps.find(s => s.id === run.currentStep)
+  if (currentStepDef?.type !== 'dynamic_dag') {
+    throw new Error(`Workflow "${runId}" current step "${run.currentStep}" is not a dynamic_dag step`)
+  }
+  if (!run.runDir) throw new Error(`workflow run "${run.id}" is missing runDir`)
+
+  const decisionPath = join(run.runDir, '.gate-decision')
+  const tmp = `${decisionPath}.tmp`
+  writeFileSync(tmp, JSON.stringify({
+    kind: 'reconcile-fail',
+    step: run.currentStep,
+    action,
+    at: new Date().toISOString(),
+  }) + '\n')
+  renameSync(tmp, decisionPath)
+
+  console.log(`Queued reconcile gate decision for ${runId}: ${action}`)
+  await advanceWorkflow(runId)
+}
+
 export function workflowPass(): void {
   const { signalWorkflowResult } = require('../workflow/engine') as typeof import('../workflow/engine')
   signalWorkflowResult('pass')
