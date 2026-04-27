@@ -1,0 +1,124 @@
+name: gepa-prep
+steps:
+  - id: plan
+    preset: cc-architect
+    task: |
+      Decompose this GEPA-prep task: {task}.
+
+      Output a plan.json with 4 INDEPENDENT nodes (no deps between them) that
+      a final reconciler will merge:
+
+      {
+        "default_preset": "pi-coder",
+        "nodes": [
+          {
+            "id": "redact",
+            "task": "Add src/redact.ts module that strips secrets from text:
+              API_KEY, AUTH_TOKEN, BEARER, sk-*, pk-*, ghp_*, github_pat_*,
+              AKIA[A-Z0-9]+, long random-looking strings (>=32 alphanumeric),
+              email addresses except those matching the git committer email.
+              Replace each with <REDACTED:KIND>. Export `redactSecrets(text:
+              string): string`. Wire into src/commands/trace.ts so
+              `flt trace export <run-id>` redacts before writing
+              <runDir>/transcript.jsonl. Add tests/unit/redact.test.ts with
+              cases covering each secret kind. All existing tests must stay
+              green.",
+            "depends_on": []
+          },
+          {
+            "id": "mutator-role",
+            "task": "Author templates/roles/mutator.md as a real (not-stub)
+              role .md file. The role: read recent failed-run trace bundles
+              (passed via FLT_RUN_DIR env), identify a hypothesis about a
+              role/skill .md that's underperforming, propose a vNext.md
+              candidate diff with rationale + measurable success criteria.
+              Output: experiments/<artifact>.vNext.md and
+              experiments/<artifact>.hypothesis.json. Must include explicit
+              instruction to consult oracle (flt ask oracle) when uncertain.
+              Update tests/unit/init.test.ts so seedFlt restores this
+              authored mutator.md (currently a stub).",
+            "depends_on": []
+          },
+          {
+            "id": "trace-recent",
+            "task": "Verify `flt trace recent --since <duration> --status
+              failed|passed|all` is implemented. If not present in
+              src/commands/trace.ts, add it. Lists recent workflow runs in
+              ~/.flt/runs/ filtered by start-time and metrics.json outcome,
+              outputs tab-separated rows: runId, workflow, outcome,
+              startedAt, completedAt, costUsd. Add tests/unit/trace-recent.test.ts.",
+            "depends_on": []
+          },
+          {
+            "id": "harvest",
+            "task": "Run `bun run scripts/harvest-gold-mine.ts` to populate
+              tests/eval/gold-mine/ from github.com/twaldin/* repos and
+              local ~/code, ~/projects, ~/src markdown files. Capture
+              SUMMARY.md output. The harvester already exists; just run it.
+              Then commit the harvested fixtures so they're under version
+              control.",
+            "depends_on": []
+          }
+        ]
+      }
+    on_complete: execute
+    on_fail: abort
+
+  - id: execute
+    type: dynamic_dag
+    plan_from: '{steps.plan.worktree}/plan.json'
+    reconciler:
+      preset: cc-evaluator
+      task: |
+        Merge each of the 4 leaf branches (redact, mutator-role, trace-recent,
+        harvest) into the integration branch in any topo order (they're
+        independent). Resolve conflicts by preferring the version that keeps
+        tests green. Run `bun test` after the final merge — if any test fails,
+        signal fail with the specific failing test name.
+    node_max_retries: 2
+    max_nodes: 4
+    max_depth: 1
+    max_parallel_per_wave: 4
+    on_complete: reviewer
+    on_fail: plan
+
+  - id: reviewer
+    preset: cc-sonnet
+    dir: '{steps.execute.worktree}'
+    worktree: false
+    task: |
+      Review the integrated GEPA-prep changes on the integration branch.
+      Original task: {task}
+      Previous review feedback (only on retry): {fail_reason}
+
+      Verify:
+      1. src/redact.ts exists, has redactSecrets export, and is wired into
+         flt trace export
+      2. templates/roles/mutator.md is a real role file (not a stub) with the
+         hypothesis-and-diff workflow
+      3. flt trace recent works (look at src/commands/trace.ts for the
+         subcommand and tests/unit/trace-recent.test.ts)
+      4. tests/eval/gold-mine/ has harvested fixtures (or a documented reason
+         why none — empty github.com/twaldin/* etc)
+      5. bun test green
+      6. ALL prior eval-fixture tests still pass (don't regress the harness
+         telemetry tests we just landed)
+
+      Pass: flt workflow pass
+      Fail: flt workflow fail "<specific blocker>"
+    on_complete: gate
+    on_fail: execute
+
+  - id: gate
+    type: human_gate
+    notify: |
+      GEPA-prep workflow complete and reviewed. Approve to ship the redaction
+      module + authored mutator role + trace-recent CLI + harvested fixtures
+      to main, after which `flt cron add daily-mutator '0 3 * * *'` will
+      schedule overnight GEPA runs.
+
+      Original task: {task}
+      Worktree: {steps.execute.worktree}
+      Branch: {steps.execute.branch}
+    on_complete: done
+    on_fail: abort
