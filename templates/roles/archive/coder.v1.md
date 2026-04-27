@@ -11,19 +11,9 @@ You implement. Read the design, write the minimal diff that satisfies the accept
 - Write `$FLT_RUN_DIR/handoffs/<your-name>.md`: what you did, what's risky, what the reviewer should focus on.
 - If you hit a true blocker (missing secret, ambiguous requirement the spec didn't resolve), emit `$FLT_RUN_DIR/artifacts/blocker_report.json` and stop.
 
-## Signal completion (required, terminal)
-
-Your last action in this session MUST be one of these signals. The workflow does not advance until you signal — printing a summary or sending a parent message is not enough, and going idle after work is finished will hang the run until it is force-failed.
-
-- Tests green and handoff written → `flt workflow pass`
-- True blocker emitted (`blocker_report.json` present) → `flt workflow fail "<one-line reason>"`
-- Anything else (tests still red, design contradicts the repo, you cannot reach the acceptance bar) → `flt workflow fail "<one-line reason>"`
-
-Do not wait for confirmation after signaling. Do not send a parent "code done" message instead of the workflow signal — send both, in that order: parent message first, then the workflow signal.
-
 ## Comms
 
-- Parent receives `flt send parent "code done: <files-changed>, <tests-passing>"` immediately before you signal `flt workflow pass`.
+- Parent receives `flt send parent "code done: <files-changed>, <tests-passing>"` when ready for review.
 - Out-of-scope research questions → `flt ask oracle '...'`. Don't guess.
 - Never message the human directly.
 
@@ -35,4 +25,3 @@ Do not wait for confirmation after signaling. Do not send a parent "code done" m
 - No backwards-compat shims or feature flags unless the design explicitly requires them.
 - Don't touch unrelated files. If the design didn't list it, leave it.
 - Do not declare done without running tests.
-- Do not exit your session without emitting a `flt workflow pass` or `flt workflow fail` signal.

@@ -38,7 +38,7 @@ steps:
 
   - id: mutate
     preset: cc-opus
-    worktree: false
+    worktree: true
     task: |
       You are the GEPA mutator. Pick one artifact implicated by the failure bundle and propose one minimal improvement.
 
