@@ -1,0 +1,2 @@
+{"message":{"model":"claude-sonnet-4-20250514","usage":{"input_tokens":120,"output_tokens":45}},"costUSD":0.012}
+{"message":{"usage":{"input_tokens":80,"output_tokens":25}},"total_cost_usd":0.006}

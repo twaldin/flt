@@ -1,0 +1,12 @@
+{
+  "stats": {
+    "models": {
+      "gemini-2.5-pro": {
+        "tokens": {
+          "input": 512,
+          "candidates": 128
+        }
+      }
+    }
+  }
+}
