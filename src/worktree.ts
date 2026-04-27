@@ -12,7 +12,7 @@ function git(cwd: string, ...args: string[]): string {
   return execFileSync('git', args, { cwd, encoding: 'utf-8', timeout: 15_000, stdio: ['pipe', 'pipe', 'pipe'] }).trim()
 }
 
-function gitNoThrow(cwd: string, ...args: string[]): string | null {
+function gitNoThrowOutput(cwd: string, ...args: string[]): string | null {
   try {
     return git(cwd, ...args)
   } catch {
@@ -20,23 +20,57 @@ function gitNoThrow(cwd: string, ...args: string[]): string | null {
   }
 }
 
+function gitNoThrow(cwd: string, ...args: string[]): boolean {
+  return gitNoThrowOutput(cwd, ...args) !== null
+}
+
+function parseCount(value: string | null): number {
+  return Number(value ?? '0') || 0
+}
+
 export function createWorktree(repoDir: string, agentName: string): WorktreeInfo {
   const branch = `flt/${agentName}`
   const wtPath = join(tmpdir(), `flt-wt-${agentName}`)
 
-  // Remove stale worktree at same path if it exists
-  if (existsSync(wtPath)) {
-    gitNoThrow(repoDir, 'worktree', 'remove', '--force', wtPath)
+  gitNoThrow(repoDir, 'fetch', 'origin', branch)
+
+  const branchExists = gitNoThrowOutput(repoDir, 'rev-parse', '--verify', branch) !== null
+  const remoteExists = gitNoThrowOutput(repoDir, 'rev-parse', '--verify', `origin/${branch}`) !== null
+
+  if (branchExists && remoteExists) {
+    const remoteAhead = parseCount(gitNoThrowOutput(repoDir, 'rev-list', '--count', `${branch}..origin/${branch}`))
+    const localAheadOfRemote = parseCount(gitNoThrowOutput(repoDir, 'rev-list', '--count', `origin/${branch}..${branch}`))
+    if (remoteAhead > 0 && localAheadOfRemote === 0) {
+      gitNoThrow(repoDir, 'branch', '-f', branch, `origin/${branch}`)
+    }
   }
 
-  // Delete stale branch if it exists
-  gitNoThrow(repoDir, 'branch', '-D', branch)
+  if (existsSync(wtPath)) {
+    const worktreeBranch = gitNoThrowOutput(wtPath, 'rev-parse', '--abbrev-ref', 'HEAD')
+    if (worktreeBranch === branch) {
+      if (remoteExists) {
+        gitNoThrow(wtPath, 'merge', '--ff-only', `origin/${branch}`)
+      }
+      ensureFltGitignore(repoDir)
+      return { path: wtPath, branch }
+    }
+    gitNoThrow(repoDir, 'worktree', 'remove', '--force', wtPath)
+    gitNoThrow(repoDir, 'worktree', 'prune')
+  }
 
-  // Prune stale worktree entries
-  gitNoThrow(repoDir, 'worktree', 'prune')
+  const branchHasWork = branchExists
+    && parseCount(gitNoThrowOutput(repoDir, 'rev-list', '--count', branch, '--not', 'HEAD')) > 0
 
-  // Create new worktree on new branch from HEAD
-  git(repoDir, 'worktree', 'add', '-b', branch, wtPath, 'HEAD')
+  if (branchHasWork) {
+    git(repoDir, 'worktree', 'add', wtPath, branch)
+    if (remoteExists) {
+      gitNoThrow(wtPath, 'merge', '--ff-only', `origin/${branch}`)
+    }
+  } else {
+    gitNoThrow(repoDir, 'branch', '-D', branch)
+    gitNoThrow(repoDir, 'worktree', 'prune')
+    git(repoDir, 'worktree', 'add', '-b', branch, wtPath, 'HEAD')
+  }
 
   // Auto-add flt agent scratch dirs to project's .gitignore so per-spawn
   // bootstrap.md / handoffs/ never leak into committed history. Only adds the
@@ -73,5 +107,5 @@ export function removeWorktree(repoDir: string, wtPath: string, branch: string):
 }
 
 export function isGitRepo(dir: string): boolean {
-  return gitNoThrow(dir, 'rev-parse', '--is-inside-work-tree') === 'true'
+  return gitNoThrowOutput(dir, 'rev-parse', '--is-inside-work-tree') === 'true'
 }
