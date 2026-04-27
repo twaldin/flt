@@ -1190,12 +1190,15 @@ async function advanceDynamicDag(def: WorkflowDef, run: WorkflowRun, step: Dynam
     const decision = readJsonFile(decisionPath)
     if (decision?.kind === 'node-fail') {
       await handleNodeFailGate(def, run, step, decision)
+      return
     }
     if (decision?.kind === 'reconcile-fail') {
       await handleReconcileFailGate(run, step, decision)
+      return
     }
     if (decision?.kind === 'node-candidate') {
       await handleDagCandidateGate(def, run, step, decision)
+      return
     }
   }
 

@@ -3,7 +3,7 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync
 import { tmpdir } from 'os'
 import { join } from 'path'
 import { setAgent } from '../../src/state'
-import { _setSpawnFnForTest, advanceWorkflow, loadWorkflowRun, startWorkflow } from '../../src/workflow/engine'
+import { _setMergeFnForTest, _setSpawnFnForTest, advanceWorkflow, loadWorkflowRun, startWorkflow } from '../../src/workflow/engine'
 import { workflowApprove, workflowNodeDecision, workflowReconcileDecision } from '../../src/commands/workflow'
 import { writeResult } from '../../src/workflow/results'
 
@@ -38,6 +38,11 @@ describe('dynamic dag execute', () => {
   let prevHome: string | undefined
 
   beforeEach(() => {
+    _setMergeFnForTest(async (_repoDir, baseBranch) => ({
+      branch: baseBranch,
+      worktree: repo,
+      conflicted: false,
+    }))
     const stale = join(tmpdir(), 'flt-wt-wf-dag-execute-integration')
     if (existsSync(stale)) rmSync(stale, { recursive: true, force: true })
     home = mkdtempSync(join(tmpdir(), 'flt-dag-int-'))
@@ -67,6 +72,7 @@ describe('dynamic dag execute', () => {
 
   afterEach(() => {
     _setSpawnFnForTest(null)
+    _setMergeFnForTest(null)
     if (prevHome === undefined) delete process.env.HOME
     else process.env.HOME = prevHome
     rmSync(home, { recursive: true, force: true })
