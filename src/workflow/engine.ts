@@ -1224,9 +1224,45 @@ async function advanceDynamicDag(def: WorkflowDef, run: WorkflowRun, step: Dynam
     if (idleAgentName && agentName !== idleAgentName) continue
 
     const resultPath = join(run.runDir, 'results', `${step.id}-${c.resultLabel}.json`)
-    if (!existsSync(resultPath)) continue
+    if (!existsSync(resultPath)) {
+      // Prod-on-idle: idleAgentName is set but the agent never wrote a verdict.
+      // Mirror advanceWorkflow's two-prod-then-force-fail pattern so dag nodes
+      // can't get stuck when an agent finishes work and forgets to call
+      // `flt workflow pass`. Hit live in gepa-prep dogfood (harvest-coder
+      // went idle for 1h after printing its summary).
+      if (!idleAgentName || agentName !== idleAgentName) continue
+      const candidateAgent = getAgent(agentName)
+      const prods = run.dagProdCounts?.[agentName] ?? 0
+      if (prods < 2 && candidateAgent && tmux.hasSession(candidateAgent.tmuxSession)) {
+        run.dagProdCounts = { ...(run.dagProdCounts ?? {}), [agentName]: prods + 1 }
+        saveWorkflowRun(run)
+        const urgency = prods === 0 ? '' : ' (second prompt — next silent idle fails the node)'
+        const prodMsg = `you went idle without emitting a verdict${urgency}. Review your work against the task and call exactly one of:\n  flt workflow pass\n  flt workflow fail "<one-line reason>"\nDo it now.`
+        try {
+          await sendDirect({ target: agentName, message: prodMsg, _caller: { mode: 'agent', agentName: 'flt-controller', depth: 0 } as CallerContext })
+        } catch (e) {
+          const { appendInbox } = await import('../commands/init')
+          appendInbox('WORKFLOW', `Failed to prod ${agentName} for verdict: ${(e as Error).message}`)
+        }
+        appendEvent({ type: 'workflow', detail: `prod ${run.id}/${step.id}/${c.resultLabel}: no verdict after idle (attempt ${prods + 1})`, at: new Date().toISOString() })
+        continue
+      }
+      if (prods >= 2) {
+        const forcedFailReason = `agent went idle ${prods + 1} times without emitting PASS or FAIL via flt workflow`
+        writeResult(run.runDir, step.id, c.resultLabel, 'fail', forcedFailReason)
+        appendEvent({ type: 'workflow', detail: `forced-fail ${run.id}/${step.id}/${c.resultLabel}: ${forcedFailReason}`, at: new Date().toISOString() })
+        // fall through — the result file now exists and the verdict logic below
+        // will treat it as a fail and trigger node retry / fail-gate.
+      } else {
+        continue
+      }
+    }
     const result = readJsonFile(resultPath) as { verdict?: 'pass' | 'fail'; failReason?: string } | null
     if (!result?.verdict) continue
+    // Clear prod count once the agent emitted a verdict (success or fail).
+    if (run.dagProdCounts?.[agentName] !== undefined) {
+      delete run.dagProdCounts[agentName]
+    }
 
     if (c.role === 'coder') {
       if (result.verdict === 'pass') {

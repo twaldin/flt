@@ -79,6 +79,7 @@ export interface WorkflowRun {
   stepResult?: 'pass' | 'fail'
   stepFailReason?: string
   stepProdCount?: number
+  dagProdCounts?: Record<string, number>
   history: WorkflowStepResult[]
   retries: Record<string, number>
   vars: Record<string, Record<string, string>>
