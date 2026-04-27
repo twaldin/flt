@@ -50,17 +50,26 @@ steps:
     worktree: false
     task: |
       Run the FULL test suite (not just the new test):
-      - the project's primary test command (bun test / npm test / pytest / cargo test — discover from project files)
-      - typecheck if configured
+      - the project's primary test command (bun test / npm test / pytest / cargo test / npx vitest — discover from package.json scripts or project files)
+      - typecheck if configured (skip silently if not)
       - lint if configured (skip silently if not)
 
       Original bug: {task}
       Previous rerun feedback (only on retry): {fail_reason}
 
-      Pass: flt workflow pass
-      Fail: flt workflow fail "<short reason — anything blocking>"
+      ## CRITICAL: distinguish caused-by-fix vs pre-existing failures
+
+      If any test fails:
+      1. Run the same test suite on the project's main/default branch (git stash; git checkout main; run tests; capture results; git checkout -; git stash pop).
+      2. Diff main's failures vs your branch's failures.
+      3. PRE-EXISTING failures (failed on main too) are NOT your responsibility — note them in your fail/pass message but do NOT block on them.
+      4. NEW failures (passed on main, failing on your branch) ARE your responsibility — those block.
+
+      Pass: flt workflow pass — if no NEW failures, even if pre-existing failures remain.
+      Fail: flt workflow fail "<short reason — list ONLY the new failures caused by this branch; explicitly note any pre-existing failures separately>"
     on_complete: reviewer
     on_fail: fix
+    max_retries: 1
 
   - id: reviewer
     preset: cc-sonnet

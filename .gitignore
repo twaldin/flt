@@ -20,3 +20,6 @@ demo/demo.cast
 
 .claude/
 .flt/
+
+# flt agent fleet artifacts (per-spawn scratch + handoff docs)
+handoffs/
