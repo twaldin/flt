@@ -140,6 +140,7 @@ export interface DagNodeState {
   mergeBranch?: string
   mergeWorktree?: string
   waitingOnMerge?: boolean
+  awaitingCandidateDecision?: boolean
 }
 
 export interface DynamicDagState {

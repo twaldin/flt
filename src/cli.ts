@@ -406,11 +406,12 @@ workflowCmd
 workflowCmd
   .command('approve <run>')
   .description('Approve a paused human_gate step')
-  .option('--candidate <label>', 'For merge_best gates: pick a parallel candidate label')
+  .option('--candidate <label>', 'For merge_best or dynamic_dag tournament gates: pick a candidate label')
+  .option('--node <id>', 'For dynamic_dag tournament gates: node id to resolve')
   .action(async (run, opts) => {
     try {
       const { workflowApprove } = await import('./commands/workflow')
-      await workflowApprove(run, { candidate: opts.candidate })
+      await workflowApprove(run, { candidate: opts.candidate, nodeId: opts.node })
     } catch (e) {
       console.error('Error: ' + (e as Error).message)
       process.exit(1)

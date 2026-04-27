@@ -1,9 +1,10 @@
 import { afterEach, beforeEach, describe, expect, it } from 'bun:test'
-import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'fs'
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'fs'
 import { tmpdir } from 'os'
 import { join } from 'path'
 import { setAgent } from '../../src/state'
 import { _setSpawnFnForTest, advanceWorkflow, loadWorkflowRun, startWorkflow } from '../../src/workflow/engine'
+import { workflowApprove, workflowNodeDecision } from '../../src/commands/workflow'
 import { writeResult } from '../../src/workflow/results'
 
 function seedPresets(home: string): void {
@@ -117,5 +118,132 @@ describe('dynamic dag execute', () => {
     const loaded = loadWorkflowRun(run.id)
     expect(loaded?.status).toBe('completed')
     expect(loaded?.vars.execute.branch?.startsWith('flt/')).toBe(true)
+  })
+
+  it('waits for candidate gate on tournament nodes', async () => {
+    writeFileSync(join(repo, 'plan.json'), JSON.stringify({
+      default_preset: 'pi-coder',
+      nodes: [
+        { id: 'a', task: 'a', depends_on: [], parallel: 2 },
+      ],
+    }))
+
+    const spawns: string[] = []
+    _setSpawnFnForTest(async args => {
+      spawns.push(args.name)
+      setAgent(args.name, {
+        cli: 'pi',
+        model: 'gpt-5',
+        tmuxSession: `flt-${args.name}`,
+        parentName: args.parent ?? 'human',
+        dir: args.dir ?? repo,
+        worktreePath: args.dir ?? repo,
+        worktreeBranch: `flt/${args.name}`,
+        spawnedAt: new Date().toISOString(),
+      })
+    })
+
+    const run = await startWorkflow('wf-dag', { dir: repo })
+
+    writeResult(run.runDir!, 'execute', 'a-a', 'pass')
+    await advanceWorkflow(run.id, `${run.id}-execute-a-a`)
+    writeResult(run.runDir!, 'execute', 'a-b', 'pass')
+    await advanceWorkflow(run.id, `${run.id}-execute-a-b`)
+
+    const pending = JSON.parse(readFileSync(join(run.runDir!, '.gate-pending'), 'utf-8')) as Record<string, unknown>
+    expect(pending.kind).toBe('node-candidate')
+    expect(pending.nodeId).toBe('a')
+
+    const duringGate = loadWorkflowRun(run.id)
+    expect(duringGate?.dynamicDagGroups?.execute?.nodes.a.status).toBe('reviewing')
+    expect(spawns.some(s => s.endsWith('-execute-reconcile'))).toBe(false)
+
+    await workflowApprove(run.id, { candidate: 'a', nodeId: 'a' })
+
+    expect(spawns.some(s => s.endsWith('-execute-reconcile'))).toBe(true)
+    writeResult(run.runDir!, 'execute', '_', 'pass')
+    await advanceWorkflow(run.id, `${run.id}-execute-reconcile`)
+
+    const loaded = loadWorkflowRun(run.id)
+    expect(loaded?.status).toBe('completed')
+  })
+
+  it('does not double spawn coder on node retry', async () => {
+    writeFileSync(join(repo, 'plan.json'), JSON.stringify({
+      default_preset: 'pi-coder',
+      nodes: [
+        { id: 'a', task: 'a', depends_on: [] },
+      ],
+    }))
+
+    const spawns: string[] = []
+    _setSpawnFnForTest(async args => {
+      spawns.push(args.name)
+      setAgent(args.name, {
+        cli: 'pi',
+        model: 'gpt-5',
+        tmuxSession: `flt-${args.name}`,
+        parentName: args.parent ?? 'human',
+        dir: args.dir ?? repo,
+        worktreePath: args.dir ?? repo,
+        worktreeBranch: `flt/${args.name}`,
+        spawnedAt: new Date().toISOString(),
+      })
+    })
+
+    const run = await startWorkflow('wf-dag', { dir: repo })
+
+    writeResult(run.runDir!, 'execute', 'a-coder', 'fail', 'nope')
+    await advanceWorkflow(run.id, `${run.id}-execute-a-coder`)
+    writeResult(run.runDir!, 'execute', 'a-coder', 'fail', 'still nope')
+    await advanceWorkflow(run.id, `${run.id}-execute-a-coder`)
+
+    const beforeRetry = spawns.filter(s => s.endsWith('-execute-a-coder')).length
+    await workflowNodeDecision('retry', run.id, 'a')
+    const afterRetry = spawns.filter(s => s.endsWith('-execute-a-coder')).length
+
+    expect(afterRetry).toBe(beforeRetry + 1)
+  })
+
+  it('holds reconcile fail behind reconcile-fail gate', async () => {
+    writeFileSync(join(repo, 'plan.json'), JSON.stringify({
+      default_preset: 'pi-coder',
+      nodes: [
+        { id: 'a', task: 'a', depends_on: [] },
+      ],
+    }))
+
+    const spawns: string[] = []
+    _setSpawnFnForTest(async args => {
+      spawns.push(args.name)
+      setAgent(args.name, {
+        cli: 'pi',
+        model: 'gpt-5',
+        tmuxSession: `flt-${args.name}`,
+        parentName: args.parent ?? 'human',
+        dir: args.dir ?? repo,
+        worktreePath: args.dir ?? repo,
+        worktreeBranch: `flt/${args.name}`,
+        spawnedAt: new Date().toISOString(),
+      })
+    })
+
+    const run = await startWorkflow('wf-dag', { dir: repo })
+
+    writeResult(run.runDir!, 'execute', 'a-coder', 'pass')
+    await advanceWorkflow(run.id, `${run.id}-execute-a-coder`)
+    writeResult(run.runDir!, 'execute', 'a-reviewer', 'pass')
+    await advanceWorkflow(run.id, `${run.id}-execute-a-reviewer`)
+
+    expect(spawns.some(s => s.endsWith('-execute-reconcile'))).toBe(true)
+    writeResult(run.runDir!, 'execute', '_', 'fail', 'merge blew up')
+    await advanceWorkflow(run.id, `${run.id}-execute-reconcile`)
+
+    const pending = JSON.parse(readFileSync(join(run.runDir!, '.gate-pending'), 'utf-8')) as Record<string, unknown>
+    expect(pending.kind).toBe('reconcile-fail')
+
+    const loaded = loadWorkflowRun(run.id)
+    expect(loaded?.status).toBe('running')
+    expect(loaded?.currentStep).toBe('execute')
   })
 })

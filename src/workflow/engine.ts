@@ -233,6 +233,9 @@ export async function advanceWorkflow(runId: string, idleAgentName?: string): Pr
     if (!run.runDir || !existsSync(join(run.runDir, 'results', `${currentStepDef.id}-_.json`))) {
       return
     }
+    if (existsSync(join(run.runDir, '.gate-pending'))) {
+      return
+    }
   }
 
   // Record current step completion
@@ -910,12 +913,16 @@ async function spawnDagNode(def: WorkflowDef, run: WorkflowRun, step: DynamicDag
   if (node.dependsOn.length === 1) {
     baseBranch = state.nodes[node.dependsOn[0]]?.branch ?? baseBranch
   } else if (node.dependsOn.length > 1) {
-    const prepared = await prepareMultiDepBase(run, step, state, node)
-    if (!prepared.ready || !prepared.branch) {
-      saveWorkflowRun(run)
-      return
+    if (node.mergeBranch && !node.waitingOnMerge) {
+      baseBranch = node.mergeBranch
+    } else {
+      const prepared = await prepareMultiDepBase(run, step, state, node)
+      if (!prepared.ready || !prepared.branch) {
+        saveWorkflowRun(run)
+        return
+      }
+      baseBranch = prepared.branch
     }
-    baseBranch = prepared.branch
   }
 
   if (!baseBranch) {
@@ -925,6 +932,7 @@ async function spawnDagNode(def: WorkflowDef, run: WorkflowRun, step: DynamicDag
   node.baseBranch = baseBranch
   node.status = 'running'
   node.failReason = undefined
+  node.awaitingCandidateDecision = false
 
   const repoDir = resolveRepoDir(run)
   const spawn = await getSpawnFn()
@@ -1094,7 +1102,12 @@ async function handleNodeFailGate(def: WorkflowDef, run: WorkflowRun, step: Dyna
     node.retries = 0
     node.status = 'pending'
     node.failReason = undefined
+    node.coderAgent = undefined
+    node.reviewerAgent = undefined
+    node.mergeAgent = undefined
+    node.candidates = undefined
     state.pendingGateNode = undefined
+    try { unlinkSync(join(run.runDir, 'results', `${step.id}-${node.id}-coder.json`)) } catch {}
     saveWorkflowRun(run)
     await scheduleReadyNodes(def, run, step)
   } else if (action === 'skip') {
@@ -1135,6 +1148,34 @@ async function handleReconcileFailGate(run: WorkflowRun, step: DynamicDagStep, d
   try { unlinkSync(join(run.runDir, '.gate-decision')) } catch {}
 }
 
+async function handleDagCandidateGate(def: WorkflowDef, run: WorkflowRun, step: DynamicDagStep, decision: Record<string, unknown>): Promise<void> {
+  const state = run.dynamicDagGroups?.[step.id]
+  if (!state || !run.runDir) return
+  const nodeId = typeof decision.nodeId === 'string' ? decision.nodeId : ''
+  if (!nodeId) return
+  const node = state.nodes[nodeId]
+  if (!node || !node.awaitingCandidateDecision) return
+
+  const candidateLabel = typeof decision.candidate === 'string' ? decision.candidate : ''
+  const winner = (node.candidates ?? []).find(c => c.label === candidateLabel && c.verdict === 'pass')
+
+  if (decision.approved === true && winner) {
+    node.branch = winner.branch
+    node.worktree = winner.worktree
+    node.status = 'passed'
+    node.awaitingCandidateDecision = false
+    node.candidates = undefined
+    saveWorkflowRun(run)
+    await scheduleReadyNodes(def, run, step)
+    await maybeRunFinalReconcile(def, run, step)
+  } else {
+    await fireNodeFailGate(run, step, node, 'tournament candidate not selected')
+  }
+
+  try { unlinkSync(join(run.runDir, '.gate-pending')) } catch {}
+  try { unlinkSync(join(run.runDir, '.gate-decision')) } catch {}
+}
+
 async function advanceDynamicDag(def: WorkflowDef, run: WorkflowRun, step: DynamicDagStep, idleAgentName?: string): Promise<void> {
   const state = run.dynamicDagGroups?.[step.id]
   if (!state || !run.runDir) return
@@ -1147,6 +1188,9 @@ async function advanceDynamicDag(def: WorkflowDef, run: WorkflowRun, step: Dynam
     }
     if (decision?.kind === 'reconcile-fail') {
       await handleReconcileFailGate(run, step, decision)
+    }
+    if (decision?.kind === 'node-candidate') {
+      await handleDagCandidateGate(def, run, step, decision)
     }
   }
 
@@ -1241,13 +1285,20 @@ async function advanceDynamicDag(def: WorkflowDef, run: WorkflowRun, step: Dynam
       candidate.verdict = result.verdict
       candidate.failReason = result.failReason
       if ((c.node.candidates ?? []).every(v => v.verdict)) {
-        const winner = (c.node.candidates ?? []).find(v => v.verdict === 'pass')
-        if (winner) {
-          c.node.branch = winner.branch
-          c.node.worktree = winner.worktree
-          c.node.status = 'passed'
-          await scheduleReadyNodes(def, run, step)
-          await maybeRunFinalReconcile(def, run, step)
+        const passers = (c.node.candidates ?? []).filter(v => v.verdict === 'pass')
+        if (passers.length > 0) {
+          if (!c.node.awaitingCandidateDecision) {
+            c.node.status = 'reviewing'
+            c.node.awaitingCandidateDecision = true
+            openGate(run, {
+              kind: 'node-candidate',
+              step: step.id,
+              nodeId: c.node.id,
+              options: passers.map(v => v.label),
+              reason: `select winning candidate for node ${c.node.id}`,
+              at: new Date().toISOString(),
+            })
+          }
         } else {
           c.node.retries += 1
           if (c.node.retries >= (step.node_max_retries ?? 2)) {
