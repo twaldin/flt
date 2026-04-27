@@ -70,6 +70,42 @@ describe('createWorktree', () => {
     expect(git(second.path, 'rev-parse', 'HEAD')).toBe(beforeRetryTip)
   })
 
+  it('preserves branch when main has advanced past it (branch is ancestor of HEAD)', () => {
+    const repoDir = initRepo()
+    cleanupPaths.add(repoDir)
+
+    const agentName = uniqueAgentName('main-advanced')
+    const first = createWorktree(repoDir, agentName)
+    cleanupPaths.add(first.path)
+
+    writeFileSync(join(first.path, 'feature.txt'), 'work\n')
+    git(first.path, 'add', 'feature.txt')
+    git(first.path, 'commit', '-m', 'agent work')
+    const branchTip = git(repoDir, 'rev-parse', first.branch)
+
+    // Advance main so the branch becomes an ancestor of HEAD: ff-merge the
+    // branch into main, then add a follow-on commit on main. This is the
+    // shape that previously triggered branchHasWork=false → branch deletion.
+    git(repoDir, 'merge', '--ff-only', first.branch)
+    writeFileSync(join(repoDir, 'main-followon.txt'), 'after\n')
+    git(repoDir, 'add', 'main-followon.txt')
+    git(repoDir, 'commit', '-m', 'main followon')
+
+    expect(git(repoDir, 'rev-list', '--count', `${first.branch}`, '--not', 'HEAD')).toBe('0')
+    expect(git(repoDir, 'merge-base', '--is-ancestor', first.branch, 'HEAD').length).toBe(0)
+
+    // Remove the worktree so createWorktree must recreate it.
+    git(repoDir, 'worktree', 'remove', '--force', first.path)
+
+    const second = createWorktree(repoDir, agentName)
+    cleanupPaths.add(second.path)
+
+    expect(second.branch).toBe(first.branch)
+    expect(git(repoDir, 'rev-parse', second.branch)).toBe(branchTip)
+    expect(git(second.path, 'rev-parse', 'HEAD')).toBe(branchTip)
+    expect(existsSync(join(second.path, 'feature.txt'))).toBe(true)
+  })
+
   it('stale recreation: branch at HEAD with no unique work can be safely recreated', () => {
     const repoDir = initRepo()
     cleanupPaths.add(repoDir)

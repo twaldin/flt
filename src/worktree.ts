@@ -67,22 +67,19 @@ export function createWorktree(repoDir: string, agentName: string, baseBranch?: 
     gitNoThrow(repoDir, 'worktree', 'prune')
     git(repoDir, 'worktree', 'add', '-b', branch, wtPath, baseBranch)
     wtFreshlyCreated = true
-  } else {
-    const branchHasWork = branchExists
-      && parseCount(gitNoThrowOutput(repoDir, 'rev-list', '--count', branch, '--not', 'HEAD')) > 0
-
-    if (branchHasWork) {
-      git(repoDir, 'worktree', 'add', wtPath, branch)
-      wtFreshlyCreated = true
-      if (remoteExists) {
-        gitNoThrow(wtPath, 'merge', '--ff-only', `origin/${branch}`)
-      }
-    } else {
-      gitNoThrow(repoDir, 'branch', '-D', branch)
-      gitNoThrow(repoDir, 'worktree', 'prune')
-      git(repoDir, 'worktree', 'add', '-b', branch, wtPath, 'HEAD')
-      wtFreshlyCreated = true
+  } else if (branchExists) {
+    // Always preserve an existing branch — its tip may carry workflow auto-
+    // commits we must not lose. The previous heuristic counted commits in
+    // <branch> not in HEAD; that returns 0 when main has advanced past the
+    // branch and wrongly looked like "no work", deleting real commits.
+    git(repoDir, 'worktree', 'add', wtPath, branch)
+    wtFreshlyCreated = true
+    if (remoteExists) {
+      gitNoThrow(wtPath, 'merge', '--ff-only', `origin/${branch}`)
     }
+  } else {
+    git(repoDir, 'worktree', 'add', '-b', branch, wtPath, 'HEAD')
+    wtFreshlyCreated = true
   }
 
   if (wtFreshlyCreated) {
