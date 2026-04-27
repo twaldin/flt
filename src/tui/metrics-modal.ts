@@ -352,17 +352,15 @@ export function renderMetricsModal(screen: Screen, state: MetricsModalState, ter
   const width = term.width
   const height = term.height
 
-  // Fill the modal area with blank cells so the underlying sidebar/log view
-  // can't bleed through. Matches the pattern in modal-workflows.ts.
+  // Fill modal area with blank cells so underlying panes can't bleed through.
   for (let r = 0; r < height; r += 1) {
     screen.put(r, 0, ' '.repeat(width), t.sidebarText, '')
   }
-
   screen.box(0, 0, width, height, 'single', t.sidebarBorder)
 
   const topTitle = ' flt metrics '
   screen.put(0, 2, topTitle, t.sidebarBorder, '', ATTR_BOLD)
-  const controls = '[m] group | [t] time | [r] runs'
+  const controls = '[m] group | [t] period | j/k scroll'
   const controlsCol = Math.max(2, width - controls.length - 3)
   screen.put(0, controlsCol, controls, t.sidebarMuted, '', ATTR_DIM)
 
@@ -379,67 +377,84 @@ export function renderMetricsModal(screen: Screen, state: MetricsModalState, ter
     ? buildAgentTree(data.archives, state.period, data.runs, data.parents, now)
     : grouped.rows
 
-  const availableRows = Math.max(4, innerHeight - 12)
-  const maxDataRows = Math.max(1, Math.floor(availableRows * 0.5))
-
+  // Three sections, each given a generous fixed share of vertical space:
+  //   - top: header (period/group)
+  //   - groupTable: 'by <groupBy>' with bars (~40% of inner)
+  //   - sparkline: 24h cost bars (3 rows)
+  //   - recentRuns: scrollable runs list (remaining)
   let row = innerTop
-  putLine(screen, row, innerLeft, innerWidth, `Period: ${state.period}   Group: ${state.groupBy}`, t.sidebarTitle, ATTR_BOLD)
+  putLine(screen, row, innerLeft, innerWidth, `Period: ${state.period}    Group: ${state.groupBy}    Total: ${fmtCost(filtered.reduce((s, r) => s + num(r.cost_usd), 0))}    Runs: ${filtered.length}`, t.sidebarTitle, ATTR_BOLD)
   row += 2
 
-  putLine(screen, row, innerLeft, innerWidth, padRight(`by ${state.groupBy}`, 24) + padRight('cost', 10) + padRight('tokens in/out', 18) + padRight('runs', 6) + 'avg cost', t.sidebarMuted, ATTR_BOLD)
+  // ── Section 1: by-group breakdown ──────────────────────────────────────────
+  const groupSectionMax = Math.max(6, Math.floor(innerHeight * 0.4))
+  const groupHeader = padRight(`by ${state.groupBy}`, 26) + padRight('cost', 10) + padRight('tokens in', 10) + padRight('tokens out', 11) + padRight('runs', 6) + padRight('avg cost', 10) + 'share'
+  putLine(screen, row, innerLeft, innerWidth, groupHeader, t.sidebarMuted, ATTR_BOLD | 0)
   row += 1
   putLine(screen, row, innerLeft, innerWidth, '─'.repeat(Math.max(0, innerWidth)), t.sidebarMuted)
   row += 1
 
-  const shown = rows.slice(0, maxDataRows)
+  // Each group entry takes 2 rows (data + bar). Cap to fit the section.
+  const groupCapRows = Math.max(2, groupSectionMax - 2)
+  const groupRowsToShow = Math.floor(groupCapRows / 2)
+  const shown = rows.slice(0, groupRowsToShow)
   const hidden = Math.max(0, rows.length - shown.length)
-  const maxCost = Math.max(0, ...shown.map(r => r.cost))
-  const barWidth = Math.max(8, Math.floor(innerWidth * 0.5))
+  const maxCost = Math.max(0.0001, ...shown.map(r => r.cost))
+  const barWidth = Math.max(20, Math.floor(innerWidth * 0.55))
 
   for (const item of shown) {
-    const left = padRight(item.label, 24)
-    const line = `${left}${padRight(fmtCost(item.cost), 10)}${padRight(`${fmtTokens(item.tokensIn)}/${fmtTokens(item.tokensOut)}`, 18)}${padRight(String(item.runs), 6)}${fmtCost(item.runs > 0 ? item.cost / item.runs : 0)}`
+    const sharePct = (item.cost / Math.max(0.0001, filtered.reduce((s, r) => s + num(r.cost_usd), 0))) * 100
+    const line =
+      padRight(item.label, 26) +
+      padRight(fmtCost(item.cost), 10) +
+      padRight(fmtTokens(item.tokensIn), 10) +
+      padRight(fmtTokens(item.tokensOut), 11) +
+      padRight(String(item.runs), 6) +
+      padRight(fmtCost(item.runs > 0 ? item.cost / item.runs : 0), 10) +
+      `${sharePct.toFixed(1)}%`
     putLine(screen, row, innerLeft, innerWidth, line, t.sidebarText)
     row += 1
     putLine(screen, row, innerLeft + 2, Math.max(1, innerWidth - 2), bar(item.cost, maxCost, Math.min(barWidth, innerWidth - 2)), t.commandPrefix)
     row += 1
-    if (row >= innerTop + innerHeight - 8) break
   }
-
-  if (hidden > 0 && row < innerTop + innerHeight - 8) {
-    putLine(screen, row, innerLeft, innerWidth, `+${hidden} more`, t.sidebarMuted, ATTR_DIM)
+  if (hidden > 0) {
+    putLine(screen, row, innerLeft, innerWidth, `  +${hidden} more (${state.groupBy} group)`, t.sidebarMuted, ATTR_DIM)
     row += 1
   }
-
   row += 1
-  if (row < innerTop + innerHeight - 5) {
-    putLine(screen, row, innerLeft, innerWidth, 'cost over last 24h (1 bar = 1h)', t.sidebarMuted)
+
+  // ── Section 2: 24h sparkline ───────────────────────────────────────────────
+  putLine(screen, row, innerLeft, innerWidth, 'cost over last 24h (1 bar = 1h, leftmost = 24h ago)', t.sidebarMuted)
+  row += 1
+  putLine(screen, row, innerLeft, innerWidth, sparkline(grouped.sparkline24h), t.commandPrefix, ATTR_BOLD)
+  row += 2
+
+  // ── Section 3: recent runs, scrollable via j/k ─────────────────────────────
+  putLine(screen, row, innerLeft, innerWidth, `recent runs (by cost desc, ${filtered.length} total) — j/k scroll`, t.sidebarMuted)
+  row += 1
+  const runsHeader = padRight('ts', 7) + padRight('agent', 36) + padRight('model', 22) + padRight('cost', 10) + padRight('tokens in', 10) + 'tokens out'
+  putLine(screen, row, innerLeft, innerWidth, runsHeader, t.sidebarMuted, ATTR_BOLD)
+  row += 1
+  putLine(screen, row, innerLeft, innerWidth, '─'.repeat(Math.max(0, innerWidth)), t.sidebarMuted)
+  row += 1
+
+  const runs = [...filtered].sort((a, b) => num(b.cost_usd) - num(a.cost_usd))
+  const maxRunRows = Math.max(0, innerTop + innerHeight - 2 - row)
+  const offset = Math.max(0, Math.min(state.runsScrollOffset, Math.max(0, runs.length - maxRunRows)))
+  const visible = runs.slice(offset, offset + maxRunRows)
+  for (const run of visible) {
+    const model = run.actualModel || run.model || '(unknown)'
+    const line =
+      padRight(formatTime(run.spawnedAt), 7) +
+      padRight(run.name, 36) +
+      padRight(model, 22) +
+      padRight(fmtCost(num(run.cost_usd)), 10) +
+      padRight(fmtTokens(num(run.tokens_in)), 10) +
+      fmtTokens(num(run.tokens_out))
+    putLine(screen, row, innerLeft, innerWidth, line, t.sidebarText)
     row += 1
-    putLine(screen, row, innerLeft, innerWidth, sparkline(grouped.sparkline24h), t.commandPrefix, ATTR_BOLD)
-    row += 2
   }
 
-  if (row < innerTop + innerHeight - 3) {
-    putLine(screen, row, innerLeft, innerWidth, 'recent runs (by cost desc)', t.sidebarMuted)
-    row += 1
-    putLine(screen, row, innerLeft, innerWidth, padRight('ts', 7) + padRight('agent', 28) + padRight('model', 20) + padRight('cost', 10) + 'tokens', t.sidebarMuted, ATTR_BOLD)
-    row += 1
-
-    const runs = [...filtered].sort((a, b) => num(b.cost_usd) - num(a.cost_usd))
-    const maxRunRows = Math.max(0, innerTop + innerHeight - 2 - row)
-    const offset = Math.max(0, Math.min(state.runsScrollOffset, Math.max(0, runs.length - maxRunRows)))
-    const visible = runs.slice(offset, offset + maxRunRows)
-
-    for (const run of visible) {
-      const model = run.actualModel || run.model || '(unknown)'
-      const line = `${padRight(formatTime(run.spawnedAt), 7)}${padRight(run.name, 28)}${padRight(model, 20)}${padRight(fmtCost(num(run.cost_usd)), 10)}${fmtTokens(num(run.tokens_in))}/${fmtTokens(num(run.tokens_out))}`
-      putLine(screen, row, innerLeft, innerWidth, line, t.sidebarText)
-      row += 1
-    }
-  }
-
-  const footer = state.runsListFocused
-    ? 'm group │ t period │ r runs* │ j/k scroll │ Esc close'
-    : 'm group │ t period │ r runs │ Esc close'
+  const footer = `m group │ t period │ j/k scroll runs │ Esc close   (showing ${visible.length}/${runs.length})`
   putLine(screen, height - 2, 2, Math.max(1, width - 4), footer, t.sidebarMuted, ATTR_DIM)
 }

@@ -941,7 +941,6 @@ function handleWorkflowsChar(char: string, bindings: InputBindings): void {
 function handleMetricsChar(char: string, bindings: InputBindings): void {
   if (char === 'm') bindings.metricsCycleGroup()
   else if (char === 't') bindings.metricsCyclePeriod()
-  else if (char === 'r') bindings.metricsToggleRunsFocus()
   else if (char === 'j') bindings.metricsScrollDown()
   else if (char === 'k') bindings.metricsScrollUp()
 }
