@@ -1,0 +1,2 @@
+{"type":"model_change","modelId":"claude-sonnet-4-20250514"}
+{"type":"turn_end","message":{"role":"assistant","usage":{"input":210,"output":64,"cost":{"total":0.019}}}}

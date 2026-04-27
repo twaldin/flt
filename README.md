@@ -234,6 +234,16 @@ flt controller start|stop|status        # manage controller daemon
 | `--parent <name>` | | Override parent for messaging |
 | `--persistent` | | Agent expected to respawn (shows different icon when dead) |
 
+## Fixture refresh for adapter telemetry tests
+
+Run:
+
+```bash
+./scripts/capture-fixture.sh <adapter>
+```
+
+This refreshes `tests/fixtures/session-logs/<adapter>/` for one adapter.
+
 ## Related
 
 - [`harness`](https://github.com/twaldin/harness) — sister project: unified Python interface for invoking AI coding-agent CLIs as one-shot subprocesses. flt and harness solve adjacent problems (interactive sessions vs one-shot calls) and share knowledge about per-CLI args / env / output parsing. Uses `@twaldin/harness-ts` for CLI command construction metadata; flt adds tmux lifecycle on top. flt may eventually shell out to `harness run --json` for one-shot operations like `quickTestAdapter`. See [harness/examples/flt-spawn](https://github.com/twaldin/harness/tree/main/examples/flt-spawn) for the design notes.

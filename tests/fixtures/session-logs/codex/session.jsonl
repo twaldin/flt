@@ -1,0 +1,2 @@
+{"type":"session.created","model":"gpt-5.3-codex"}
+{"type":"event_msg","payload":{"type":"token_count","info":{"total_token_usage":{"input_tokens":321,"output_tokens":87}}}}

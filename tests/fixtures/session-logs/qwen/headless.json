@@ -1,0 +1,12 @@
+{
+  "stats": {
+    "models": {
+      "qwen3-coder": {
+        "tokens": {
+          "input": 430,
+          "candidates": 112
+        }
+      }
+    }
+  }
+}

@@ -1,0 +1,23 @@
+{
+  "info": {
+    "model_stats": {
+      "gpt-5.4": {
+        "calls": 1
+      },
+      "instance_cost": 0.023
+    }
+  },
+  "messages": [
+    {
+      "extra": {
+        "response": {
+          "model": "gpt-5.4",
+          "usage": {
+            "prompt_tokens": 140,
+            "completion_tokens": 35
+          }
+        }
+      }
+    }
+  ]
+}
