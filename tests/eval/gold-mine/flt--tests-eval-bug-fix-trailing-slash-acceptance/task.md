@@ -1,0 +1,3 @@
+- Reproduce with a failing test.
+- Ensure URL joining emits exactly one slash between base and path.
+- Existing URL generation behavior remains unchanged for normal inputs.

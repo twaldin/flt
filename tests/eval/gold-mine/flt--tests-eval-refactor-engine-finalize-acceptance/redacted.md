@@ -1,0 +1,3 @@
+- Introduce one helper for terminal run finalization.
+- Replace duplicated terminal save logic at all terminal transitions.
+- Keep behavior unchanged besides the intended centralization.

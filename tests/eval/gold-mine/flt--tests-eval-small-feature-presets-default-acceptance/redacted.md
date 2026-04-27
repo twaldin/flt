@@ -1,0 +1,3 @@
+- Add a way to configure a default preset.
+- `flt spawn <name>` should use that preset when no explicit preset is provided.
+- Add unit coverage for configured and unconfigured cases.

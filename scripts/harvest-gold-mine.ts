@@ -13,6 +13,15 @@ export interface RepoInfo {
   isFork: boolean
 }
 
+interface RepoListApiRow {
+  name: string
+  defaultBranchRef?: { name?: string | null } | null
+  url: string
+  description: string | null
+  isArchived: boolean
+  isFork: boolean
+}
+
 export interface CommitInfo {
   sha: string
   date: string
@@ -415,8 +424,16 @@ function preflight(skipGithub: boolean): void {
 }
 
 function enumerateRepos(limit: number): RepoInfo[] {
-  const raw = gh(['repo', 'list', 'twaldin', '--limit', String(limit), '--json', 'name,defaultBranch,url,description,isArchived,isFork'])
-  return parseJson<RepoInfo[]>(raw, [])
+  const raw = gh(['repo', 'list', 'twaldin', '--limit', String(limit), '--json', 'name,defaultBranchRef,url,description,isArchived,isFork'])
+  const rows = parseJson<RepoListApiRow[]>(raw, [])
+  return rows.map((row) => ({
+    name: row.name,
+    defaultBranch: row.defaultBranchRef?.name ?? 'HEAD',
+    url: row.url,
+    description: row.description,
+    isArchived: row.isArchived,
+    isFork: row.isFork,
+  }))
 }
 
 function listHeadTaskFiles(repo: string): string[] {

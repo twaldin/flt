@@ -1,0 +1,3 @@
+- Add tests for writing pass and fail result artifacts.
+- Verify parsed aggregate results match expected labels and reasons.
+- Ensure malformed result files are ignored safely.
