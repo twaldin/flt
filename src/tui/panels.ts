@@ -5,6 +5,8 @@ import type { AgentView, AppState, ModalState } from './types'
 import { getAsciiLogo, getAsciiLogoWidth } from './ascii'
 import { renderWorkflowModal } from './modal-workflows'
 import { renderMetricsModal } from './metrics-modal'
+import { truncateEllipsis } from './columns'
+import { sidebarEntryRows, shouldRenderWorkflowRow, workflowLabel } from './sidebar-utils'
 import { listWorkflowRuns } from '../workflow/engine'
 
 export interface LayoutMetrics {
@@ -195,34 +197,45 @@ function renderSidebar(screen: Screen, state: AppState, top: number, left: numbe
     return
   }
 
-  // Compute how many entries fit while reserving space for the ASCII logo.
-  // Each entry is 6 rows: above-pad, name, cli/model, workflow, dir, below-pad.
   const logo = getAsciiLogo(width)
-  const entryRows = height - logo.length  // reserve logo space
-  const visibleCount = Math.max(1, Math.floor(entryRows / 6))
-  const scrollOffset = clamp(state.sidebarScrollOffset, 0, Math.max(0, ordered.length - visibleCount))
-  const visibleEntries = ordered.slice(scrollOffset, scrollOffset + visibleCount)
+  const entryRows = Math.max(0, height - logo.length)
 
-  for (const { agent, index, continuation, connector, hasChildren } of visibleEntries) {
-    if (row + 5 >= top + height) break
+  const entryMeta = ordered.map(entry => {
+    const backfilled = backfillFromRuns(entry.agent)
+    const wfText = workflowLabel(entry.agent.workflow)
+    const showWfRow = shouldRenderWorkflowRow(wfText)
+    return { entry, backfilled, wfText, showWfRow, rowCount: sidebarEntryRows(wfText) }
+  })
+
+  const maxOffset = Math.max(0, entryMeta.length - 1)
+  const scrollOffset = clamp(state.sidebarScrollOffset, 0, maxOffset)
+
+  const visibleEntries: typeof entryMeta = []
+  let usedRows = 0
+  for (let i = scrollOffset; i < entryMeta.length; i += 1) {
+    if (usedRows + entryMeta[i].rowCount > entryRows) break
+    visibleEntries.push(entryMeta[i])
+    usedRows += entryMeta[i].rowCount
+  }
+
+  for (const { entry: { agent, index, continuation, connector, hasChildren }, backfilled, wfText, showWfRow, rowCount } of visibleEntries) {
+    if (row + rowCount - 1 >= top + height) break
     const selected = index === state.selectedIndex
     const notification = state.notifications[agent.name]
 
     const agentColor = selected ? t.sidebarSelected : statusColor(agent.status)
     const bg = selected ? t.sidebarSelectedBg : ''
     const pad = ' '
-    // Name row: continuation with last │ replaced by ├ or └
+
     let namePrefix: string
     if (!connector) {
-      namePrefix = continuation  // root: no connector
+      namePrefix = continuation
     } else {
       namePrefix = continuation.slice(0, -2) + connector + ' '
     }
 
-    // Above-name prefix: continuation only
     const abovePrefix = continuation
 
-    // Below-name prefix
     let belowPrefix: string
     if (!connector) {
       belowPrefix = hasChildren ? continuation + '│ ' : continuation
@@ -235,37 +248,32 @@ function renderSidebar(screen: Screen, state: AppState, top: number, left: numbe
 
     const innerWidth = Math.max(0, width - 2 - widthOf(namePrefix))
 
-    // Padding row above name
     screen.put(row, left, padRight(`${pad}${abovePrefix}`, width), agentColor, bg)
     row += 1
 
-    // Name row
     const dot = (agent.persistent && agent.status === 'exited') ? '⟳' : statusSymbol(agent.status)
     const age = formatAge(agent.spawnedAt)
     const notifDot = notification && !selected ? ' ●' : ''
-    // Collapsed indicator: show [+N] when agent has hidden children
     const collapsedSuffix = (agent.collapsedChildCount !== undefined && agent.collapsedChildCount > 0)
       ? ` [+${agent.collapsedChildCount}]`
       : ''
-    const nameText = `${dot} ${agent.name}${collapsedSuffix}`
     const ageWithNotif = `${notifDot} ${age}`
+    const rawName = `${dot} ${agent.name}${collapsedSuffix}`
+    const nameText = truncateEllipsis(rawName, Math.max(0, innerWidth - widthOf(ageWithNotif)))
     const agePad = Math.max(0, innerWidth - widthOf(nameText) - widthOf(ageWithNotif))
     const line1 = `${pad}${namePrefix}${nameText}${' '.repeat(agePad)}${ageWithNotif}${pad}`
     screen.put(row, left, padRight(line1, width), agentColor, bg, ATTR_BOLD)
     row += 1
 
-    // Detail: cli/model
     const line2 = `${pad}${belowPrefix}  ${agent.cli}/${agent.model}`
     screen.put(row, left, padRight(line2, width), agentColor, bg)
     row += 1
 
-    // Detail: workflow + project-root, with backfill from workflow runs for
-    // agents that pre-date the projectRoot/workflow plumbing.
-    const backfilled = backfillFromRuns(agent)
-    const wfText = agent.workflow ?? backfilled.workflow ?? '—'
-    const line3 = `${pad}${belowPrefix}  wf:${wfText}`
-    screen.put(row, left, padRight(line3, width), agentColor, bg)
-    row += 1
+    if (showWfRow) {
+      const line3 = `${pad}${belowPrefix}  wf:${wfText}`
+      screen.put(row, left, padRight(line3, width), agentColor, bg)
+      row += 1
+    }
 
     const project = agent.projectRoot ?? backfilled.projectRoot
     const wtDisplay = project ? `wt:${shortenPath(project)}` : shortenPath(agent.dir)
@@ -273,13 +281,12 @@ function renderSidebar(screen: Screen, state: AppState, top: number, left: numbe
     screen.put(row, left, padRight(line4, width), agentColor, bg)
     row += 1
 
-    // Padding row below
     screen.put(row, left, padRight(`${pad}${belowPrefix}`, width), agentColor, bg)
     row += 1
   }
 
   // Overflow indicator
-  const hiddenBelow = ordered.length - (scrollOffset + visibleCount)
+  const hiddenBelow = Math.max(0, entryMeta.length - (scrollOffset + visibleEntries.length))
   if (hiddenBelow > 0 && row < top + height) {
     const overflowText = `  +${hiddenBelow} more`
     putLine(screen, row, left, width, overflowText, t.sidebarMuted, ATTR_DIM)
@@ -752,6 +759,8 @@ function renderCompletionPopup(screen: Screen, state: AppState, commandRow: numb
   }
 }
 
+const SIDEBAR_NAME_LAYOUT_WIDTH = 24
+
 export function calculateLayout(cols: number, rows: number, agents?: AgentView[], precomputedOrder?: TreeEntry[]): LayoutMetrics {
   const safeCols = Math.max(1, cols)
   const safeRows = Math.max(1, rows)
@@ -769,7 +778,7 @@ export function calculateLayout(cols: number, rows: number, agents?: AgentView[]
     for (const { agent, continuation, connector } of ordered) {
       const pLen = (continuation + connector).length
       const dLen = continuation.length + 4  // continuation + "    " detail indent
-      contentWidth = Math.max(contentWidth, pLen + 2 + agent.name.length + 4 + 3)
+      contentWidth = Math.max(contentWidth, pLen + 2 + SIDEBAR_NAME_LAYOUT_WIDTH + 4 + 3)
       contentWidth = Math.max(contentWidth, dLen + agent.cli.length + 1 + agent.model.length)
       contentWidth = Math.max(contentWidth, dLen + shortenPath(agent.dir).length)
     }
