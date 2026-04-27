@@ -1,0 +1,25 @@
+{
+  "default_preset": "pi-coder",
+  "nodes": [
+    {
+      "id": "redact",
+      "task": "Add src/redact.ts module that strips secrets from text: API_KEY, AUTH_TOKEN, BEARER, sk-*, pk-*, ghp_*, github_pat_*, AKIA[A-Z0-9]+, long random-looking strings (>=32 alphanumeric), email addresses except those matching the git committer email. Replace each with <REDACTED:KIND>. Export `redactSecrets(text: string): string`. Wire into src/commands/trace.ts so `flt trace export <run-id>` redacts before writing <runDir>/transcript.jsonl. Add tests/unit/redact.test.ts with cases covering each secret kind. All existing tests must stay green.",
+      "depends_on": []
+    },
+    {
+      "id": "mutator-role",
+      "task": "Author templates/roles/mutator.md as a real (not-stub) role .md file. The role: read recent failed-run trace bundles (passed via FLT_RUN_DIR env), identify a hypothesis about a role/skill .md that's underperforming, propose a vNext.md candidate diff with rationale + measurable success criteria. Output: experiments/<artifact>.vNext.md and experiments/<artifact>.hypothesis.json. Must include explicit instruction to consult oracle (flt ask oracle) when uncertain. Update tests/unit/init.test.ts so seedFlt restores this authored mutator.md (currently a stub).",
+      "depends_on": []
+    },
+    {
+      "id": "trace-recent",
+      "task": "Verify `flt trace recent --since <duration> --status failed|passed|all` is implemented. If not present in src/commands/trace.ts, add it. Lists recent workflow runs in ~/.flt/runs/ filtered by start-time and metrics.json outcome, outputs tab-separated rows: runId, workflow, outcome, startedAt, completedAt, costUsd. Add tests/unit/trace-recent.test.ts.",
+      "depends_on": []
+    },
+    {
+      "id": "harvest",
+      "task": "Run `bun run scripts/harvest-gold-mine.ts` to populate tests/eval/gold-mine/ from github.com/twaldin/* repos and local ~/code, ~/projects, ~/src markdown files. Capture SUMMARY.md output. The harvester already exists; just run it. Then commit the harvested fixtures so they're under version control.",
+      "depends_on": []
+    }
+  ]
+}
