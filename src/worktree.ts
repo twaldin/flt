@@ -1,7 +1,7 @@
 import { execFileSync } from 'child_process'
 import { tmpdir } from 'os'
 import { join } from 'path'
-import { existsSync, readFileSync, symlinkSync, writeFileSync } from 'fs'
+import { existsSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'fs'
 
 export interface WorktreeInfo {
   path: string
@@ -28,7 +28,7 @@ function parseCount(value: string | null): number {
   return Number(value ?? '0') || 0
 }
 
-export function createWorktree(repoDir: string, agentName: string): WorktreeInfo {
+export function createWorktree(repoDir: string, agentName: string, baseBranch?: string): WorktreeInfo {
   const branch = `flt/${agentName}`
   const wtPath = join(tmpdir(), `flt-wt-${agentName}`)
   let wtFreshlyCreated = false
@@ -57,22 +57,32 @@ export function createWorktree(repoDir: string, agentName: string): WorktreeInfo
     }
     gitNoThrow(repoDir, 'worktree', 'remove', '--force', wtPath)
     gitNoThrow(repoDir, 'worktree', 'prune')
+    if (existsSync(wtPath)) {
+      rmSync(wtPath, { recursive: true, force: true })
+    }
   }
 
-  const branchHasWork = branchExists
-    && parseCount(gitNoThrowOutput(repoDir, 'rev-list', '--count', branch, '--not', 'HEAD')) > 0
-
-  if (branchHasWork) {
-    git(repoDir, 'worktree', 'add', wtPath, branch)
-    wtFreshlyCreated = true
-    if (remoteExists) {
-      gitNoThrow(wtPath, 'merge', '--ff-only', `origin/${branch}`)
-    }
-  } else {
+  if (baseBranch) {
     gitNoThrow(repoDir, 'branch', '-D', branch)
     gitNoThrow(repoDir, 'worktree', 'prune')
-    git(repoDir, 'worktree', 'add', '-b', branch, wtPath, 'HEAD')
+    git(repoDir, 'worktree', 'add', '-b', branch, wtPath, baseBranch)
     wtFreshlyCreated = true
+  } else {
+    const branchHasWork = branchExists
+      && parseCount(gitNoThrowOutput(repoDir, 'rev-list', '--count', branch, '--not', 'HEAD')) > 0
+
+    if (branchHasWork) {
+      git(repoDir, 'worktree', 'add', wtPath, branch)
+      wtFreshlyCreated = true
+      if (remoteExists) {
+        gitNoThrow(wtPath, 'merge', '--ff-only', `origin/${branch}`)
+      }
+    } else {
+      gitNoThrow(repoDir, 'branch', '-D', branch)
+      gitNoThrow(repoDir, 'worktree', 'prune')
+      git(repoDir, 'worktree', 'add', '-b', branch, wtPath, 'HEAD')
+      wtFreshlyCreated = true
+    }
   }
 
   if (wtFreshlyCreated) {

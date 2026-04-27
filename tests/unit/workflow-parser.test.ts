@@ -166,6 +166,19 @@ steps:
 `)).toThrow()
   })
 
+  it('parses dynamic_dag step with defaults', () => {
+    const def = validate(`
+name: wf
+steps:
+  - id: dag
+    type: dynamic_dag
+    plan_from: '{dir}/plan.json'
+`)
+    const step = def.steps[0] as { type?: string; max_nodes?: number }
+    expect(step.type).toBe('dynamic_dag')
+    expect(step.max_nodes).toBe(12)
+  })
+
   it('parses condition forward jump', () => {
     const def = validate(`
 name: wf

@@ -1,0 +1,21 @@
+name: _smoke-dag
+steps:
+  - id: plan
+    preset: cc-architect
+    task: |
+      Decompose: {task}. Output to plan.json:
+      { "default_preset": "cc-coder", "nodes": [
+        { "id": "a", "task": "Create a/hello.txt with 'a'", "depends_on": [] },
+        { "id": "b", "task": "Create b/hello.txt with 'b'", "depends_on": [] },
+        { "id": "c", "task": "Create c/hello.txt with 'c' (after a, b)", "depends_on": ["a", "b"] }
+      ] }
+    on_complete: execute
+    on_fail: abort
+  - id: execute
+    type: dynamic_dag
+    plan_from: '{steps.plan.worktree}/plan.json'
+    reconciler:
+      preset: cc-evaluator
+      task: 'Merge each leaf branch into integration in topo order. Resolve conflicts preferring tests-green commits.'
+    on_complete: done
+    on_fail: plan

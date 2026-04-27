@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it, mock, spyOn } from 'bun:test'
+import { afterAll, afterEach, beforeEach, describe, expect, it, mock, spyOn } from 'bun:test'
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'fs'
 import { tmpdir } from 'os'
 import { join } from 'path'
@@ -112,4 +112,6 @@ describe('eval suite', () => {
   it('evalSuiteRun throws a clear error for unknown fixture names', async () => {
     await expect(evalSuiteRun('missing-fixture', { root })).rejects.toThrow('Unknown eval fixture: missing-fixture')
   })
+
+  afterAll(() => { mock.restore() })
 })

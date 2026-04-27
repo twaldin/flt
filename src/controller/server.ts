@@ -35,7 +35,7 @@ setStatusChangeCallback((name, prev, next) => {
       const workflowName = getWorkflowForAgent(name)
       if (workflowName) {
         console.log(`[workflow] Agent "${name}" went idle — advancing workflow "${workflowName}"`)
-        advanceWorkflow(workflowName).catch(e => {
+        advanceWorkflow(workflowName, name).catch(e => {
           console.error(`[workflow] Failed to advance "${workflowName}": ${e.message}`)
         })
       }

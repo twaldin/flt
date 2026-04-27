@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, afterEach, mock } from 'bun:test'
+import { afterAll, describe, it, expect, beforeEach, afterEach, mock } from 'bun:test'
 import { mkdtempSync, rmSync, mkdirSync, writeFileSync } from 'fs'
 import { join } from 'path'
 import { tmpdir } from 'os'
@@ -112,4 +112,6 @@ describe('spawnDirect — preset auto-resolution', () => {
     const [, agentState] = mockSetAgent.mock.calls[0] as [string, Record<string, unknown>]
     expect(agentState.model).toBe('haiku')
   })
+
+  afterAll(() => { mock.restore() })
 })
