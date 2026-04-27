@@ -1,4 +1,4 @@
-import { existsSync, readFileSync, renameSync, writeFileSync } from 'fs'
+import { existsSync, readFileSync, readdirSync, renameSync, writeFileSync } from 'fs'
 import { homedir } from 'os'
 import { basename, join } from 'path'
 import { loadWorkflowDef } from '../workflow/parser'
@@ -24,6 +24,13 @@ interface AgentRef {
 }
 
 const ISO_FALLBACK = '1970-01-01T00:00:00.000Z'
+
+type TraceRecentStatus = 'failed' | 'passed' | 'all'
+
+interface TraceRecentArgs {
+  since: string
+  status: TraceRecentStatus
+}
 
 function toIso(value: unknown, fallback: string): string {
   if (typeof value !== 'string' || !value) return fallback
@@ -263,6 +270,28 @@ function collectAgents(run: NonNullable<ReturnType<typeof loadWorkflowRun>>): Ag
   return Array.from(byName.values())
 }
 
+function parseDurationMs(input: string): number {
+  const match = input.trim().match(/^(\d+)([smhd])$/)
+  if (!match) {
+    throw new Error(`Invalid duration: ${input}. Expected formats like 30m, 6h, or 7d.`)
+  }
+  const value = parseInt(match[1], 10)
+  const unit = match[2]
+  if (!Number.isFinite(value) || value <= 0) {
+    throw new Error(`Invalid duration: ${input}.`)
+  }
+  if (unit === 's') return value * 1000
+  if (unit === 'm') return value * 60 * 1000
+  if (unit === 'h') return value * 60 * 60 * 1000
+  return value * 24 * 60 * 60 * 1000
+}
+
+function normalizeOutcome(value: unknown): 'passed' | 'failed' | null {
+  if (value === 'completed') return 'passed'
+  if (value === 'failed' || value === 'cancelled') return 'failed'
+  return null
+}
+
 function parseForCli(cli: string, path: string, agent: string, fallbackTs: string): TranscriptEntry[] {
   if (cli === 'claude-code') return parseClaude(path, agent, fallbackTs)
   if (cli === 'codex' || cli === 'pi') return parseRoleJsonl(path, agent, fallbackTs)
@@ -270,6 +299,71 @@ function parseForCli(cli: string, path: string, agent: string, fallbackTs: strin
   if (cli === 'swe-agent') return parseSwe(path, agent, fallbackTs)
   if (cli === 'opencode') return parseOpencode(path, agent, fallbackTs)
   throw new Error(`unsupported cli: ${cli}`)
+}
+
+export function traceRecent(args: TraceRecentArgs): void {
+  if (args.status !== 'failed' && args.status !== 'passed' && args.status !== 'all') {
+    throw new Error(`Invalid status: ${args.status}. Expected failed, passed, or all.`)
+  }
+
+  const sinceMs = parseDurationMs(args.since)
+  const cutoffMs = Date.now() - sinceMs
+  const runsDir = join(process.env.HOME ?? homedir(), '.flt', 'runs')
+  if (!existsSync(runsDir)) return
+
+  const rows: Array<{
+    runId: string
+    workflow: string
+    outcome: 'passed' | 'failed'
+    startedAt: string
+    completedAt: string
+    costUsd: number
+    startedMs: number
+  }> = []
+
+  for (const entry of readdirSync(runsDir, { withFileTypes: true })) {
+    if (!entry.isDirectory()) continue
+
+    const runDir = join(runsDir, entry.name)
+    const runJsonPath = join(runDir, 'run.json')
+    const metricsPath = join(runDir, 'metrics.json')
+    if (!existsSync(runJsonPath) || !existsSync(metricsPath)) continue
+
+    let runRaw: unknown
+    let metricsRaw: unknown
+    try {
+      runRaw = readJson(runJsonPath)
+      metricsRaw = readJson(metricsPath)
+    } catch {
+      continue
+    }
+
+    if (!runRaw || typeof runRaw !== 'object' || !metricsRaw || typeof metricsRaw !== 'object') continue
+
+    const runObj = runRaw as Record<string, unknown>
+    const metricsObj = metricsRaw as Record<string, unknown>
+    const startedAt = typeof runObj.startedAt === 'string' ? runObj.startedAt : ''
+    const startedMs = Date.parse(startedAt)
+    if (!Number.isFinite(startedMs) || startedMs < cutoffMs) continue
+
+    const outcome = normalizeOutcome(metricsObj.outcome)
+    if (!outcome) continue
+    if (args.status !== 'all' && outcome !== args.status) continue
+
+    const workflow = typeof runObj.workflow === 'string' ? runObj.workflow : ''
+    const runId = typeof runObj.id === 'string' && runObj.id ? runObj.id : entry.name
+    const completedAt = typeof runObj.completedAt === 'string' ? runObj.completedAt : ''
+    const cost = (metricsObj.cost && typeof metricsObj.cost === 'object') ? metricsObj.cost as Record<string, unknown> : null
+    const costUsd = typeof cost?.usd === 'number' ? cost.usd : 0
+
+    rows.push({ runId, workflow, outcome, startedAt, completedAt, costUsd, startedMs })
+  }
+
+  rows
+    .sort((a, b) => b.startedMs - a.startedMs)
+    .forEach((row) => {
+      console.log(`${row.runId}\t${row.workflow}\t${row.outcome}\t${row.startedAt}\t${row.completedAt}\t${row.costUsd}`)
+    })
 }
 
 export async function traceExport(runId: string): Promise<{ outPath: string; entryCount: number }> {

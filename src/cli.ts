@@ -15,6 +15,7 @@ import { activity } from './commands/activity'
 import { modelsResolve } from './commands/models'
 import { pluginAudit, pluginUninstall } from './commands/plugins'
 import { promote } from './commands/promote'
+import { traceRecent } from './commands/trace'
 
 const program = new Command()
   .name('flt')
@@ -635,6 +636,28 @@ program
         type: opts.type,
         since: opts.since,
       })
+    } catch (e) {
+      console.error(`Error: ${(e as Error).message}`)
+      process.exit(1)
+    }
+  })
+
+const traceCmd = program
+  .command('trace')
+  .description('Workflow trace utilities')
+
+traceCmd
+  .command('recent')
+  .description('List recent workflow runs as tab-separated rows')
+  .requiredOption('--since <duration>', 'Lookback duration (e.g. 30m, 6h, 7d)')
+  .option('--status <status>', 'Filter by outcome: failed|passed|all', 'all')
+  .action((opts) => {
+    try {
+      const status = String(opts.status)
+      if (status !== 'failed' && status !== 'passed' && status !== 'all') {
+        throw new Error(`Invalid status: ${status}. Expected failed, passed, or all.`)
+      }
+      traceRecent({ since: String(opts.since), status })
     } catch (e) {
       console.error(`Error: ${(e as Error).message}`)
       process.exit(1)
