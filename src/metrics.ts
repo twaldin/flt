@@ -76,7 +76,14 @@ function sameLocalDay(aMs: number, bMs: number): boolean {
 function inPeriod(ms: number, now: number, period: Period): boolean {
   if (!Number.isFinite(ms)) return false
   if (period === 'all') return true
-  if (period === 'today') return sameLocalDay(ms, now)
+  // 'today' means rolling last-24h to match the sparkline label and the
+  // user mental model. Calendar-day was wrong: at 12:30 AM most "today"
+  // archives would be from yesterday's date and get filtered out, while
+  // the 24h-rolling sparkline showed bars — out of sync.
+  if (period === 'today') {
+    const delta = now - ms
+    return delta >= 0 && delta <= DAY_MS
+  }
 
   const delta = now - ms
   if (delta < 0) return false

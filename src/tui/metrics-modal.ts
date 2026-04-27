@@ -117,9 +117,9 @@ function sameLocalDay(aMs: number, bMs: number): boolean {
 function inPeriod(ms: number, period: Period, now: number): boolean {
   if (!Number.isFinite(ms)) return false
   if (period === 'all') return true
-  if (period === 'today') return sameLocalDay(ms, now)
   const delta = now - ms
   if (delta < 0) return false
+  if (period === 'today') return delta <= HOURS_24_MS
   if (period === 'week') return delta <= 7 * HOURS_24_MS
   return delta <= 30 * HOURS_24_MS
 }
