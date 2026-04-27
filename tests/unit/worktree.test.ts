@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it } from 'bun:test'
 import { execFileSync } from 'child_process'
-import { mkdtempSync, rmSync, writeFileSync } from 'fs'
+import { chmodSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, readlinkSync, rmSync, writeFileSync } from 'fs'
 import { tmpdir } from 'os'
 import { join } from 'path'
 import { createWorktree } from '../../src/worktree'
@@ -88,5 +88,81 @@ describe('createWorktree', () => {
     expect(git(repoDir, 'rev-list', '--count', `${second.branch}`, '--not', 'HEAD')).toBe('0')
     expect(git(second.path, 'rev-parse', '--abbrev-ref', 'HEAD')).toBe(second.branch)
     expect(git(repoDir, 'rev-parse', second.branch)).toBe(git(repoDir, 'rev-parse', 'HEAD'))
+  })
+
+  it('runs .flt/worktree-setup.sh when present and passes wtPath/repoDir args', () => {
+    const repoDir = initRepo()
+    cleanupPaths.add(repoDir)
+
+    mkdirSync(join(repoDir, '.flt'), { recursive: true })
+    const markerPath = join(repoDir, '.hook-args')
+    const scriptPath = join(repoDir, '.flt', 'worktree-setup.sh')
+    writeFileSync(scriptPath, `#!/bin/sh\nprintf "%s\\n%s\\n" "$1" "$2" > "${markerPath}"\n`)
+    chmodSync(scriptPath, 0o755)
+
+    const agentName = uniqueAgentName('hook-runs')
+    const wt = createWorktree(repoDir, agentName)
+    cleanupPaths.add(wt.path)
+
+    expect(existsSync(markerPath)).toBe(true)
+    const [arg1, arg2] = readFileSync(markerPath, 'utf-8').trim().split('\n')
+    expect(arg1).toBe(wt.path)
+    expect(arg2).toBe(repoDir)
+  })
+
+  it('does not block worktree creation when .flt/worktree-setup.sh fails', () => {
+    const repoDir = initRepo()
+    cleanupPaths.add(repoDir)
+
+    mkdirSync(join(repoDir, '.flt'), { recursive: true })
+    const scriptPath = join(repoDir, '.flt', 'worktree-setup.sh')
+    writeFileSync(scriptPath, '#!/bin/sh\nexit 1\n')
+    chmodSync(scriptPath, 0o755)
+
+    const agentName = uniqueAgentName('hook-fails')
+    const wt = createWorktree(repoDir, agentName)
+    cleanupPaths.add(wt.path)
+
+    expect(existsSync(wt.path)).toBe(true)
+    expect(git(wt.path, 'rev-parse', '--abbrev-ref', 'HEAD')).toBe(wt.branch)
+  })
+
+  it('symlinks top-level gitignored entries when no hook exists', () => {
+    const repoDir = initRepo()
+    cleanupPaths.add(repoDir)
+
+    writeFileSync(join(repoDir, '.gitignore'), 'node_modules\n.env\n')
+    mkdirSync(join(repoDir, 'node_modules'), { recursive: true })
+    writeFileSync(join(repoDir, 'node_modules', 'pkg.txt'), 'pkg\n')
+    writeFileSync(join(repoDir, '.env'), 'SECRET=1\n')
+
+    const agentName = uniqueAgentName('symlink-top-level')
+    const wt = createWorktree(repoDir, agentName)
+    cleanupPaths.add(wt.path)
+
+    const wtNodeModules = join(wt.path, 'node_modules')
+    const wtEnv = join(wt.path, '.env')
+
+    expect(lstatSync(wtNodeModules).isSymbolicLink()).toBe(true)
+    expect(lstatSync(wtEnv).isSymbolicLink()).toBe(true)
+    expect(readlinkSync(wtNodeModules)).toBe(join(repoDir, 'node_modules'))
+    expect(readlinkSync(wtEnv)).toBe(join(repoDir, '.env'))
+  })
+
+  it('does not symlink nested or glob gitignore patterns', () => {
+    const repoDir = initRepo()
+    cleanupPaths.add(repoDir)
+
+    writeFileSync(join(repoDir, '.gitignore'), 'foo/bar\n*.log\n')
+    mkdirSync(join(repoDir, 'foo'), { recursive: true })
+    writeFileSync(join(repoDir, 'foo', 'bar'), 'nested\n')
+    writeFileSync(join(repoDir, 'test.log'), 'log\n')
+
+    const agentName = uniqueAgentName('symlink-skip-patterns')
+    const wt = createWorktree(repoDir, agentName)
+    cleanupPaths.add(wt.path)
+
+    expect(existsSync(join(wt.path, 'foo', 'bar'))).toBe(false)
+    expect(existsSync(join(wt.path, 'test.log'))).toBe(false)
   })
 })

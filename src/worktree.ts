@@ -1,7 +1,7 @@
 import { execFileSync } from 'child_process'
 import { tmpdir } from 'os'
 import { join } from 'path'
-import { existsSync, readFileSync, writeFileSync } from 'fs'
+import { existsSync, readFileSync, symlinkSync, writeFileSync } from 'fs'
 
 export interface WorktreeInfo {
   path: string
@@ -31,6 +31,7 @@ function parseCount(value: string | null): number {
 export function createWorktree(repoDir: string, agentName: string): WorktreeInfo {
   const branch = `flt/${agentName}`
   const wtPath = join(tmpdir(), `flt-wt-${agentName}`)
+  let wtFreshlyCreated = false
 
   gitNoThrow(repoDir, 'fetch', 'origin', branch)
 
@@ -63,6 +64,7 @@ export function createWorktree(repoDir: string, agentName: string): WorktreeInfo
 
   if (branchHasWork) {
     git(repoDir, 'worktree', 'add', wtPath, branch)
+    wtFreshlyCreated = true
     if (remoteExists) {
       gitNoThrow(wtPath, 'merge', '--ff-only', `origin/${branch}`)
     }
@@ -70,6 +72,11 @@ export function createWorktree(repoDir: string, agentName: string): WorktreeInfo
     gitNoThrow(repoDir, 'branch', '-D', branch)
     gitNoThrow(repoDir, 'worktree', 'prune')
     git(repoDir, 'worktree', 'add', '-b', branch, wtPath, 'HEAD')
+    wtFreshlyCreated = true
+  }
+
+  if (wtFreshlyCreated) {
+    runWorktreeSetup(repoDir, wtPath)
   }
 
   // Auto-add flt agent scratch dirs to project's .gitignore so per-spawn
@@ -98,6 +105,56 @@ export function ensureFltGitignore(repoDir: string): void {
   const sep = body.length > 0 && !body.endsWith('\n') ? '\n' : ''
   const block = `${sep}\n# flt agent fleet artifacts (per-spawn scratch + handoff docs)\n${additions.join('\n')}\n`
   try { writeFileSync(path, body + block) } catch { /* best-effort */ }
+}
+
+function runWorktreeSetup(repoDir: string, wtPath: string): void {
+  const hookPath = join(repoDir, '.flt', 'worktree-setup.sh')
+  if (existsSync(hookPath)) {
+    try {
+      execFileSync(hookPath, [wtPath, repoDir], {
+        stdio: 'inherit',
+        timeout: 120_000,
+      })
+    } catch (error) {
+      process.stderr.write(`flt: .flt/worktree-setup.sh failed: ${(error as Error).message}\n`)
+    }
+    return
+  }
+
+  symlinkGitignoredEntries(repoDir, wtPath)
+}
+
+function symlinkGitignoredEntries(repoDir: string, wtPath: string): void {
+  let gitignoreBody: string
+  try {
+    gitignoreBody = readFileSync(join(repoDir, '.gitignore'), 'utf-8')
+  } catch {
+    return
+  }
+
+  const entries = gitignoreBody
+    .split('\n')
+    .map(line => line.trim())
+    .filter(line => line && !line.startsWith('#') && !line.startsWith('!'))
+    .filter(line => !line.includes('/') && !line.includes('*') && !line.includes('?'))
+    .map(line => line.replace(/^\/+|\/+$/g, ''))
+
+  const seen = new Set<string>()
+  for (const entry of entries) {
+    if (!entry || seen.has(entry)) continue
+    seen.add(entry)
+
+    const src = join(repoDir, entry)
+    const dst = join(wtPath, entry)
+    if (!existsSync(src)) continue
+    if (existsSync(dst)) continue
+
+    try {
+      symlinkSync(src, dst)
+    } catch (error) {
+      process.stderr.write(`flt: failed to symlink ${entry}: ${(error as Error).message}\n`)
+    }
+  }
 }
 
 export function removeWorktree(repoDir: string, wtPath: string, branch: string): void {
