@@ -32,6 +32,7 @@ export interface GatesModalState {
   rejectPrompt: { reason: string } | null
   cancelConfirm: boolean
   blockerOverlay: BlockerRow | null
+  detailOverlay: ModalRow | null
   questionPicker: {
     question: Question
     answerPath: string
@@ -165,6 +166,7 @@ export function initialGatesModalState(): GatesModalState {
     rejectPrompt: null,
     cancelConfirm: false,
     blockerOverlay: null,
+    detailOverlay: null,
     questionPicker: null,
     watcher: null,
     qnaWatcher: null,
@@ -476,6 +478,55 @@ function renderBlockerOverlay(
   putLine(screen, overlayTop + height - 2, overlayLeft + 2, innerWidth, 'Esc close', t.sidebarMuted, '', ATTR_DIM)
 }
 
+function renderDetailOverlay(
+  screen: Screen,
+  state: GatesModalState,
+  top: number,
+  left: number,
+  cols: number,
+  rows: number,
+): void {
+  const t = getTheme()
+  const row = state.detailOverlay
+  if (!row) return
+
+  const innerCap = Math.max(40, Math.min(96, cols - 8))
+  const reasonLines = wordWrap(row.reason, innerCap - 4)
+  const headerLines = 4 // title + run/workflow + kind/age + spacer
+  const footerLines = 2 // spacer + action hint
+  const contentLines = reasonLines.length
+  const desiredHeight = headerLines + contentLines + footerLines + 2 // +2 for borders
+  const height = Math.max(8, Math.min(desiredHeight, rows - 4))
+  const width = innerCap
+  const overlayLeft = left + Math.floor((cols - width) / 2)
+  const overlayTop = top + Math.floor((rows - height) / 2)
+
+  for (let r = overlayTop; r < overlayTop + height; r += 1) {
+    screen.put(r, overlayLeft, ' '.repeat(width), t.sidebarText, '')
+  }
+  screen.box(overlayTop, overlayLeft, width, height, 'round', t.sidebarBorder)
+
+  const title = ` ${kindLabel(row.kind)} `
+  screen.put(overlayTop, overlayLeft + Math.max(1, Math.floor((width - widthOf(title)) / 2)), title, t.sidebarBorder, '', ATTR_BOLD)
+
+  const innerWidth = width - 4
+  let r = overlayTop + 1
+  putLine(screen, r, overlayLeft + 2, innerWidth, `Run: ${row.runId}  ·  Workflow: ${row.workflow}`, t.sidebarText, '', ATTR_BOLD)
+  r += 1
+  putLine(screen, r, overlayLeft + 2, innerWidth, `Age: ${formatAge(row.ageMs)}`, t.sidebarMuted, '', ATTR_DIM)
+  r += 2
+
+  const maxReasonRows = Math.max(0, overlayTop + height - 2 - r)
+  for (let i = 0; i < reasonLines.length && i < maxReasonRows; i += 1) {
+    putLine(screen, r, overlayLeft + 2, innerWidth, reasonLines[i]!, t.sidebarText)
+    r += 1
+  }
+
+  const hint = kindFooter(row.kind)
+  const footer = hint ? `${hint} | Esc close` : 'Esc close'
+  putLine(screen, overlayTop + height - 2, overlayLeft + 2, innerWidth, footer, t.sidebarMuted, '', ATTR_DIM)
+}
+
 export function renderGatesModal(screen: Screen, state: GatesModalState, layout: { width: number; height: number }): void {
   const t = getTheme()
   const { width: cols, height: rows } = layout
@@ -550,6 +601,8 @@ export function renderGatesModal(screen: Screen, state: GatesModalState, layout:
 
   if (state.blockerOverlay) {
     renderBlockerOverlay(screen, state, top, left, cols, rows)
+  } else if (state.detailOverlay) {
+    renderDetailOverlay(screen, state, top, left, cols, rows)
   } else if (state.cancelConfirm) {
     renderCancelConfirm(screen, state, top, left, cols, rows)
   } else if (state.rejectPrompt) {
@@ -715,6 +768,57 @@ export function handleGatesKey(state: GatesModalState, key: string, actions: Gat
     return true
   }
 
+  // Detail overlay: read full text, then act. Action keys still work in the
+  // overlay (close on action). Esc closes without acting.
+  if (state.detailOverlay) {
+    if (key === 'escape') {
+      state.detailOverlay = null
+      return true
+    }
+    const row = state.detailOverlay
+    const dispatch = (k: string): boolean => {
+      switch (row.kind) {
+        case 'human_gate':
+          if (k === 'a') { actions.approve(row.runId); state.detailOverlay = null; return true }
+          if (k === 'x') { state.detailOverlay = null; state.rejectPrompt = { reason: '' }; return true }
+          break
+        case 'node-fail': {
+          const nodeId = typeof row.payload.nodeId === 'string' ? row.payload.nodeId : undefined
+          if (k === 'r') { actions.nodeRetry(row.runId, nodeId); state.detailOverlay = null; return true }
+          if (k === 's') { actions.nodeSkip(row.runId, nodeId); state.detailOverlay = null; return true }
+          if (k === 'a') { actions.nodeAbort(row.runId); state.detailOverlay = null; return true }
+          break
+        }
+        case 'reconcile-fail':
+          if (k === 'r') { actions.reconcileRetry(row.runId); state.detailOverlay = null; return true }
+          if (k === 'a') { actions.reconcileAbort(row.runId); state.detailOverlay = null; return true }
+          break
+        case 'blocker':
+          if (k === 'v') {
+            const blockers = scanBlockers()
+            const blocker = blockers.find(b => b.runId === row.runId)
+            if (blocker) state.blockerOverlay = blocker
+            state.detailOverlay = null
+            return true
+          }
+          break
+      }
+      return false
+    }
+    if (dispatch(key)) return true
+    if (key === 'c') {
+      state.detailOverlay = null
+      state.cancelConfirm = true
+      return true
+    }
+    if (key === 'd' && row.runDir) {
+      state.detailOverlay = null
+      actions.dismissBlocker(row.runDir)
+      return true
+    }
+    return true
+  }
+
   if (state.cancelConfirm) {
     if (key === 'y') {
       const row = state.rows[state.selectedIndex]
@@ -862,6 +966,14 @@ export function handleGatesKey(state: GatesModalState, key: string, actions: Gat
     const blockers = scanBlockers()
     const blocker = blockers.find(b => b.runId === row.runId)
     if (blocker) state.blockerOverlay = blocker
+    return true
+  }
+
+  // Enter on a non-question/non-candidate row opens a word-wrapped detail
+  // overlay so the full reason text is readable. Action keys still work
+  // from within the overlay.
+  if (key === 'enter' && row.kind !== 'question' && row.kind !== 'node-candidate') {
+    state.detailOverlay = row
     return true
   }
 

@@ -159,6 +159,7 @@ function parseDynamicDagStep(raw: Record<string, unknown>, stepId: string): Dyna
     max_depth: positiveInt(raw.max_depth, stepId, 'max_depth') ?? 5,
     max_parallel_per_wave: positiveInt(raw.max_parallel_per_wave, stepId, 'max_parallel_per_wave') ?? 6,
     node_max_retries: positiveInt(raw.node_max_retries, stepId, 'node_max_retries') ?? 2,
+    node_reviewer_preset: typeof raw.node_reviewer_preset === 'string' && raw.node_reviewer_preset.length > 0 ? raw.node_reviewer_preset : undefined,
     on_complete: typeof raw.on_complete === 'string' ? raw.on_complete : undefined,
     on_fail: typeof raw.on_fail === 'string' ? raw.on_fail : undefined,
     max_retries: typeof raw.max_retries === 'number' ? raw.max_retries : undefined,
