@@ -72,6 +72,9 @@ export interface InputBindings {
   openSpawnModal: () => void
   openWorkflowsModal: () => void
   closeWorkflowsModal: () => void
+  openGatesModal: () => void
+  closeGatesModal: () => void
+  gatesKey: (key: string) => void
   setWorkflowFilter: (filter: WorkflowFilter) => void
   workflowsSelectNext: () => void
   workflowsSelectPrev: () => void
@@ -732,6 +735,7 @@ function executeKeybindAction(mode: ConfigurableMode, action: KeybindAction, bin
   else if (action === 'openCommand') bindings.openCommand('')
   else if (action === 'openSpawn') bindings.openSpawnModal()
   else if (action === 'openWorkflows') bindings.openWorkflowsModal()
+  else if (action === 'openGates') bindings.openGatesModal()
   else if (action === 'killConfirm' && state.selectedAgent) bindings.setKillConfirm(state.selectedAgent.name)
   else if (action === 'openInbox') bindings.setMode('inbox')
   else if (action === 'reply') {
@@ -1073,6 +1077,11 @@ function handleSpecialKey(event: Extract<ParsedInputEvent, { type: 'key' }>, bin
     return
   }
 
+  if (state.mode === 'gates') {
+    bindings.gatesKey(event.key)
+    return
+  }
+
   if (state.mode === 'metrics') {
     if (event.key === 'escape') bindings.closeMetrics()
   }
@@ -1126,6 +1135,8 @@ function handleText(event: Extract<ParsedInputEvent, { type: 'text' }>, bindings
       handlePresetsChar(char, bindings)
     } else if (state.mode === 'workflows') {
       handleWorkflowsChar(char, bindings)
+    } else if (state.mode === 'gates') {
+      bindings.gatesKey(char)
     } else if (state.mode === 'metrics') {
       handleMetricsChar(char, bindings)
     }

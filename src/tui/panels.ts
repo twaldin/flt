@@ -4,6 +4,7 @@ import { COLORS, fg, getTheme, modeColor, statusColor, statusSymbol } from './th
 import type { AgentView, AppState, ModalState } from './types'
 import { getAsciiLogo, getAsciiLogoWidth } from './ascii'
 import { renderWorkflowModal } from './modal-workflows'
+import { renderGatesModal } from './modal-gates'
 import { renderMetricsModal } from './metrics-modal'
 import { truncateEllipsis } from './columns'
 import { sidebarEntryRows, shouldRenderWorkflowRow, workflowLabel } from './sidebar-utils'
@@ -1002,6 +1003,10 @@ export function renderLayout(screen: Screen, state: AppState): void {
 
   if (state.workflowsModal) {
     renderWorkflowModal(state.workflowsModal, screen, cols, rows)
+  }
+
+  if (state.gatesModal) {
+    renderGatesModal(screen, state.gatesModal, { width: cols, height: rows })
   }
 
   if (state.metrics) {

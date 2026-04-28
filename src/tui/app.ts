@@ -17,6 +17,9 @@ import { calculateLayout, renderLayout } from './panels'
 import { Screen } from './screen'
 import { getWorkflowHistory, type WorkflowFilter } from '../metrics-workflows'
 import { initialWorkflowModalState, loadWorkflowRows } from './modal-workflows'
+import { initialGatesModalState, openGatesWatcher, closeGatesWatcher, handleGatesKey, type GatesActions } from './modal-gates'
+import { workflowApprove, workflowReject, workflowNodeDecision, workflowReconcileDecision, workflowCancel } from '../commands/workflow'
+import { scanGates, cleanStaleGates } from '../gates'
 import { getCurrentThemeName, getThemeBackground, getThemeNames, setTheme } from './theme'
 import { getAsciiLogo } from './ascii'
 import { invalidateMetricsModalCache } from './metrics-modal'
@@ -254,6 +257,9 @@ export class App {
       openSpawnModal: () => this.openSpawnModal(),
       openWorkflowsModal: () => this.openWorkflowsModal(),
       closeWorkflowsModal: () => this.closeWorkflowsModal(),
+      openGatesModal: () => this.openGatesModal(),
+      closeGatesModal: () => this.closeGatesModal(),
+      gatesKey: (key) => this.gatesKey(key),
       setWorkflowFilter: (filter) => this.setWorkflowFilter(filter),
       workflowsSelectNext: () => this.workflowsSelectNext(),
       workflowsSelectPrev: () => this.workflowsSelectPrev(),
@@ -302,6 +308,11 @@ export class App {
     if (this.cleanupInput) {
       this.cleanupInput()
       this.cleanupInput = null
+    }
+
+    if (this.state.gatesModal) {
+      closeGatesWatcher(this.state.gatesModal)
+      this.state.gatesModal = null
     }
 
     // Clean up typing indicator
@@ -1430,6 +1441,82 @@ export class App {
     modal.drilldownId = null
     modal.drilldownTitle = null
     this.requestRender()
+  }
+
+  private openGatesModal(): void {
+    this.state.gatesModal = initialGatesModalState()
+    openGatesWatcher(this.state.gatesModal, () => {
+      this.requestRender()
+    })
+    this.setMode('gates')
+    this.requestRender()
+  }
+
+  private closeGatesModal(): void {
+    if (this.state.gatesModal) {
+      closeGatesWatcher(this.state.gatesModal)
+      this.state.gatesModal = null
+    }
+    if (this.state.mode === 'gates') {
+      this.setMode('normal')
+    } else {
+      this.requestRender()
+    }
+  }
+
+  private refreshGates(): void {
+    const modal = this.state.gatesModal
+    if (!modal) return
+    cleanStaleGates()
+    modal.rows = scanGates()
+    this.requestRender()
+  }
+
+  private gatesKey(key: string): void {
+    const modal = this.state.gatesModal
+    if (!modal) return
+
+    const actions: GatesActions = {
+      approve: (runId, opts) => {
+        workflowApprove(runId, opts).then(() => this.refreshGates()).catch(() => this.refreshGates())
+      },
+      reject: (runId, reason) => {
+        workflowReject(runId, reason).then(() => this.refreshGates()).catch(() => this.refreshGates())
+      },
+      nodeRetry: (runId, nodeId) => {
+        workflowNodeDecision('retry', runId, nodeId).then(() => this.refreshGates()).catch(() => this.refreshGates())
+      },
+      nodeSkip: (runId, nodeId) => {
+        workflowNodeDecision('skip', runId, nodeId).then(() => this.refreshGates()).catch(() => this.refreshGates())
+      },
+      nodeAbort: (runId) => {
+        workflowNodeDecision('abort', runId).then(() => this.refreshGates()).catch(() => this.refreshGates())
+      },
+      reconcileRetry: (runId) => {
+        workflowReconcileDecision('retry-reconcile', runId).then(() => this.refreshGates()).catch(() => this.refreshGates())
+      },
+      reconcileAbort: (runId) => {
+        workflowReconcileDecision('abort', runId).then(() => this.refreshGates()).catch(() => this.refreshGates())
+      },
+      pickCandidate: (runId, nodeId, candidate) => {
+        workflowApprove(runId, { candidate, nodeId }).then(() => this.refreshGates()).catch(() => this.refreshGates())
+      },
+      cancelRun: (runId) => {
+        workflowCancel(runId).then(() => this.refreshGates()).catch(() => this.refreshGates())
+      },
+      dismissBlocker: (runDir) => {
+        try { unlinkSync(join(runDir, '.gate-pending')) } catch {}
+        this.refreshGates()
+      },
+      refresh: () => this.refreshGates(),
+    }
+
+    const handled = handleGatesKey(modal, key, actions)
+    if (!handled) {
+      this.closeGatesModal()
+    } else {
+      this.requestRender()
+    }
   }
 
   private openSpawnModal(rawCommand?: string): void {
