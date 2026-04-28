@@ -10,15 +10,33 @@ steps:
       The json must contain a 'questions' array with all your questions in one shot — do NOT call ask human multiple times. Each Question must have: id (short kebab-case), header (one-line), question (full prompt), multiSelect (boolean), options (array of {label, description?}). Pre-author concrete options so the user picks rather than typing.
       After the call returns, write all Q&A to grill-answers.md in your worktree (one ## section per question with the user's chosen answer).
       flt workflow pass when grill-answers.md exists.
-    on_complete: spec
+    on_complete: research
   - id: research
-    run: 'flt ask oracle "What is the current best-practice stack and gotchas for: {task}"'
+    preset: cc-sonnet
+    task: |
+      Original task: {task}
+
+      Read {steps.grill.worktree}/grill-answers.md to learn the user's preferences.
+
+      Write research.md in your worktree covering best-practice stack + gotchas
+      for this task. Sections:
+      - Recommended stack/framework (1-line reason each, respect grill answers)
+      - Common gotchas / anti-patterns to avoid
+      - 2-3 reference projects, libraries, or doc URLs worth reading
+
+      Use your own knowledge first. If you want a second opinion on a specific
+      sub-question, fire `flt ask oracle "<focused question>"` — its answer
+      will arrive in your tmux feed, paste relevant bits into research.md.
+      Cap oracle queries at 2.
+
+      flt workflow pass when research.md is written.
     on_complete: spec
   - id: spec
     preset: cc-sonnet
     task: |
       Read {steps.grill.worktree}/grill-answers.md FIRST and treat the user's answers as binding.
-      Using the research from inbox, write spec.md for: {task}.
+      Read {steps.research.worktree}/research.md for stack/gotchas context.
+      Write spec.md for: {task}.
     on_complete: architect
   - id: architect
     preset: cc-opus
