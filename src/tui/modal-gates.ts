@@ -197,6 +197,18 @@ function formatAge(ms: number): string {
   return `${hours}h`
 }
 
+function kindColor(kind: string, t: ReturnType<typeof getTheme>): string {
+  switch (kind) {
+    case 'human_gate': return t.statusRunning   // calls for action — accent
+    case 'node-fail': return t.statusError       // failure — alert
+    case 'reconcile-fail': return t.statusError  // failure — alert
+    case 'node-candidate': return t.statusRunning // calls for action
+    case 'question': return t.commandPrefix       // info / waiting on you
+    case 'blocker': return t.statusError         // hard stop
+    default: return t.sidebarText
+  }
+}
+
 function kindLabel(kind: string): string {
   switch (kind) {
     case 'human_gate': return 'human'
@@ -427,16 +439,17 @@ export function renderGatesModal(screen: Screen, state: GatesModalState, layout:
     for (let i = scrollOffset; i < state.rows.length && r <= innerBottom - 1; i += 1) {
       const row = state.rows[i]
       const selected = i === selectedIndex
+      const kindFg = kindColor(row.kind, t)
       putSeparatedRow(
         screen,
         r,
         left + 1,
         widths,
         [formatAge(row.ageMs), row.runId, row.workflow, kindLabel(row.kind), row.reason],
-        selected ? t.sidebarSelected : t.sidebarText,
+        selected ? t.sidebarSelected : kindFg,
         t.sidebarBorder,
         selected ? t.sidebarSelectedBg : '',
-        selected ? ATTR_INVERSE : 0,
+        0,
       )
       r += 1
     }

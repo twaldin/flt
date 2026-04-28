@@ -688,7 +688,7 @@ export function renderMetricsModal(screen: Screen, state: MetricsModalState, ter
     // right border — the bar uses `█` which fills its cell completely,
     // so without breathing room it visually fuses with the `│` border.
     const barRoom = Math.max(1, innerWidth - 4)
-    putLine(screen, row, innerLeft + 2, barRoom, bar(item.cost, maxCost, Math.min(barWidth, barRoom)), t.commandPrefix)
+    putLine(screen, row, innerLeft + 2, barRoom, bar(item.cost, maxCost, Math.min(barWidth, barRoom)), t.sidebarBorder)
     row += 1
   }
   if (hidden > 0) {
