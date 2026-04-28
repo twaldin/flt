@@ -366,4 +366,46 @@ steps:
     expect(def.name).toBe('daily-mutator')
     expect(def.steps.map(step => step.id)).toEqual(['collect', 'redact', 'find_skills', 'mutate', 'eval', 'gate'])
   })
+
+  it('auto_pr: true round-trips', () => {
+    const def = validate(`
+name: wf
+auto_pr: true
+steps:
+  - id: s
+    run: echo hi
+`)
+    expect(def.auto_pr).toBe(true)
+  })
+
+  it('auto_pr: false round-trips', () => {
+    const def = validate(`
+name: wf
+auto_pr: false
+steps:
+  - id: s
+    run: echo hi
+`)
+    expect(def.auto_pr).toBe(false)
+  })
+
+  it('omitting auto_pr leaves field undefined', () => {
+    const def = validate(`
+name: wf
+steps:
+  - id: s
+    run: echo hi
+`)
+    expect(def.auto_pr).toBeUndefined()
+  })
+
+  it('non-boolean auto_pr throws', () => {
+    expect(() => validate(`
+name: wf
+auto_pr: "yes"
+steps:
+  - id: s
+    run: echo hi
+`)).toThrow()
+  })
 })
