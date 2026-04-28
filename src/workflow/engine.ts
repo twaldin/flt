@@ -1315,6 +1315,13 @@ async function advanceDynamicDag(def: WorkflowDef, run: WorkflowRun, step: Dynam
           },
         })
       } else {
+        if (c.node.coderAgent) {
+          try {
+            const { killDirect } = await import('../commands/kill')
+            await killDirect({ name: c.node.coderAgent, preserveWorktree: true, fromWorkflow: true })
+          } catch {}
+          c.node.coderAgent = undefined
+        }
         c.node.retries += 1
         if (c.node.retries >= (step.node_max_retries ?? 2)) {
           await fireNodeFailGate(run, step, c.node, result.failReason ?? 'node failed')
@@ -1382,6 +1389,14 @@ async function advanceDynamicDag(def: WorkflowDef, run: WorkflowRun, step: Dynam
             })
           }
         } else {
+          if (c.node.candidates) {
+            const { killDirect } = await import('../commands/kill')
+            for (const cand of c.node.candidates) {
+              try {
+                await killDirect({ name: cand.agentName, preserveWorktree: true, fromWorkflow: true })
+              } catch {}
+            }
+          }
           c.node.retries += 1
           if (c.node.retries >= (step.node_max_retries ?? 2)) {
             await fireNodeFailGate(run, step, c.node, 'all tournament candidates failed')
