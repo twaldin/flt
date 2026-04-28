@@ -658,9 +658,9 @@ export function renderMetricsModal(screen: Screen, state: MetricsModalState, ter
       }
     }
   }
-  renderGroupRow(groupCols, t.sidebarMuted, ATTR_BOLD)
+  renderGroupRow(groupCols, t.sidebarTitle, ATTR_BOLD)
   row += 1
-  putLine(screen, row, innerLeft, innerWidth, '─'.repeat(Math.max(0, innerWidth)), t.sidebarMuted)
+  putLine(screen, row, innerLeft, innerWidth, '─'.repeat(Math.max(0, innerWidth)), t.sidebarBorder)
   row += 1
 
   const groupCapRows = Math.max(2, groupSectionMax - 2)
@@ -724,11 +724,11 @@ export function renderMetricsModal(screen: Screen, state: MetricsModalState, ter
   const runMinWidths = runCols.map((header, i) => Math.max(widthOf(header), ...runData.map(cells => widthOf(cells[i]))))
   const runWidths = computeColumnWidths(runMinWidths, innerWidth)
 
-  putSeparatedRow(screen, row, innerLeft, runWidths, runCols, t.sidebarMuted, t.sidebarBorder, ATTR_BOLD)
+  putSeparatedRow(screen, row, innerLeft, runWidths, runCols, t.sidebarTitle, t.sidebarBorder, ATTR_BOLD)
   row += 1
   // Horizontal rule with ┼ at the column-separator positions so the
   // underline meets the vertical separators cleanly.
-  putHorizontalRule(screen, row, innerLeft, runWidths, t.sidebarMuted)
+  putHorizontalRule(screen, row, innerLeft, runWidths, t.sidebarBorder)
   row += 1
 
   const maxRunRows = Math.max(0, innerTop + innerHeight - 2 - row)
