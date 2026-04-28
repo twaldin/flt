@@ -1,7 +1,7 @@
 import { existsSync, readdirSync, readFileSync } from 'fs'
 import { homedir } from 'os'
 import { join } from 'path'
-import { getOrchestrator } from '../state'
+import { getOrchestrator, hasAgent } from '../state'
 import { aggregateRuns, type ArchiveEntry, type Period } from '../metrics'
 import { computeColumnWidths, formatTokenPair, truncateEllipsis } from './columns'
 import { ATTR_BOLD, ATTR_DIM, type Screen } from './screen'
@@ -514,9 +514,14 @@ export function buildRunsTree(
 
       const cost = children.reduce((s, c) => s + c.cost, 0)
       const spawnedMs = Math.max(Number.NaN, ...children.map(c => c.spawnedMs))
+      // Label: "<workflow> · <slug>" so multiple runs of the same workflow
+      // (e.g. several idea-to-pr's) are visually distinct in the tree.
+      const wfName = run.workflow ?? '(workflow)'
+      const id = run.id ?? `${wfName}:${workflowNodes.length}`
+      const slug = id.startsWith(`${wfName}-`) ? id.slice(wfName.length + 1) : id
       workflowNodes.push({
-        id: run.id ?? `${run.workflow ?? 'workflow'}:${workflowNodes.length}`,
-        label: run.workflow ?? run.id ?? '(workflow)',
+        id,
+        label: slug && slug !== wfName ? `${wfName} · ${slug}` : wfName,
         archive: null,
         isWorkflowNode: true,
         children,
@@ -715,9 +720,28 @@ export function renderMetricsModal(screen: Screen, state: MetricsModalState, ter
   putLine(screen, row, innerLeft, innerWidth, `recent runs (tree, ${filtered.length} total) — j/k scroll`, t.sidebarMuted)
   row += 1
 
+  // Tree root: prefer the literal 'orchestrator' agent if present in state —
+  // workflows are spawned under that agent name even when getOrchestrator()'s
+  // type is 'human' (which only means the human's tmux session sits above
+  // the orchestrator agent, not that there's no orchestrator agent).
   const orchestrator = getOrchestrator()
-  const orchestratorName = orchestrator ? (orchestrator.type === 'human' ? 'human' : 'orchestrator') : 'human'
-  const runRows = buildRunsTree(filtered, data.runs, data.parents, orchestratorName)
+  const orchestratorName = hasAgent('orchestrator')
+    ? 'orchestrator'
+    : (orchestrator ? (orchestrator.type === 'human' ? 'human' : 'orchestrator') : 'human')
+
+  // Drop _smoke* and other _-prefixed (internal) workflows from the tree —
+  // they're test/dev runs and clutter the real workflow view.
+  const internalRunIds = new Set(
+    data.runs.filter(r => (r.workflow ?? '').startsWith('_')).map(r => r.id ?? '').filter(Boolean),
+  )
+  const runsForTree = data.runs.filter(r => !(r.workflow ?? '').startsWith('_'))
+  const archivesForTree = filtered.filter(a => {
+    const runId = String((a as unknown as { runId?: string }).runId ?? '')
+    if (runId && internalRunIds.has(runId)) return false
+    if (a.name.startsWith('_smoke') || a.name.includes('-smoke-')) return false
+    return true
+  })
+  const runRows = buildRunsTree(archivesForTree, runsForTree, data.parents, orchestratorName)
   const runCols = ['ts', 'run', 'model', 'cost', 'tokens']
   const runData = runRows.map(item => [
     item.archive ? formatTime(item.archive.spawnedAt) : '—',
