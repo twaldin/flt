@@ -536,6 +536,7 @@ export async function cancelWorkflow(runId: string): Promise<void> {
 
   run.status = 'cancelled'
   run.completedAt = new Date().toISOString()
+  if (run.runDir) try { unlinkSync(join(run.runDir, '.gate-pending')) } catch {}
   finalizeRun(run)
   cleanupWorkflowWorktrees(run)
 }
