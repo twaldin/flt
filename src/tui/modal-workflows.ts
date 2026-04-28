@@ -42,6 +42,10 @@ function putLine(screen: Screen, row: number, col: number, width: number, text: 
   screen.put(row, col, padRight(text, width), fg, bg, attrs)
 }
 
+// 3-cell separator (" │ ") gives breathing room around vertical column
+// dividers so cells don't sit flush against the line glyph.
+const SEP_W = 3
+
 function putSeparatedRow(
   screen: Screen,
   row: number,
@@ -62,15 +66,15 @@ function putSeparatedRow(
     screen.put(row, x, padRight(cells[i] ?? '', widths[i]), fg, bg, attrs)
     x += widths[i]
     if (i < widths.length - 1) {
-      screen.put(row, x, '│', sepFg, bg, sepAttrs)
-      x += 1
+      screen.put(row, x, ' │ ', sepFg, bg, sepAttrs)
+      x += SEP_W
     }
   }
 }
 
 /**
- * Horizontal rule with ┼ at column-separator positions, so the underline
- * meets the vertical separators cleanly.
+ * Horizontal rule with ─┼─ at column-separator positions, so the underline
+ * meets the padded vertical separators cleanly.
  */
 function putHorizontalRule(
   screen: Screen,
@@ -85,8 +89,8 @@ function putHorizontalRule(
     screen.put(row, x, '─'.repeat(widths[i]), fg)
     x += widths[i]
     if (i < widths.length - 1) {
-      screen.put(row, x, '┼', fg)
-      x += 1
+      screen.put(row, x, '─┼─', fg)
+      x += SEP_W
     }
   }
 }
@@ -134,7 +138,7 @@ function renderListView(state: WorkflowModalState, screen: Screen, top: number, 
     ]
   })
   const minWidths = headers.map((header, i) => Math.max(widthOf(header), ...data.map(cells => widthOf(cells[i]))))
-  const widths = computeColumnWidths(minWidths, innerWidth)
+  const widths = computeColumnWidths(minWidths, innerWidth, Math.max(0, (minWidths.length - 1) * SEP_W))
 
   // Two distinct tables, sharing column widths so they align: RUNNING (top)
   // then a one-row gap, then PAST (bottom). Each has its own section title +
@@ -278,7 +282,7 @@ function renderDrilldownView(state: WorkflowModalState, screen: Screen, top: num
     return [step.name, agentDisplay, statusText, step.atDisplay, step.duration, formatUsd(step.cost), formatTokens(step.cost)]
   })
   const minWidths = headers.map((header, i) => Math.max(widthOf(header), ...data.map(cells => widthOf(cells[i]))))
-  const widths = computeColumnWidths(minWidths, innerWidth)
+  const widths = computeColumnWidths(minWidths, innerWidth, Math.max(0, (minWidths.length - 1) * SEP_W))
 
   putSeparatedRow(screen, row, left + 1, widths, headers, t.sidebarTitle, t.sidebarBorder, '', ATTR_BOLD | ATTR_UNDERLINE)
   row += 1

@@ -77,6 +77,10 @@ function putLine(screen: Screen, row: number, col: number, width: number, text: 
   screen.put(row, col, padRight(text, width), fg, '', attrs)
 }
 
+// 3-cell separator (" │ ") gives breathing room around vertical column
+// dividers so cells don't sit flush against the line glyph.
+const SEP_W = 3
+
 function putSeparatedRow(
   screen: Screen,
   row: number,
@@ -93,16 +97,15 @@ function putSeparatedRow(
     screen.put(row, x, padRight(cells[i] ?? '', widths[i]), fg, '', attrs)
     x += widths[i]
     if (i < widths.length - 1) {
-      screen.put(row, x, '│', separatorFg)
-      x += 1
+      screen.put(row, x, ' │ ', separatorFg)
+      x += SEP_W
     }
   }
 }
 
 /**
- * Horizontal rule that uses ┼ at the column-separator positions, so the
- * underline visually connects to the vertical separators instead of cutting
- * through them with a flat ─.
+ * Horizontal rule that uses ─┼─ at column-separator positions so the
+ * underline visually connects to the padded vertical separators.
  */
 function putHorizontalRule(
   screen: Screen,
@@ -117,8 +120,8 @@ function putHorizontalRule(
     screen.put(row, x, '─'.repeat(widths[i]), fg)
     x += widths[i]
     if (i < widths.length - 1) {
-      screen.put(row, x, '┼', fg)
-      x += 1
+      screen.put(row, x, '─┼─', fg)
+      x += SEP_W
     }
   }
 }
@@ -642,7 +645,9 @@ export function renderMetricsModal(screen: Screen, state: MetricsModalState, ter
     ]
   })
   const groupMinWidths = groupCols.map((header, i) => Math.max(widthOf(header), ...groupData.map(cells => widthOf(cells[i]))))
-  const groupWidths = computeColumnWidths(groupMinWidths, innerWidth)
+  // Group section uses a 2-space gap between cells (no | separators), so
+  // overhead is 2 per gap, not SEP_W.
+  const groupWidths = computeColumnWidths(groupMinWidths, innerWidth, Math.max(0, (groupMinWidths.length - 1) * 2))
 
   // by-<group> section: NO vertical separators (the share-bar row below each
   // data row would break the grid anyway). Use plain padded cells joined by
@@ -722,7 +727,7 @@ export function renderMetricsModal(screen: Screen, state: MetricsModalState, ter
     item.archive ? formatTokenPair(num(item.archive.tokens_in), num(item.archive.tokens_out)) : '—',
   ])
   const runMinWidths = runCols.map((header, i) => Math.max(widthOf(header), ...runData.map(cells => widthOf(cells[i]))))
-  const runWidths = computeColumnWidths(runMinWidths, innerWidth)
+  const runWidths = computeColumnWidths(runMinWidths, innerWidth, Math.max(0, (runMinWidths.length - 1) * SEP_W))
 
   putSeparatedRow(screen, row, innerLeft, runWidths, runCols, t.sidebarTitle, t.sidebarBorder, ATTR_BOLD)
   row += 1
