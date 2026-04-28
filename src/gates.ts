@@ -2,6 +2,7 @@ import { readdirSync, readFileSync, statSync, unlinkSync } from 'fs'
 import { homedir } from 'os'
 import { join } from 'path'
 import type { WorkflowRun } from './workflow/types'
+import { readPendingGates } from './workflow/gates-store'
 
 export type GateKind = 'human_gate' | 'node-fail' | 'reconcile-fail' | 'node-candidate'
 
@@ -60,16 +61,20 @@ export function scanGates(runsDir: string = defaultRunsDir()): GateRow[] {
         continue
       }
 
-      const payload = JSON.parse(readFileSync(gatePath, 'utf-8')) as GatePayload
-      rows.push({
-        runId: entry,
-        workflow: run.workflow,
-        kind: payload.kind,
-        reason: payload.reason ?? payload.message ?? '',
-        ageMs: Date.now() - gateStat.mtime.getTime(),
-        runDir,
-        payload,
-      })
+      // Multiple concurrent gates per run (e.g. several dag node-fails fire in
+      // the same advance tick). Expand the array into one row per gate.
+      const gates = readPendingGates(runDir)
+      for (const payload of gates) {
+        rows.push({
+          runId: entry,
+          workflow: run.workflow,
+          kind: (payload as GatePayload).kind,
+          reason: (payload as GatePayload).reason ?? (payload as GatePayload).message ?? '',
+          ageMs: Date.now() - gateStat.mtime.getTime(),
+          runDir,
+          payload: payload as GatePayload,
+        })
+      }
     } catch {
       // skip malformed run dir
     }

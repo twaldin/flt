@@ -1504,8 +1504,11 @@ export class App {
       cancelRun: (runId) => {
         workflowCancel(runId).then(() => this.refreshGates()).catch(() => this.refreshGates())
       },
-      dismissBlocker: (runDir) => {
-        try { unlinkSync(join(runDir, '.gate-pending')) } catch {}
+      dismissBlocker: (_runDir) => {
+        // No-op on disk — blockers live in artifacts/blocker_report.json,
+        // not .gate-pending. Touching .gate-pending here would nuke any
+        // concurrent gates pending on the same run. Modal-side dismiss
+        // (visual hide) is a future enhancement.
         this.refreshGates()
       },
       refresh: () => this.refreshGates(),
