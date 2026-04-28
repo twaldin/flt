@@ -1,9 +1,17 @@
-import { readFileSync, existsSync } from 'fs'
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'fs'
 import { join } from 'path'
 import { homedir } from 'os'
 import { resolveRoute } from '../routing/resolver'
 import { spawnDirect } from './spawn'
 import { killDirect } from './kill'
+import {
+  answerPath,
+  defaultQnaDir,
+  qnaRunDir,
+  questionPath,
+  type Answer,
+  type AskPayload,
+} from '../qna'
 
 type AskOptions = {
   from?: string
@@ -85,4 +93,89 @@ function readInbox(path: string): string {
 
 function sleep(ms: number): Promise<void> {
   return new Promise(resolve => setTimeout(resolve, ms))
+}
+
+export interface AskHumanOptions {
+  runId?: string
+  timeoutMs?: number
+  qnaDir?: string
+  pollMs?: number
+}
+
+export interface AskHumanResult {
+  status: 'ok' | 'timeout'
+  answers: Answer[]
+}
+
+function validatePayload(payload: unknown): AskPayload {
+  if (!payload || typeof payload !== 'object') {
+    throw new Error('ask human payload must be an object with a `questions` array')
+  }
+  const obj = payload as Record<string, unknown>
+  const questions = obj.questions
+  if (!Array.isArray(questions) || questions.length === 0) {
+    throw new Error('ask human payload requires `questions: Question[]` (at least one)')
+  }
+  for (const q of questions) {
+    if (!q || typeof q !== 'object') throw new Error('each question must be an object')
+    const qq = q as Record<string, unknown>
+    if (typeof qq.id !== 'string' || qq.id.length === 0) {
+      throw new Error('each question requires a non-empty string id')
+    }
+    if (typeof qq.question !== 'string' || qq.question.length === 0) {
+      throw new Error(`question ${String(qq.id)} requires a non-empty question string`)
+    }
+    if (!Array.isArray(qq.options)) {
+      throw new Error(`question ${String(qq.id)} requires options[]`)
+    }
+  }
+  return payload as AskPayload
+}
+
+export async function askHuman(
+  payload: AskPayload,
+  opts: AskHumanOptions = {},
+): Promise<AskHumanResult> {
+  validatePayload(payload)
+  const qnaDir = opts.qnaDir ?? defaultQnaDir()
+  const runId = opts.runId
+  const dir = qnaRunDir(qnaDir, runId)
+  mkdirSync(dir, { recursive: true })
+
+  for (const q of payload.questions) {
+    const qPath = questionPath(qnaDir, runId, q.id)
+    if (existsSync(qPath)) {
+      throw new Error(`question id "${q.id}" already exists at ${qPath}`)
+    }
+    writeFileSync(qPath, JSON.stringify(q, null, 2))
+  }
+
+  const timeoutMs = opts.timeoutMs ?? 60 * 60 * 1000
+  const pollMs = opts.pollMs ?? 1000
+  const deadline = Date.now() + timeoutMs
+  const expectedIds = new Set(payload.questions.map(q => q.id))
+  const collected = new Map<string, Answer>()
+
+  while (Date.now() < deadline) {
+    for (const q of payload.questions) {
+      if (collected.has(q.id)) continue
+      const aPath = answerPath(qnaDir, runId, q.id)
+      if (!existsSync(aPath)) continue
+      try {
+        const ans = JSON.parse(readFileSync(aPath, 'utf-8')) as Answer
+        if (ans.questionId === q.id) collected.set(q.id, ans)
+      } catch {
+        // partial write — try again next tick
+      }
+    }
+    if (collected.size === expectedIds.size) {
+      return {
+        status: 'ok',
+        answers: payload.questions.map(q => collected.get(q.id)!),
+      }
+    }
+    await sleep(pollMs)
+  }
+
+  return { status: 'timeout', answers: Array.from(collected.values()) }
 }
