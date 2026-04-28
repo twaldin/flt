@@ -64,7 +64,7 @@ function resolveDisplayedModel(
   return envModel || cliModel
 }
 
-function isDangerousWorkdir(dir: string): boolean {
+export function isDangerousWorkdir(dir: string): boolean {
   const h = process.env.HOME || homedir()
   const norm = dir.endsWith('/') ? dir.slice(0, -1) : dir
 
@@ -74,7 +74,17 @@ function isDangerousWorkdir(dir: string): boolean {
 
   for (const dot of ['.claude', '.codex', '.opencode', '.gemini', '.flt']) {
     const dotPath = join(h, dot)
-    if (norm === dotPath || norm.startsWith(dotPath + '/')) return true
+    if (norm === dotPath || norm.startsWith(dotPath + '/')) {
+      if (dot === '.flt') {
+        const agentsPrefix = `${dotPath}/agents/`
+        if (norm.startsWith(agentsPrefix)) {
+          const remainder = norm.slice(agentsPrefix.length)
+          const [agentName] = remainder.split('/')
+          if (agentName) return false
+        }
+      }
+      return true
+    }
   }
 
   for (const root of ['/', '/etc', '/usr', '/System', '/Library']) {
@@ -84,7 +94,12 @@ function isDangerousWorkdir(dir: string): boolean {
   return false
 }
 
-async function confirmDangerousWorkdir(dir: string): Promise<boolean> {
+export async function confirmDangerousWorkdir(dir: string): Promise<boolean> {
+  if (process.env.FLT_TUI_ACTIVE === '1') {
+    process.stderr.write(`flt: refusing to spawn into dangerous workdir under TUI: ${dir}\n`)
+    return false
+  }
+
   process.stderr.write(
     `WARNING: Spawning into ${dir} may leak skills/state into your global CLI config. Continue? (y/N): `,
   )
