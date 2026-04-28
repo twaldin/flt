@@ -21,6 +21,8 @@ export interface ModalRow {
   question?: Question
   questionPath?: string
   answerPath?: string
+  batchQuestions?: Question[]
+  batchAnswerPaths?: string[]
 }
 
 export interface GatesModalState {
@@ -37,6 +39,7 @@ export interface GatesModalState {
     index: number
     selected: Set<string>
     typing: { text: string } | null
+    batch?: { questions: Question[]; answerPaths: string[]; index: number }
   } | null
   watcher: fs.FSWatcher | null
   qnaWatcher: fs.FSWatcher | null
@@ -63,14 +66,74 @@ function qnaRowToModal(row: QnaRow): ModalRow {
 }
 
 function loadAllRows(): ModalRow[] {
-  return [
-    ...scanGates().map(gateRowToModal),
-    ...pendingQna().map(qnaRowToModal),
-  ]
+  const gates = scanGates().map(gateRowToModal)
+  const qnaRows = pendingQna()
+
+  // Group qna rows by batchId so multi-question askHuman calls render as one
+  // chained pick-flow (single row → walks through each question on Enter).
+  const batches = new Map<string, QnaRow[]>()
+  const singletons: QnaRow[] = []
+  for (const row of qnaRows) {
+    const bid = row.question.batchId
+    if (!bid) {
+      singletons.push(row)
+      continue
+    }
+    const arr = batches.get(bid) ?? []
+    arr.push(row)
+    batches.set(bid, arr)
+  }
+
+  const batchRows: ModalRow[] = []
+  for (const [bid, rows] of batches) {
+    if (rows.length === 1) {
+      // Single question that happened to carry a batchId — render as singleton.
+      singletons.push(rows[0]!)
+      continue
+    }
+    const sorted = [...rows].sort((a, b) => a.askedAt.localeCompare(b.askedAt))
+    const first = sorted[0]!
+    batchRows.push({
+      runId: first.runId || '_unrouted',
+      workflow: `[${rows.length}q] ${first.question.header}`,
+      kind: 'question',
+      reason: `${rows.length} questions from ${first.question.askedBy ?? 'agent'} — Enter walks through them`,
+      ageMs: first.ageMs,
+      runDir: '',
+      payload: { kind: 'question-batch', batchId: bid, count: rows.length },
+      source: 'question',
+      question: first.question,
+      questionPath: first.questionPath,
+      answerPath: first.answerPath,
+      batchQuestions: sorted.map(r => r.question),
+      batchAnswerPaths: sorted.map(r => r.answerPath),
+    })
+  }
+
+  return [...gates, ...batchRows, ...singletons.map(qnaRowToModal)]
 }
 
 function dispatchAnswer(runId: string, questionId: string, selected: string[], text: string | undefined): void {
   void writeAnswer(questionId, selected, text, { runId, notify: true }).catch(() => {})
+}
+
+// After answering the current question in the picker, advance to the next
+// question in the batch (if any). Otherwise close the picker.
+function advancePickerOrClose(state: GatesModalState): void {
+  const picker = state.questionPicker
+  if (!picker) return
+  const batch = picker.batch
+  if (batch && batch.index < batch.questions.length - 1) {
+    const nextIdx = batch.index + 1
+    batch.index = nextIdx
+    picker.question = batch.questions[nextIdx]!
+    picker.answerPath = batch.answerPaths[nextIdx]!
+    picker.index = 0
+    picker.selected = new Set<string>()
+    picker.typing = null
+  } else {
+    state.questionPicker = null
+  }
 }
 
 function defaultRunsDir(): string {
@@ -588,8 +651,9 @@ function renderQuestionPicker(
   }
   screen.box(pickerTop, pickerLeft, width, height, 'round', t.sidebarBorder)
 
-  // Title (centered in border).
-  const titleText = ` ${picker.question.header} `
+  // Title (centered in border). Includes batch progress when in a multi-question batch.
+  const batchSuffix = picker.batch ? ` [${picker.batch.index + 1}/${picker.batch.questions.length}]` : ''
+  const titleText = ` ${picker.question.header}${batchSuffix} `
   screen.put(pickerTop, pickerLeft + Math.max(1, Math.floor((width - widthOf(titleText)) / 2)), titleText, t.sidebarBorder, '', ATTR_BOLD)
 
   // Available content rows = height - 2 borders - 2 (footer + spacer above footer).
@@ -701,7 +765,7 @@ export function handleGatesKey(state: GatesModalState, key: string, actions: Gat
         const text = picker.typing.text.trim()
         const selected = picker.question.multiSelect ? Array.from(picker.selected) : []
         dispatchAnswer(picker.runId, picker.question.id, selected, text || undefined)
-        state.questionPicker = null
+        advancePickerOrClose(state)
         actions.refresh()
       } else if (key === 'backspace') {
         picker.typing.text = picker.typing.text.slice(0, -1)
@@ -735,7 +799,7 @@ export function handleGatesKey(state: GatesModalState, key: string, actions: Gat
         selected = label ? [label] : []
       }
       dispatchAnswer(picker.runId, picker.question.id, selected, undefined)
-      state.questionPicker = null
+      advancePickerOrClose(state)
       actions.refresh()
     } else if (key.length === 1) {
       const idx = key.charCodeAt(0) - 97
@@ -745,7 +809,7 @@ export function handleGatesKey(state: GatesModalState, key: string, actions: Gat
         } else {
           const label = opts[idx].label
           dispatchAnswer(picker.runId, picker.question.id, [label], undefined)
-          state.questionPicker = null
+          advancePickerOrClose(state)
           actions.refresh()
         }
       }
@@ -817,18 +881,24 @@ export function handleGatesKey(state: GatesModalState, key: string, actions: Gat
 
     case 'question':
       if ((key === 'enter' || key === 't') && row.question && row.answerPath) {
+        const isBatch = !!row.batchQuestions && !!row.batchAnswerPaths && row.batchQuestions.length > 1
         state.questionPicker = {
-          question: row.question,
-          answerPath: row.answerPath,
+          question: isBatch ? row.batchQuestions![0]! : row.question,
+          answerPath: isBatch ? row.batchAnswerPaths![0]! : row.answerPath,
           runId: row.runId === '_unrouted' ? '' : row.runId,
           index: 0,
           selected: new Set<string>(),
           typing: key === 't' ? { text: '' } : null,
+          batch: isBatch
+            ? { questions: row.batchQuestions!, answerPaths: row.batchAnswerPaths!, index: 0 }
+            : undefined,
         }
         return true
       }
       if (key === 's' && row.question) {
         const r = row.runId === '_unrouted' ? '' : row.runId
+        // Skip applies to whichever question is currently selected. For a
+        // batch row this skips only the first question; the rest stay pending.
         dispatchAnswer(r, row.question.id, [], undefined)
         actions.refresh()
         return true

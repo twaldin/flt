@@ -405,6 +405,12 @@ export async function spawnDirect(args: SpawnArgs): Promise<void> {
   }
 }
 
+const ANSI_STRIP_RE = /\x1b\[[0-9;]*[a-zA-Z]|\x1b\][^\x07\x1b]*[\x07\x1b]/g
+
+function stripAnsiForCompare(s: string): string {
+  return s.replace(ANSI_STRIP_RE, '')
+}
+
 async function waitForReady(
   session: string,
   adapter: ReturnType<typeof resolveAdapter>,
@@ -412,7 +418,13 @@ async function waitForReady(
 ): Promise<void> {
   const start = Date.now()
   let lastContent = ''
+  let lastStripped = ''
   let stableCount = 0
+  // Defense-in-depth: when an adapter's detectReady never returns 'ready' (e.g.
+  // a banner that handleDialog can't dismiss), fall through to a stable-pane
+  // fallback. After ~8s of unchanged ANSI-stripped pane content we assume the
+  // agent is up regardless of what detectReady says.
+  let fallbackStableCount = 0
 
   while (Date.now() - start < timeoutMs) {
     if (!tmux.hasSession(session)) {
@@ -420,6 +432,7 @@ async function waitForReady(
     }
 
     const pane = tmux.capturePane(session)
+    const stripped = stripAnsiForCompare(pane)
     const readyState = adapter.detectReady(pane)
 
     if (readyState === 'dialog') {
@@ -427,9 +440,13 @@ async function waitForReady(
       if (keys) {
         tmux.sendKeys(session, keys)
         stableCount = 0
+        fallbackStableCount = 0
         await sleep(1000)
         continue
       }
+      // 'dialog' with null keys is a non-actionable signal. Don't loop forever
+      // waiting for keys that will never come — fall through to the stable-pane
+      // fallback below.
     }
 
     if (readyState === 'ready') {
@@ -443,7 +460,16 @@ async function waitForReady(
       stableCount = 0
     }
 
+    if (stripped === lastStripped && stripped.length > 0) {
+      fallbackStableCount++
+      // 16 polls * 500ms = ~8s of unchanged ANSI-stripped pane → assume ready.
+      if (fallbackStableCount >= 16) return
+    } else {
+      fallbackStableCount = 0
+    }
+
     lastContent = pane
+    lastStripped = stripped
     await sleep(500)
   }
 

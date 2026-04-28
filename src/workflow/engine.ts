@@ -34,6 +34,14 @@ import { aggregateResults, writeResult } from './results'
 import { evaluateCondition } from './condition'
 import { computeTreatment, permuteTreatmentMap } from './treatment'
 import { writeMetricsForRun } from './metrics'
+import { pendingQna } from '../qna'
+
+function hasPendingQnaFromAgent(agentName: string | undefined, runId?: string): boolean {
+  if (!agentName) return false
+  return pendingQna().some(row =>
+    row.question.askedBy === agentName && (runId ? row.runId === runId : true),
+  )
+}
 import { getPreset } from '../presets'
 import { createWorktree, removeWorktree } from '../worktree'
 
@@ -299,6 +307,7 @@ export async function advanceWorkflow(runId: string, idleAgentName?: string): Pr
   if (!aggregated.allDone) {
     const verdictCount = aggregated.passers.length + aggregated.failures.length
     if (verdictCount === 0) {
+      if (hasPendingQnaFromAgent(agentName, run.id)) return
       const prods = run.stepProdCount ?? 0
       if (prods < 2 && agent && tmux.hasSession(agent.tmuxSession)) {
         run.stepProdCount = prods + 1
@@ -567,7 +576,9 @@ function applyAutoCommit(
     execSync('git add -A && git diff --cached --quiet || git commit -m "workflow: auto-commit step ' + stepId + '"', {
       cwd: agent.worktreePath, encoding: 'utf-8', timeout: 10_000,
     })
-  } catch {}
+  } catch (e) {
+    appendEvent({ type: 'workflow', detail: `auto-commit failed ${run.id}/${stepId}: ${(e as Error).message}`, at: new Date().toISOString() })
+  }
 
   if (commitOnly || !shouldCreatePr(def)) return
 
@@ -583,7 +594,9 @@ function applyAutoCommit(
         try {
           const pr = JSON.parse(existing)
           run.vars._pr = { url: pr.url, branch: agent.worktreeBranch }
-        } catch {}
+        } catch (e) {
+          appendEvent({ type: 'workflow', detail: `gh pr view parse failed ${run.id}/${stepId}: ${(e as Error).message}`, at: new Date().toISOString() })
+        }
       } else {
         const taskDesc = run.vars._input?.task ?? run.workflow
         const prUrl = execSync(
@@ -592,11 +605,15 @@ function applyAutoCommit(
         ).trim()
         run.vars._pr = { url: prUrl, branch: agent.worktreeBranch }
       }
-    } catch {}
+    } catch (e) {
+      appendEvent({ type: 'workflow', detail: `auto-pr push/create failed ${run.id}/${stepId}: ${(e as Error).message}`, at: new Date().toISOString() })
+    }
   } else if (agent.worktreeBranch && run.vars._pr) {
     try {
       execSync('git push', { cwd: agent.worktreePath, encoding: 'utf-8', timeout: 30_000 })
-    } catch {}
+    } catch (e) {
+      appendEvent({ type: 'workflow', detail: `auto-commit push failed ${run.id}/${stepId}: ${(e as Error).message}`, at: new Date().toISOString() })
+    }
   }
 }
 
@@ -1248,6 +1265,7 @@ async function advanceDynamicDag(def: WorkflowDef, run: WorkflowRun, step: Dynam
       // `flt workflow pass`. Hit live in gepa-prep dogfood (harvest-coder
       // went idle for 1h after printing its summary).
       if (!idleAgentName || agentName !== idleAgentName) continue
+      if (hasPendingQnaFromAgent(agentName, run.id)) continue
       const candidateAgent = getAgent(agentName)
       const prods = run.dagProdCounts?.[agentName] ?? 0
       if (prods < 2 && candidateAgent && tmux.hasSession(candidateAgent.tmuxSession)) {
