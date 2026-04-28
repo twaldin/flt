@@ -10,7 +10,7 @@ import { init } from './commands/init'
 import { skillsList, skillImport, skillMoveFromClaude } from './commands/skills'
 import { presetsAdd, presetsList, presetsRemove } from './commands/presets'
 import { listAdapters } from './adapters/registry'
-import { cronList, cronAdd, cronRemove } from './commands/cron'
+import { cronList, cronAdd, cronAddWorkflow, cronRemove } from './commands/cron'
 import { activity } from './commands/activity'
 import { modelsResolve } from './commands/models'
 import { pluginAudit, pluginUninstall } from './commands/plugins'
@@ -683,18 +683,28 @@ cronCmd
   })
 
 cronCmd
-  .command('add <name>')
-  .description('Generate and install a crontab entry for an flt agent')
-  .requiredOption('--every <interval>', 'Repeat interval (e.g. 30m, 1h, 6h)')
+  .command('add <name> [cron-spec]')
+  .description('Generate and install a crontab entry for an flt agent or workflow')
+  .option('--every <interval>', 'Repeat interval (e.g. 30m, 1h, 6h)')
   .option('--send <message>', 'Send message to persistent agent (spawns if not alive)')
   .option('--spawn', 'Spawn ephemeral agent (spawn, wait, kill pattern)')
   .option('--preset <name>', 'Preset for spawned agent (required with --spawn)')
+  .option('--task <task>', 'Task description for workflow run')
   .option('--dir <path>', 'Working directory for spawned agent')
   .option('--timeout <duration>', 'Max runtime for spawn pattern (default: 5m)')
   .option('--parent <name>', 'Override parent agent (default: human)')
   .option('--bootstrap <message>', 'Initial message for spawned agent')
-  .action((name, opts) => {
+  .action((name, cronSpec, opts) => {
     try {
+      if (cronSpec) {
+        cronAddWorkflow(name, cronSpec, {
+          task: opts.task,
+          dir: opts.dir,
+          parent: opts.parent,
+        })
+        return
+      }
+      if (!opts.every) throw new Error('--every is required')
       cronAdd(name, {
         every: opts.every,
         send: opts.send,
