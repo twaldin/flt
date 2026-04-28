@@ -1438,6 +1438,13 @@ async function advanceDynamicDag(def: WorkflowDef, run: WorkflowRun, step: Dynam
       worktree: state.integrationWorktree,
       dir: state.integrationWorktree,
     }
+    if (state.reconcilerAgent) {
+      try {
+        const { killDirect } = await import('../commands/kill')
+        await killDirect({ name: state.reconcilerAgent, preserveWorktree: true, fromWorkflow: true })
+      } catch {}
+      state.reconcilerAgent = undefined
+    }
     saveWorkflowRun(run)
   }
 }
