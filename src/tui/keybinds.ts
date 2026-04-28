@@ -3,7 +3,7 @@ import { homedir } from 'os'
 import { join } from 'path'
 import type { Mode } from './types'
 
-export type ConfigurableMode = Exclude<Mode, 'insert' | 'shell' | 'metrics'>
+export type ConfigurableMode = Exclude<Mode, 'insert' | 'shell' | 'metrics' | 'gates'>
 
 export type KeybindAction =
   | 'selectNext'
@@ -11,6 +11,7 @@ export type KeybindAction =
   | 'openCommand'
   | 'openSpawn'
   | 'openWorkflows'
+  | 'openGates'
   | 'killConfirm'
   | 'openInbox'
   | 'reply'
@@ -69,6 +70,7 @@ const ACTION_LABELS: Record<KeybindAction, string> = {
   openCommand: 'cmd',
   openSpawn: 'spawn',
   openWorkflows: 'workflows',
+  openGates: 'gates',
   killConfirm: 'kill',
   openInbox: 'inbox',
   reply: 'reply',
@@ -112,10 +114,11 @@ const PAIR_GROUPS: Array<{ a: KeybindAction; b: KeybindAction; label: string }> 
   { a: 'msgDown', b: 'msgUp', label: 'select' },
 ]
 
-const STATIC_MODE_HINTS: Record<Extract<Mode, 'insert' | 'shell' | 'metrics'>, string> = {
+const STATIC_MODE_HINTS: Record<Extract<Mode, 'insert' | 'shell' | 'metrics' | 'gates'>, string> = {
   insert: 'typing to agent | Ctrl-c interrupt | Esc exit',
   shell: 'typing in shell | Esc close',
   metrics: 'm group | t period | r runs | j/k scroll | Esc close',
+  gates: 'j/k select | a approve | x reject | r retry | s skip | Enter pick | c cancel | d dismiss | Esc close',
 }
 
 const COMMAND_SPECIAL_KEYS = new Set<string>([
@@ -175,6 +178,7 @@ const KEYBIND_ACTION_SET: ReadonlySet<string> = new Set<string>([
   'workflowsRunning',
   'workflowsCompleted',
   'workflowsFailed',
+  'openGates',
 ])
 
 const MODE_ACTION_SET: Record<ConfigurableMode, ReadonlySet<KeybindAction>> = {
@@ -184,6 +188,7 @@ const MODE_ACTION_SET: Record<ConfigurableMode, ReadonlySet<KeybindAction>> = {
     'openCommand',
     'openSpawn',
     'openWorkflows',
+    'openGates',
     'killConfirm',
     'openInbox',
     'reply',
@@ -250,6 +255,7 @@ export const DEFAULT_KEYBINDS: KeybindConfig = {
     ':': 'openCommand',
     s: 'openSpawn',
     w: 'openWorkflows',
+    g: 'openGates',
     K: 'killConfirm',
     m: 'openInbox',
     r: 'reply',
@@ -387,7 +393,7 @@ export function reloadKeybinds(): void {
 }
 
 export function isConfigurableMode(mode: Mode): mode is ConfigurableMode {
-  return mode !== 'insert' && mode !== 'shell' && mode !== 'metrics'
+  return mode !== 'insert' && mode !== 'shell' && mode !== 'metrics' && mode !== 'gates'
 }
 
 export function getKeybindAction(mode: Mode, key: string): KeybindAction | undefined {
@@ -432,7 +438,7 @@ function buildModeHint(modeKeybinds: ModeKeybinds): string {
 }
 
 export function getModeHint(mode: Mode): string {
-  if (mode === 'insert' || mode === 'shell' || mode === 'metrics') {
+  if (mode === 'insert' || mode === 'shell' || mode === 'metrics' || mode === 'gates') {
     return STATIC_MODE_HINTS[mode]
   }
   return buildModeHint(getMergedKeybinds()[mode])
