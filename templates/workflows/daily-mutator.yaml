@@ -38,35 +38,32 @@ steps:
     on_fail: abort
 
   - id: mutate
-    preset: cc-opus
-    worktree: true
-    task: |
-      You are the GEPA mutator. Pick one artifact implicated by the failure bundle and propose one minimal improvement.
-
-      Inputs:
-      - $FLT_RUN_DIR/artifacts/trace-bundle-redacted.txt
-      - $FLT_RUN_DIR/artifacts/skill-candidates.txt
-      - Focus area: {task}
-
-      Required outputs in $FLT_RUN_DIR/artifacts/:
-
-      1) <artifact>.vNext.md with YAML front-matter:
-      ---
-      stable_path: <ABSOLUTE path of the file you are mutating>
-      mutation_type: prompt_edit | skill_acquisition
-      ---
-      Then the full proposed file body.
-
-      2) hypothesis.json with shape:
-      { "artifact": "<relative path>", "mutation_type": "...", "hypothesis": "...", "expected_delta": { "<metric>": "+/-N%" } }
-
-      Rules:
-      - Produce exactly one candidate.
-      - stable_path must be absolute.
-      - Do not edit the stable file in place.
-
-      flt workflow pass when both files exist.
-      flt workflow fail "<one-line reason>" only if you cannot mutate at all.
+    type: parallel
+    n: 6
+    presets: [cc-mutator, cc-mutator, cc-mutator, cc-mutator, cc-mutator, cc-mutator]
+    step:
+      id: mutate-child
+      preset: cc-mutator
+      worktree: true
+      task: |
+        You are a per-domain GEPA mutator. Map your $FLT_RUN_LABEL to one role file:
+          a -> templates/roles/coder.md
+          b -> templates/roles/reviewer.md
+          c -> templates/roles/architect.md
+          d -> templates/roles/oracle.md
+          e -> templates/roles/mutator.md
+          f -> templates/roles/evaluator.md
+        If your label is anything else, flt workflow fail "unmapped label: $FLT_RUN_LABEL".
+        Inputs:
+        - $FLT_RUN_DIR/artifacts/trace-bundle-redacted.txt
+        - $FLT_RUN_DIR/artifacts/skill-candidates.txt
+        - Focus area: {task}
+        Required outputs in $FLT_RUN_DIR/artifacts/ (label-scoped, must not collide):
+        1) <role>-$FLT_RUN_LABEL.vNext.md with YAML front-matter (stable_path absolute, mutation_type: prompt_edit | skill_acquisition), then full proposed body.
+        2) <role>-$FLT_RUN_LABEL.hypothesis.json shape: { artifact, mutation_type, hypothesis, expected_delta }.
+        Rules: one candidate per child; stable_path absolute; do not edit the stable file in place.
+        flt workflow pass when both files exist with label-scoped names.
+        flt workflow fail "<reason>" only if you cannot mutate at all.
     on_complete: eval
     on_fail: abort
 

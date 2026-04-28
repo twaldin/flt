@@ -103,6 +103,7 @@ steps:
     preset: pi-coder
     dir: '{steps.coder.worktree}'
     worktree: false
+    auto_pr_step: true
     task: |
       Mechanically verify the implementation.
 

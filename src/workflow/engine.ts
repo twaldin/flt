@@ -10,7 +10,7 @@ import {
 import { basename, join } from 'path'
 import { execSync } from 'child_process'
 import { loadWorkflowDef, resolveWorkflowYamlPath } from './parser'
-import { getAgent, allAgents } from '../state'
+import { getAgent, allAgents, setAgent } from '../state'
 import type {
   CollectArtifactsStep,
   ConditionStep,
@@ -559,8 +559,11 @@ export async function cancelWorkflow(runId: string): Promise<void> {
   cleanupWorkflowWorktrees(run)
 }
 
-export function shouldCreatePr(def: WorkflowDef): boolean {
-  return def.auto_pr !== false
+export function shouldCreatePr(def: WorkflowDef, stepId: string): boolean {
+  if (def.auto_pr === false) return false
+  const flagged = def.steps.filter(s => s.auto_pr_step === true)
+  if (flagged.length > 0) return flagged.some(s => s.id === stepId)
+  return true
 }
 
 function applyAutoCommit(
@@ -580,7 +583,7 @@ function applyAutoCommit(
     appendEvent({ type: 'workflow', detail: `auto-commit failed ${run.id}/${stepId}: ${(e as Error).message}`, at: new Date().toISOString() })
   }
 
-  if (commitOnly || !shouldCreatePr(def)) return
+  if (commitOnly || !shouldCreatePr(def, stepId)) return
 
   if (agent.worktreeBranch && !run.vars._pr) {
     try {
@@ -1034,6 +1037,12 @@ async function spawnDagNode(def: WorkflowDef, run: WorkflowRun, step: DynamicDag
           }
         : undefined,
     })
+    // worktree was pre-created by the engine with worktree:false; backfill so
+    // applyAutoCommit can find the path (it guards on agent.worktreePath).
+    // worktreeBranch intentionally omitted — dag node branches are not pushed
+    // as standalone PRs; the reconciler merges them into the integration branch.
+    const spawnedCoder = getAgent(agentName)
+    if (spawnedCoder) setAgent(agentName, { ...spawnedCoder, worktreePath: wt.path })
   }
 
   saveWorkflowRun(run)

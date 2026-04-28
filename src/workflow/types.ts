@@ -9,6 +9,7 @@ export interface BaseStep {
   on_complete?: string
   on_fail?: string
   max_retries?: number
+  auto_pr_step?: boolean
 }
 
 export interface SpawnStep extends BaseStep {
