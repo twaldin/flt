@@ -1324,7 +1324,7 @@ async function advanceDynamicDag(def: WorkflowDef, run: WorkflowRun, step: Dynam
         const task = `Review node ${c.node.id}. If good, run flt workflow pass. Otherwise flt workflow fail \"reason\".`
         await spawn({
           name: reviewerName,
-          preset: 'cc-evaluator',
+          preset: step.node_reviewer_preset ?? 'pi-reviewer',
           dir: c.node.worktree,
           worktree: false,
           parent: run.parentName,

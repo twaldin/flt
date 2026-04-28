@@ -35,6 +35,7 @@ export interface DynamicDagStep extends BaseStep {
   max_depth?: number
   max_parallel_per_wave?: number
   node_max_retries?: number
+  node_reviewer_preset?: string
 }
 
 export interface ConditionStep extends BaseStep {

@@ -35,24 +35,26 @@ steps:
 
       ## Preset menu (pick per node based on task shape)
 
-      - cc-coder       — claude-code/sonnet. Solid generalist, OK at multi-
-                         file diffs. Use for default + nodes that need
-                         judgment about file structure or naming.
-      - pi-coder       — pi/gpt-5.3-codex. Fast, good at focused single-
-                         file fixes and mechanical edits. Use for tight
-                         well-specified work.
-      - codex-coder    — codex/gpt-5.3-codex. Similar to pi but different
-                         CLI; useful for ensemble diversity inside one dag.
+      - pi-coder       — pi/gpt-5.3-codex. **Default coder.** Fast,
+                         cheap, good at focused fixes and mechanical
+                         edits. Use this unless a specific reason below
+                         applies.
+      - codex-coder    — codex/gpt-5.3-codex. Same model family, different
+                         CLI; useful when you want ensemble diversity
+                         inside one dag.
       - gemini-coder   — gemini/2.5-pro. Best when a node needs to read
                          lots of context (large refactors across many
                          files, big API surface scans).
       - opencode-coder — opencode/default. Lighter alternative.
+      - cc-coder       — claude-code/sonnet. **Last resort.** Only when
+                         the node genuinely needs claude-code-specific
+                         judgment (subtle multi-file naming/structure
+                         decisions, dense type-system work). Costs more.
 
-      Default policy: prefer a NON-claude-code preset for at least half the
-      coder nodes. Sonnet has been observed fabricating handoffs on multi-
-      file tasks during dogfood; mixing pi/codex reduces that failure mode
-      via ensemble diversity. Reserve cc-coder for nodes that need style/
-      naming judgment.
+      Default policy: pi-coder for every node unless there's a stated
+      reason it won't work. cc-coder requires justification in the node
+      task ("needs cc because <reason>"). Reviewer preset is fixed by
+      the engine (pi-reviewer / gpt-5.5) and you don't pick it.
 
       Rules:
       - Each node should be a self-contained unit one coder can complete.
