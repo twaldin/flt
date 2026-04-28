@@ -11,19 +11,48 @@ steps:
       Decompose this feature into a parallel-execution plan.json.
 
       Task: {task}
-      Project root: {dir}
+
+      ## Path discipline (read first — last dogfood corrupted the project root)
+      Each per-node task you write will be sent to a coder agent that runs in
+      its OWN git worktree (a temp dir, NOT the user's project root). DO NOT
+      embed absolute paths or "Project root: ..." hints in node tasks.
+      Reference files by their REPO-RELATIVE path only (e.g. "src/gates.ts",
+      "tests/unit/foo.test.ts"). The coder will resolve those relative to its
+      worktree's cwd.
 
       Output a plan.json file in your worktree's root with this shape:
       {
-        "default_preset": "cc-coder",
+        "default_preset": "<one of the presets below>",
         "nodes": [
           {
             "id": "<short-slug>",
+            "preset": "<optional override per node>",
             "task": "<self-contained instructions for one coder agent>",
             "depends_on": ["<other-node-id>", ...]
           }
         ]
       }
+
+      ## Preset menu (pick per node based on task shape)
+
+      - cc-coder       — claude-code/sonnet. Solid generalist, OK at multi-
+                         file diffs. Use for default + nodes that need
+                         judgment about file structure or naming.
+      - pi-coder       — pi/gpt-5.3-codex. Fast, good at focused single-
+                         file fixes and mechanical edits. Use for tight
+                         well-specified work.
+      - codex-coder    — codex/gpt-5.3-codex. Similar to pi but different
+                         CLI; useful for ensemble diversity inside one dag.
+      - gemini-coder   — gemini/2.5-pro. Best when a node needs to read
+                         lots of context (large refactors across many
+                         files, big API surface scans).
+      - opencode-coder — opencode/default. Lighter alternative.
+
+      Default policy: prefer a NON-claude-code preset for at least half the
+      coder nodes. Sonnet has been observed fabricating handoffs on multi-
+      file tasks during dogfood; mixing pi/codex reduces that failure mode
+      via ensemble diversity. Reserve cc-coder for nodes that need style/
+      naming judgment.
 
       Rules:
       - Each node should be a self-contained unit one coder can complete.
@@ -76,7 +105,9 @@ steps:
     on_fail: abort
 
   - id: pr
-    preset: cc-coder
+    # pi/gpt-5.3-codex — mechanical task (push + gh pr create), no judgment
+    # needed. Cheaper + faster than claude-code for this step.
+    preset: pi-coder
     dir: '{steps.execute.worktree}'
     worktree: false
     task: |
