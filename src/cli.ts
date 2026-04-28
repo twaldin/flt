@@ -16,6 +16,7 @@ import { modelsResolve } from './commands/models'
 import { pluginAudit, pluginUninstall } from './commands/plugins'
 import { promote } from './commands/promote'
 import { traceRecent } from './commands/trace'
+import { gates, blockers } from './commands/gates'
 
 const program = new Command()
   .name('flt')
@@ -617,6 +618,36 @@ cronCmd
   .action((name) => {
     try {
       cronRemove(name)
+    } catch (e) {
+      console.error(`Error: ${(e as Error).message}`)
+      process.exit(1)
+    }
+  })
+
+program
+  .command('gates')
+  .description('Show pending gates across all workflow runs')
+  .option('--json', 'Output as JSON')
+  .option('--watch', 'Watch and re-render on changes')
+  .option('--runs-dir <path>', 'Override runs directory (test-only)') // test-only
+  .action(async (opts) => {
+    try {
+      await gates({ json: opts.json, watch: opts.watch, runsDir: opts.runsDir })
+    } catch (e) {
+      console.error(`Error: ${(e as Error).message}`)
+      process.exit(1)
+    }
+  })
+
+program
+  .command('blockers')
+  .description('Show workflow blocker reports')
+  .option('--json', 'Output as JSON')
+  .option('--watch', 'Watch and re-render on changes')
+  .option('--runs-dir <path>', 'Override runs directory (test-only)') // test-only
+  .action(async (opts) => {
+    try {
+      await blockers({ json: opts.json, watch: opts.watch, runsDir: opts.runsDir })
     } catch (e) {
       console.error(`Error: ${(e as Error).message}`)
       process.exit(1)
