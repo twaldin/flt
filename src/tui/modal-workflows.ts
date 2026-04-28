@@ -159,7 +159,7 @@ function renderListView(state: WorkflowModalState, screen: Screen, top: number, 
   }
 
   const sectionHeader = (): void => {
-    putSeparatedRow(screen, row, left + 1, widths, headers, t.sidebarMuted, t.sidebarBorder, '', ATTR_BOLD)
+    putSeparatedRow(screen, row, left + 1, widths, headers, t.sidebarTitle, t.sidebarBorder, '', ATTR_BOLD)
     row += 1
     putHorizontalRule(screen, row, left + 1, widths, t.sidebarBorder)
     row += 1
@@ -280,7 +280,7 @@ function renderDrilldownView(state: WorkflowModalState, screen: Screen, top: num
   const minWidths = headers.map((header, i) => Math.max(widthOf(header), ...data.map(cells => widthOf(cells[i]))))
   const widths = computeColumnWidths(minWidths, innerWidth)
 
-  putSeparatedRow(screen, row, left + 1, widths, headers, t.sidebarMuted, t.sidebarBorder, '', ATTR_BOLD | ATTR_UNDERLINE)
+  putSeparatedRow(screen, row, left + 1, widths, headers, t.sidebarTitle, t.sidebarBorder, '', ATTR_BOLD | ATTR_UNDERLINE)
   row += 1
 
   const statusCol = left + 1 + widths[0] + 1 + widths[1] + 1

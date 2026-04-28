@@ -425,7 +425,7 @@ export function renderGatesModal(screen: Screen, state: GatesModalState, layout:
   const widths = computeColumnWidths(minWidths, innerWidth)
 
   let r = innerTop
-  putSeparatedRow(screen, r, left + 1, widths, headers, t.sidebarMuted, t.sidebarBorder, '', ATTR_BOLD | ATTR_UNDERLINE)
+  putSeparatedRow(screen, r, left + 1, widths, headers, t.sidebarTitle, t.sidebarBorder, '', ATTR_BOLD | ATTR_UNDERLINE)
   r += 1
 
   if (state.rows.length === 0) {
