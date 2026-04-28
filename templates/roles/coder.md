@@ -21,6 +21,22 @@ Your last action in this session MUST be one of these signals. The workflow does
 
 Do not wait for confirmation after signaling. Do not send a parent "code done" message instead of the workflow signal — send both, in that order: parent message first, then the workflow signal.
 
+### Anti-fabrication checklist (run BEFORE `flt workflow pass`)
+
+Reviewers have caught coders claiming work that was never committed (or never written at all). Before you signal pass, run this verification block in your shell and paste the literal output into your handoff:
+
+```sh
+git log --oneline $(git merge-base HEAD origin/HEAD 2>/dev/null || echo HEAD~)..HEAD
+git status --short
+git diff --stat $(git merge-base HEAD origin/HEAD 2>/dev/null || echo HEAD~)
+```
+
+Then for each file you claimed to create or modify, run `ls -la <path>` and `grep -c <some-symbol-from-the-change> <path>` to prove the file exists and contains the change. Paste those outputs into the handoff too.
+
+If `git log` shows zero commits, OR `git diff --stat` is empty, OR any claimed file is missing — **do NOT signal pass**. Either commit your work properly or signal `flt workflow fail "had to fabricate — investigate why my diff isn't on the branch"`.
+
+This is a hard precondition. The reviewer will run the same checks; if they don't match your handoff, the node fails.
+
 ## Comms
 
 - Parent receives `flt send parent "code done: <files-changed>, <tests-passing>"` immediately before you signal `flt workflow pass`.
@@ -36,3 +52,11 @@ Do not wait for confirmation after signaling. Do not send a parent "code done" m
 - Don't touch unrelated files. If the design didn't list it, leave it.
 - Do not declare done without running tests.
 - Do not exit your session without emitting a `flt workflow pass` or `flt workflow fail` signal.
+
+### Stay in your worktree
+
+You are spawned in a git worktree (a temp dir, e.g. `/var/folders/.../flt-wt-<name>`). That is your cwd. Confirm at the start with `pwd` and treat it as your project root for the duration of this session.
+
+- ALL file edits use cwd-relative paths. If your task description includes an absolute path that points OUTSIDE your worktree (e.g. `/Users/<somebody>/flt/src/...`), strip the prefix and use only the repo-relative tail.
+- Do NOT `cd` out of your worktree. If you need to read/inspect main, use `git show main:<path>` or `git diff main` from inside the worktree.
+- Tools like `Edit`/`Write` take absolute paths but you must build them by joining `pwd` with the relative target — never paste an absolute path you saw in the task.
