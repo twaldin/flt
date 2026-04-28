@@ -55,11 +55,37 @@ function putSeparatedRow(
 ): void {
   if (row < 0 || row >= screen.rows) return
   let x = col
+  // Separator never inherits ATTR_INVERSE — keeps the line glyph crisp on
+  // selected rows (highlight is bg-only).
+  const sepAttrs = attrs & ~ATTR_INVERSE
   for (let i = 0; i < widths.length; i += 1) {
     screen.put(row, x, padRight(cells[i] ?? '', widths[i]), fg, bg, attrs)
     x += widths[i]
     if (i < widths.length - 1) {
-      screen.put(row, x, '│', sepFg, bg, attrs)
+      screen.put(row, x, '│', sepFg, bg, sepAttrs)
+      x += 1
+    }
+  }
+}
+
+/**
+ * Horizontal rule with ┼ at column-separator positions, so the underline
+ * meets the vertical separators cleanly.
+ */
+function putHorizontalRule(
+  screen: Screen,
+  row: number,
+  col: number,
+  widths: readonly number[],
+  fg: string,
+): void {
+  if (row < 0 || row >= screen.rows) return
+  let x = col
+  for (let i = 0; i < widths.length; i += 1) {
+    screen.put(row, x, '─'.repeat(widths[i]), fg)
+    x += widths[i]
+    if (i < widths.length - 1) {
+      screen.put(row, x, '┼', fg)
       x += 1
     }
   }
@@ -110,34 +136,40 @@ function renderListView(state: WorkflowModalState, screen: Screen, top: number, 
   const minWidths = headers.map((header, i) => Math.max(widthOf(header), ...data.map(cells => widthOf(cells[i]))))
   const widths = computeColumnWidths(minWidths, innerWidth)
 
-  let row = innerTop
-  putSeparatedRow(screen, row, left + 1, widths, headers, t.sidebarMuted, t.sidebarBorder, '', ATTR_BOLD | ATTR_UNDERLINE)
-  row += 1
-
-  putLine(screen, row, left + 1, innerWidth, ` RUNNING (${running.length})`, running.length > 0 ? t.commandPrefix : t.sidebarMuted, '', ATTR_BOLD)
-  row += 1
-
-  const maxRows = Math.max(0, innerBottom - innerTop + 1)
-  const maxDataRows = Math.max(0, maxRows - 5)
-
+  // Two distinct tables, sharing column widths so they align: RUNNING (top)
+  // then a one-row gap, then PAST (bottom). Each has its own section title +
+  // header row + horizontal rule. Selection cursor crosses both tables (one
+  // contiguous selectedIndex into items[]).
   const selectedIndex = clamp(state.selectedIndex, 0, Math.max(0, items.length - 1))
-  const scrollOffset = clamp(selectedIndex - maxDataRows + 1, 0, Math.max(0, items.length - maxDataRows))
 
-  let drawn = 0
-  for (let i = scrollOffset; i < items.length && drawn < maxDataRows && row <= innerBottom; i += 1) {
-    if (i === running.length) {
-      putLine(screen, row, left + 1, innerWidth, ` PAST (${past.length})`, t.sidebarMuted, '', ATTR_DIM)
-      row += 1
-      if (row > innerBottom) break
-    }
+  // Section heights: 3 chrome rows each (title + header + rule). Past starts
+  // after running's chrome + rows + gap.
+  const totalRows = Math.max(0, innerBottom - innerTop + 1)
+  const chromeOverhead = 3 + 3 + 1 + 1 // running chrome + past chrome + gap + footer-buffer
+  const dataBudget = Math.max(0, totalRows - chromeOverhead)
+  // Give running at least its full count when small; otherwise split.
+  const runningBudget = Math.min(running.length, Math.max(2, Math.ceil(dataBudget * 0.4)))
+  const pastBudget = Math.max(0, dataBudget - runningBudget)
 
-    const item = items[i]
-    const selected = i === selectedIndex
+  let row = innerTop
+
+  const sectionTitle = (label: string, count: number, emphasize: boolean): void => {
+    putLine(screen, row, left + 1, innerWidth, ` ${label} (${count})`, emphasize ? t.commandPrefix : t.sidebarMuted, '', emphasize ? ATTR_BOLD : (ATTR_BOLD | ATTR_DIM))
+    row += 1
+  }
+
+  const sectionHeader = (): void => {
+    putSeparatedRow(screen, row, left + 1, widths, headers, t.sidebarMuted, t.sidebarBorder, '', ATTR_BOLD)
+    row += 1
+    putHorizontalRule(screen, row, left + 1, widths, t.sidebarBorder)
+    row += 1
+  }
+
+  const renderItemRow = (item: WorkflowRow, absoluteIndex: number): void => {
+    const selected = absoluteIndex === selectedIndex
     const fg = selected ? t.sidebarSelected : t.sidebarText
     const bg = selected ? t.sidebarSelectedBg : ''
-    const attrs = selected ? ATTR_INVERSE : 0
     const slug = deriveSlug(item.id, item.workflow)
-
     putSeparatedRow(
       screen,
       row,
@@ -155,15 +187,54 @@ function renderListView(state: WorkflowModalState, screen: Screen, top: number, 
       fg,
       t.sidebarBorder,
       bg,
-      attrs,
+      0,
     )
     row += 1
-    drawn += 1
   }
 
-  while (row <= innerBottom) {
-    putLine(screen, row, left + 1, innerWidth, '', t.sidebarText)
+  // RUNNING section
+  sectionTitle('RUNNING', running.length, running.length > 0)
+  sectionHeader()
+  if (running.length === 0) {
+    putLine(screen, row, left + 1, innerWidth, '   (none)', t.sidebarMuted, '', ATTR_DIM)
     row += 1
+  } else {
+    const runningScrollMax = Math.max(0, running.length - runningBudget)
+    const runningScroll = selectedIndex < running.length
+      ? clamp(selectedIndex - runningBudget + 1, 0, runningScrollMax)
+      : 0
+    const runningEnd = Math.min(running.length, runningScroll + runningBudget)
+    for (let i = runningScroll; i < runningEnd && row <= innerBottom; i += 1) {
+      renderItemRow(running[i], i)
+    }
+  }
+
+  // Gap
+  row += 1
+  if (row > innerBottom) {
+    while (row <= innerBottom) { putLine(screen, row, left + 1, innerWidth, '', t.sidebarText); row += 1 }
+    // skip past section if no room
+  } else {
+    // PAST section
+    sectionTitle('PAST', past.length, false)
+    if (row <= innerBottom) sectionHeader()
+    if (past.length === 0) {
+      if (row <= innerBottom) {
+        putLine(screen, row, left + 1, innerWidth, '   (none)', t.sidebarMuted, '', ATTR_DIM)
+        row += 1
+      }
+    } else {
+      const pastSelectedRel = selectedIndex >= running.length ? selectedIndex - running.length : -1
+      const pastScrollMax = Math.max(0, past.length - pastBudget)
+      const pastScroll = pastSelectedRel >= 0
+        ? clamp(pastSelectedRel - pastBudget + 1, 0, pastScrollMax)
+        : 0
+      const pastEnd = Math.min(past.length, pastScroll + pastBudget)
+      for (let i = pastScroll; i < pastEnd && row <= innerBottom; i += 1) {
+        renderItemRow(past[i], running.length + i)
+      }
+    }
+    while (row <= innerBottom) { putLine(screen, row, left + 1, innerWidth, '', t.sidebarText); row += 1 }
   }
 
   const footer = `filter: ${state.filter}  [a]all [r]running [c]completed [f]failed   ESC`
