@@ -4,7 +4,7 @@ import { COLORS, fg, getTheme, modeColor, statusColor, statusSymbol } from './th
 import type { AgentView, AppState, ModalState } from './types'
 import { getAsciiLogo, getAsciiLogoWidth } from './ascii'
 import { renderWorkflowModal } from './modal-workflows'
-import { renderGatesModal } from './modal-gates'
+import { renderGatesModal, getPendingGatesCount } from './modal-gates'
 import { renderMetricsModal } from './metrics-modal'
 import { truncateEllipsis } from './columns'
 import { sidebarEntryRows, shouldRenderWorkflowRow, workflowLabel } from './sidebar-utils'
@@ -649,9 +649,11 @@ function renderStatusBar(screen: Screen, state: AppState, row: number, col: numb
 
   const selected = state.agents[state.selectedIndex]
   const modeHint = getModeHint(state.mode)
+  const gatesCount = getPendingGatesCount()
+  const gatesBadge = gatesCount > 0 ? ` (${gatesCount} ${gatesCount === 1 ? 'gate' : 'gates'})` : ''
   const summary = selected
-    ? `${modeHint} | ${selected.name} (${state.agents.length})`
-    : modeHint
+    ? `${modeHint} | ${selected.name} (${state.agents.length})${gatesBadge}`
+    : `${modeHint}${gatesBadge}`
 
   const baseCol = col + widthOf(label) + 1
   const summaryWidth = Math.max(0, width - (baseCol - col))

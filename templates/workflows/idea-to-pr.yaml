@@ -3,9 +3,22 @@ name: idea-to-pr
 # next agent sees the previous failure. Reviewer + verifier get full spec/design
 # + branch context so they don't have to guess.
 steps:
+  - id: grill
+    preset: cc-sonnet
+    task: |
+      Original task: {task}
+      Read the task above. Identify any genuine ambiguities or scope decisions a coder will need clarified to deliver an unambiguous implementation. Skip questions whose answer is obvious from the task. Cap at 3 questions. If the task is unambiguous, skip the call and write 'No clarifications needed.' to grill-answers.md.
+      If you do have questions, build a single batch payload (Question objects in one array) and call:
+        flt ask human '<json>'
+      The json must contain a 'questions' array with all your questions in one shot — do NOT call ask human multiple times. Each Question must have: id (short kebab-case), header (one-line), question (full prompt), multiSelect (boolean), options (array of {label, description?}). Pre-author concrete options so the user picks rather than typing.
+      After the call returns, write all Q&A to grill-answers.md in your worktree (one ## section per question with the user's chosen answer).
+      flt workflow pass when grill-answers.md exists.
+    on_complete: spec
+
   - id: spec
     preset: cc-sonnet
     task: |
+      Read {steps.grill.worktree}/grill-answers.md FIRST and treat the user's answers as binding.
       Original task: {task}
 
       Write a one-page spec.md in your worktree:

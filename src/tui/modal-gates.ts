@@ -113,6 +113,22 @@ function loadAllRows(): ModalRow[] {
   return [...gates, ...batchRows, ...singletons.map(qnaRowToModal)]
 }
 
+export function getPendingGatesCount(runsDir?: string, qnaDir?: string): number {
+  return scanGates(runsDir).length + (() => {
+    // Count batches as one + non-batch questions as one each (mirror the
+    // grouping in loadAllRows so the badge agrees with the modal's row count).
+    const qnaRows = pendingQna(qnaDir)
+    const seen = new Set<string>()
+    let n = 0
+    for (const row of qnaRows) {
+      const bid = row.question.batchId
+      if (!bid) { n += 1; continue }
+      if (!seen.has(bid)) { seen.add(bid); n += 1 }
+    }
+    return n
+  })()
+}
+
 function dispatchAnswer(runId: string, questionId: string, selected: string[], text: string | undefined): void {
   void writeAnswer(questionId, selected, text, { runId, notify: true }).catch(() => {})
 }
