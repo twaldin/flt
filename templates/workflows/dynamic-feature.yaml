@@ -1,0 +1,97 @@
+name: dynamic-feature
+# Generic feature workflow on top of dynamic_dag: architect decomposes the task
+# into a plan.json (with real depends_on chains, not just leaves), a dag of
+# coder+reviewer pairs runs each node, the reconciler merges the integration
+# branch and runs tests, then a final pr step opens a PR. Second production
+# dogfood of dynamic_dag — first one (gepa-prep) had only independent leaves.
+steps:
+  - id: plan
+    preset: cc-architect
+    task: |
+      Decompose this feature into a parallel-execution plan.json.
+
+      Task: {task}
+      Project root: {dir}
+
+      Output a plan.json file in your worktree's root with this shape:
+      {
+        "default_preset": "cc-coder",
+        "nodes": [
+          {
+            "id": "<short-slug>",
+            "task": "<self-contained instructions for one coder agent>",
+            "depends_on": ["<other-node-id>", ...]
+          }
+        ]
+      }
+
+      Rules:
+      - Each node should be a self-contained unit one coder can complete.
+      - Use depends_on to express real dependencies (e.g., a CLI module that
+        imports a data module). Independent nodes will run in parallel;
+        dependent nodes wait for their deps to pass.
+      - Keep nodes small: 50-300 LOC each is the sweet spot. If a node would
+        be much bigger, split it.
+      - Each node task MUST specify exact file paths to create/edit, plus
+        the test files (TDD: write tests first, watch them fail, then code).
+      - Each node task MUST end with: "flt workflow pass when tests are green
+        and your coder.md handoff is written."
+
+      Aim for 3-6 nodes total. Don't over-fragment — too many tiny nodes
+      multiplies orchestration overhead and reconciler conflict surface.
+
+      flt workflow pass when plan.json is written and validates against the
+      schema above.
+    on_complete: execute
+    on_fail: abort
+
+  - id: execute
+    type: dynamic_dag
+    plan_from: '{steps.plan.worktree}/plan.json'
+    reconciler:
+      preset: cc-evaluator
+      task: |
+        Merge each leaf node's branch into the integration branch in topo
+        order (deps before dependents). Resolve any conflicts by preferring
+        the version that keeps tests green.
+
+        After all merges land, run the project's full test suite (bun test
+        / npm test / pytest — discover from the project files) on the
+        integration branch.
+
+        ## CRITICAL: pre-existing vs new failures
+        If any test fails:
+        1. Re-run the same suite on main (git stash; git checkout main;
+           run tests; git checkout -; git stash pop).
+        2. Diff main's failures vs integration's. PRE-EXISTING failures (fail
+           on main too) are NOT regressions — note them but don't block.
+        3. NEW failures (passed on main, fail on integration) ARE blocking.
+
+        flt workflow pass when no NEW failures.
+        flt workflow fail "<short reason naming any new failures>" otherwise.
+    node_max_retries: 2
+    max_nodes: 8
+    max_depth: 3
+    on_complete: pr
+    on_fail: abort
+
+  - id: pr
+    preset: cc-coder
+    dir: '{steps.execute.worktree}'
+    worktree: false
+    task: |
+      You are in the integration worktree. The branch already has all the
+      feature work merged in.
+
+      1. Push the integration branch to origin: `git push -u origin HEAD`.
+      2. Open a PR with `gh pr create`. Title: short feature description
+         (under 70 chars). Body: a summary of what the architect planned and
+         what each node delivered, derived from the per-node coder handoffs
+         in $FLT_RUN_DIR/handoffs/.
+      3. Print the PR URL.
+
+      Original task (for the PR title/body): {task}
+
+      flt workflow pass when the PR is open and the URL is in your output.
+    on_complete: done
+    on_fail: abort
