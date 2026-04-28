@@ -139,6 +139,7 @@ steps:
     preset: pi-coder
     dir: '{steps.execute.worktree}'
     worktree: false
+    auto_pr_step: true
     task: |
       You are in the integration worktree. The branch already has all the
       feature work merged in.

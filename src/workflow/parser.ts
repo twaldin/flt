@@ -81,6 +81,7 @@ function parseSpawnStep(raw: Record<string, unknown>, stepId: string): SpawnStep
     max_retries: typeof raw.max_retries === 'number' ? raw.max_retries : undefined,
     worktree: typeof raw.worktree === 'boolean' ? raw.worktree : undefined,
     run: typeof raw.run === 'string' ? raw.run : undefined,
+    auto_pr_step: typeof raw.auto_pr_step === 'boolean' ? raw.auto_pr_step : undefined,
   }
 }
 
@@ -121,6 +122,7 @@ function parseParallelStep(raw: Record<string, unknown>, stepId: string): Parall
     on_complete: typeof raw.on_complete === 'string' ? raw.on_complete : undefined,
     on_fail: typeof raw.on_fail === 'string' ? raw.on_fail : undefined,
     max_retries: typeof raw.max_retries === 'number' ? raw.max_retries : undefined,
+    auto_pr_step: typeof raw.auto_pr_step === 'boolean' ? raw.auto_pr_step : undefined,
   }
 }
 
@@ -163,6 +165,7 @@ function parseDynamicDagStep(raw: Record<string, unknown>, stepId: string): Dyna
     on_complete: typeof raw.on_complete === 'string' ? raw.on_complete : undefined,
     on_fail: typeof raw.on_fail === 'string' ? raw.on_fail : undefined,
     max_retries: typeof raw.max_retries === 'number' ? raw.max_retries : undefined,
+    auto_pr_step: typeof raw.auto_pr_step === 'boolean' ? raw.auto_pr_step : undefined,
   }
 }
 
@@ -210,6 +213,7 @@ function parseConditionStep(
     on_complete: typeof raw.on_complete === 'string' ? raw.on_complete : undefined,
     on_fail: typeof raw.on_fail === 'string' ? raw.on_fail : undefined,
     max_retries: typeof raw.max_retries === 'number' ? raw.max_retries : undefined,
+    auto_pr_step: typeof raw.auto_pr_step === 'boolean' ? raw.auto_pr_step : undefined,
   }
 }
 
@@ -225,6 +229,7 @@ function parseHumanGateStep(raw: Record<string, unknown>, stepId: string): Human
     on_complete: typeof raw.on_complete === 'string' ? raw.on_complete : undefined,
     on_fail: typeof raw.on_fail === 'string' ? raw.on_fail : undefined,
     max_retries: typeof raw.max_retries === 'number' ? raw.max_retries : undefined,
+    auto_pr_step: typeof raw.auto_pr_step === 'boolean' ? raw.auto_pr_step : undefined,
   }
 }
 
@@ -257,6 +262,7 @@ function parseMergeBestStep(
     on_complete: typeof raw.on_complete === 'string' ? raw.on_complete : undefined,
     on_fail: typeof raw.on_fail === 'string' ? raw.on_fail : undefined,
     max_retries: typeof raw.max_retries === 'number' ? raw.max_retries : undefined,
+    auto_pr_step: typeof raw.auto_pr_step === 'boolean' ? raw.auto_pr_step : undefined,
   }
 }
 
@@ -288,6 +294,7 @@ function parseCollectArtifactsStep(
     on_complete: typeof raw.on_complete === 'string' ? raw.on_complete : undefined,
     on_fail: typeof raw.on_fail === 'string' ? raw.on_fail : undefined,
     max_retries: typeof raw.max_retries === 'number' ? raw.max_retries : undefined,
+    auto_pr_step: typeof raw.auto_pr_step === 'boolean' ? raw.auto_pr_step : undefined,
   }
 }
 

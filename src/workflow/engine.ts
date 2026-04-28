@@ -559,8 +559,11 @@ export async function cancelWorkflow(runId: string): Promise<void> {
   cleanupWorkflowWorktrees(run)
 }
 
-export function shouldCreatePr(def: WorkflowDef): boolean {
-  return def.auto_pr !== false
+export function shouldCreatePr(def: WorkflowDef, stepId: string): boolean {
+  if (def.auto_pr === false) return false
+  const flagged = def.steps.filter(s => s.auto_pr_step === true)
+  if (flagged.length > 0) return flagged.some(s => s.id === stepId)
+  return true
 }
 
 function applyAutoCommit(
@@ -580,7 +583,7 @@ function applyAutoCommit(
     appendEvent({ type: 'workflow', detail: `auto-commit failed ${run.id}/${stepId}: ${(e as Error).message}`, at: new Date().toISOString() })
   }
 
-  if (commitOnly || !shouldCreatePr(def)) return
+  if (commitOnly || !shouldCreatePr(def, stepId)) return
 
   if (agent.worktreeBranch && !run.vars._pr) {
     try {
