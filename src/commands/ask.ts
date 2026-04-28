@@ -100,6 +100,7 @@ export interface AskHumanOptions {
   timeoutMs?: number
   qnaDir?: string
   pollMs?: number
+  from?: string
 }
 
 export interface AskHumanResult {
@@ -142,12 +143,15 @@ export async function askHuman(
   const dir = qnaRunDir(qnaDir, runId)
   mkdirSync(dir, { recursive: true })
 
+  const askedBy = opts.from ?? process.env.FLT_AGENT_NAME ?? undefined
+
   for (const q of payload.questions) {
     const qPath = questionPath(qnaDir, runId, q.id)
     if (existsSync(qPath)) {
       throw new Error(`question id "${q.id}" already exists at ${qPath}`)
     }
-    writeFileSync(qPath, JSON.stringify(q, null, 2))
+    const enriched = askedBy ? { ...q, askedBy } : q
+    writeFileSync(qPath, JSON.stringify(enriched, null, 2))
   }
 
   const timeoutMs = opts.timeoutMs ?? 60 * 60 * 1000

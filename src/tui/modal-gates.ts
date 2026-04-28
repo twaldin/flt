@@ -1,9 +1,8 @@
 import * as fs from 'fs'
-import { writeFileSync } from 'fs'
 import { join } from 'path'
 import { homedir } from 'os'
 import { scanGates, scanBlockers, cleanStaleGates, type GateRow, type BlockerRow } from '../gates'
-import { pendingQna, type QnaRow, type Question, type Answer } from '../qna'
+import { pendingQna, writeAnswer, type QnaRow, type Question } from '../qna'
 import { computeColumnWidths, truncateEllipsis } from './columns'
 import { ATTR_BOLD, ATTR_DIM, ATTR_INVERSE, ATTR_UNDERLINE, type Screen } from './screen'
 import { getTheme } from './theme'
@@ -31,7 +30,14 @@ export interface GatesModalState {
   rejectPrompt: { reason: string } | null
   cancelConfirm: boolean
   blockerOverlay: BlockerRow | null
-  questionPicker: { question: Question; answerPath: string; index: number; selected: Set<string> } | null
+  questionPicker: {
+    question: Question
+    answerPath: string
+    runId: string
+    index: number
+    selected: Set<string>
+    typing: { text: string } | null
+  } | null
   watcher: fs.FSWatcher | null
   qnaWatcher: fs.FSWatcher | null
 }
@@ -63,13 +69,8 @@ function loadAllRows(): ModalRow[] {
   ]
 }
 
-function writeAnswerFile(answerPath: string, questionId: string, selected: string[]): void {
-  const ans: Answer = {
-    questionId,
-    selected,
-    answeredAt: new Date().toISOString(),
-  }
-  writeFileSync(answerPath, JSON.stringify(ans, null, 2))
+function dispatchAnswer(runId: string, questionId: string, selected: string[], text: string | undefined): void {
+  void writeAnswer(questionId, selected, text, { runId, notify: true }).catch(() => {})
 }
 
 function defaultRunsDir(): string {
@@ -507,9 +508,18 @@ function renderQuestionPicker(
     r += 1
   }
 
+  if (picker.typing) {
+    const inputRow = pickerTop + height - 3
+    const text = picker.typing.text
+    const display = truncateEllipsis(text, innerWidth - 1)
+    putLine(screen, inputRow, pickerLeft + 2, innerWidth, `> ${display}█`, t.sidebarText)
+    putLine(screen, pickerTop + height - 2, pickerLeft + 2, innerWidth, 'type your answer | Enter submit | Esc back', t.sidebarMuted, '', ATTR_DIM)
+    return
+  }
+
   const help = picker.question.multiSelect
-    ? 'j/k select | Space toggle | Enter submit | Esc back'
-    : 'j/k select | Enter submit | Esc back'
+    ? 'j/k select | Space toggle | t type custom | Enter submit | Esc back'
+    : 'j/k select | t type custom | Enter submit | Esc back'
   putLine(screen, pickerTop + height - 2, pickerLeft + 2, innerWidth, help, t.sidebarMuted, '', ATTR_DIM)
 }
 
@@ -578,6 +588,26 @@ export function handleGatesKey(state: GatesModalState, key: string, actions: Gat
   if (state.questionPicker) {
     const picker = state.questionPicker
     const opts = picker.question.options
+    if (picker.typing) {
+      if (key === 'escape') {
+        picker.typing = null
+      } else if (key === 'enter') {
+        const text = picker.typing.text.trim()
+        const selected = picker.question.multiSelect ? Array.from(picker.selected) : []
+        dispatchAnswer(picker.runId, picker.question.id, selected, text || undefined)
+        state.questionPicker = null
+        actions.refresh()
+      } else if (key === 'backspace') {
+        picker.typing.text = picker.typing.text.slice(0, -1)
+      } else if (key.length === 1) {
+        picker.typing.text += key
+      }
+      return true
+    }
+    if (key === 't') {
+      picker.typing = { text: '' }
+      return true
+    }
     if (key === 'escape') {
       state.questionPicker = null
     } else if (key === 'j' || key === 'down') {
@@ -598,7 +628,7 @@ export function handleGatesKey(state: GatesModalState, key: string, actions: Gat
       } else {
         selected = label ? [label] : []
       }
-      writeAnswerFile(picker.answerPath, picker.question.id, selected)
+      dispatchAnswer(picker.runId, picker.question.id, selected, undefined)
       state.questionPicker = null
       actions.refresh()
     } else if (key.length === 1) {
@@ -608,7 +638,7 @@ export function handleGatesKey(state: GatesModalState, key: string, actions: Gat
           picker.index = idx
         } else {
           const label = opts[idx].label
-          writeAnswerFile(picker.answerPath, picker.question.id, [label])
+          dispatchAnswer(picker.runId, picker.question.id, [label], undefined)
           state.questionPicker = null
           actions.refresh()
         }
@@ -680,17 +710,20 @@ export function handleGatesKey(state: GatesModalState, key: string, actions: Gat
       break
 
     case 'question':
-      if (key === 'enter' && row.question && row.answerPath) {
+      if ((key === 'enter' || key === 't') && row.question && row.answerPath) {
         state.questionPicker = {
           question: row.question,
           answerPath: row.answerPath,
+          runId: row.runId === '_unrouted' ? '' : row.runId,
           index: 0,
           selected: new Set<string>(),
+          typing: key === 't' ? { text: '' } : null,
         }
         return true
       }
-      if (key === 's' && row.answerPath && row.question) {
-        writeAnswerFile(row.answerPath, row.question.id, [])
+      if (key === 's' && row.question) {
+        const r = row.runId === '_unrouted' ? '' : row.runId
+        dispatchAnswer(r, row.question.id, [], undefined)
         actions.refresh()
         return true
       }

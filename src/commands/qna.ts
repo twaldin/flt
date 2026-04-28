@@ -1,7 +1,5 @@
-import { existsSync, mkdirSync, writeFileSync } from 'fs'
 import { homedir } from 'os'
-import { join } from 'path'
-import { defaultQnaDir, scanQna, type QnaRow, type Answer } from '../qna'
+import { defaultQnaDir, scanQna, writeAnswer, type QnaRow } from '../qna'
 
 function fmtAge(ms: number): string {
   const s = Math.floor(ms / 1000)
@@ -114,18 +112,19 @@ export interface QnaAnswerOptions {
   text?: string
 }
 
-export function qnaAnswer(opts: QnaAnswerOptions): void {
-  const dir = opts.qnaDir ?? defaultQnaDir()
-  const runDir = join(dir, opts.runId && opts.runId.length > 0 ? opts.runId : '_unrouted')
-  if (!existsSync(runDir)) mkdirSync(runDir, { recursive: true })
-  const aPath = join(runDir, `${opts.questionId}.answer.json`)
-  const ans: Answer = {
-    questionId: opts.questionId,
-    selected: opts.selected,
-    text: opts.text,
-    answeredAt: new Date().toISOString(),
+export async function qnaAnswer(opts: QnaAnswerOptions): Promise<void> {
+  const result = await writeAnswer(
+    opts.questionId,
+    opts.selected,
+    opts.text,
+    { qnaDir: opts.qnaDir, runId: opts.runId, notify: true },
+  )
+  if (result.notified) {
+    console.log(`Answered ${opts.questionId}; notified ${result.notified}`)
+  } else {
+    console.log(`Answered ${opts.questionId}`)
   }
-  writeFileSync(aPath, JSON.stringify(ans, null, 2))
 }
 
 void homedir
+void defaultQnaDir
