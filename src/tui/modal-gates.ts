@@ -175,11 +175,14 @@ function putSeparatedRow(
 ): void {
   if (row < 0 || row >= screen.rows) return
   let x = col
+  // Separator never inherits ATTR_INVERSE — keeps the line glyph crisp on
+  // selected rows (highlight is bg-only).
+  const sepAttrs = attrs & ~ATTR_INVERSE
   for (let i = 0; i < widths.length; i += 1) {
     screen.put(row, x, padRight(cells[i] ?? '', widths[i]), fg, bg, attrs)
     x += widths[i]
     if (i < widths.length - 1) {
-      screen.put(row, x, '│', sepFg, bg, attrs)
+      screen.put(row, x, '│', sepFg, bg, sepAttrs)
       x += 1
     }
   }
@@ -269,7 +272,7 @@ function renderSubPicker(
       padRight(text, innerWidth),
       selected ? t.sidebarSelected : t.sidebarText,
       selected ? t.sidebarSelectedBg : '',
-      selected ? ATTR_INVERSE : 0,
+      0,
     )
     r += 1
   }
@@ -462,6 +465,36 @@ export function renderGatesModal(screen: Screen, state: GatesModalState, layout:
   }
 }
 
+function wordWrap(text: string, width: number): string[] {
+  if (width <= 0 || text.length === 0) return ['']
+  const out: string[] = []
+  for (const paragraph of text.split('\n')) {
+    if (paragraph.length === 0) { out.push(''); continue }
+    const words = paragraph.split(/\s+/).filter(Boolean)
+    let line = ''
+    for (const word of words) {
+      if (widthOf(word) > width) {
+        if (line) { out.push(line); line = '' }
+        for (let i = 0; i < word.length; i += width) out.push(word.slice(i, i + width))
+        continue
+      }
+      if (!line) { line = word; continue }
+      if (widthOf(line) + 1 + widthOf(word) <= width) line += ' ' + word
+      else { out.push(line); line = word }
+    }
+    if (line) out.push(line)
+  }
+  return out.length > 0 ? out : ['']
+}
+
+interface OptionBlock {
+  selected: boolean
+  isChecked: boolean
+  shortcut: string
+  headLines: string[]
+  descLines: string[]
+}
+
 function renderQuestionPicker(
   screen: Screen,
   state: GatesModalState,
@@ -475,52 +508,108 @@ function renderQuestionPicker(
   if (!picker) return
 
   const opts = picker.question.options
-  const width = Math.min(72, cols - 4)
-  const height = Math.min(opts.length + 6, rows - 4)
-  const pickerLeft = left + Math.floor((cols - width) / 2)
-  const pickerTop = top + Math.floor((rows - height) / 2)
 
+  // Picker sizing — content-aware, centered, capped at most-of-screen.
+  // Use a wrap target of ~70% of available, then size to actual longest line.
+  const maxOuterW = Math.max(40, cols - 4)
+  const maxInnerW = Math.max(20, maxOuterW - 4)
+  const wrapTarget = Math.min(maxInnerW, Math.max(48, Math.floor(cols * 0.7)))
+  const descIndent = '       '
+
+  const promptLines = wordWrap(picker.question.question, wrapTarget)
+  const optionBlocks: OptionBlock[] = opts.map((opt, i) => {
+    const isChecked = picker.selected.has(opt.label)
+    const checkBox = isChecked ? '[x]' : (picker.question.multiSelect ? '[ ]' : '   ')
+    const shortcut = String.fromCharCode(97 + i)
+    const head = ` ${checkBox} ${shortcut}. ${opt.label}`
+    const headLines = wordWrap(head, wrapTarget)
+    const descLines = opt.description
+      ? wordWrap(opt.description, wrapTarget - descIndent.length).map(l => descIndent + l)
+      : []
+    return { selected: i === picker.index, isChecked, shortcut, headLines, descLines }
+  })
+
+  const allLines: { text: string; kind: 'prompt' | 'spacer' | 'opt-head' | 'opt-desc' | 'input' | 'footer'; selected?: boolean }[] = []
+  for (const l of promptLines) allLines.push({ text: l, kind: 'prompt' })
+  allLines.push({ text: '', kind: 'spacer' })
+  for (const block of optionBlocks) {
+    for (const l of block.headLines) allLines.push({ text: l, kind: 'opt-head', selected: block.selected })
+    for (const l of block.descLines) allLines.push({ text: l, kind: 'opt-desc', selected: block.selected })
+  }
+  if (picker.typing) {
+    allLines.push({ text: '', kind: 'spacer' })
+    allLines.push({ text: `> ${picker.typing.text}█`, kind: 'input' })
+  }
+
+  // Compute width = max line length + padding, capped.
+  const longest = Math.max(
+    widthOf(` ${picker.question.header} `),
+    ...allLines.map(l => widthOf(l.text)),
+  )
+  const innerWidth = Math.min(maxInnerW, Math.max(longest, 40))
+  const width = Math.min(maxOuterW, innerWidth + 4)
+
+  // Footer help text (kept short so it doesn't dominate width)
+  const help = picker.typing
+    ? 'type your answer | Enter submit | Esc back'
+    : (picker.question.multiSelect
+      ? 'j/k select | Space toggle | t type custom | Enter submit | Esc back'
+      : 'j/k select | t type custom | Enter submit | Esc back')
+
+  // Height = title + content + footer + 2 borders, capped to fit screen.
+  const contentLines = allLines.length + 1 /* footer line */ + 1 /* spacer above footer */
+  const desiredHeight = contentLines + 2 /* top/bottom border */
+  const height = Math.min(Math.max(8, desiredHeight), rows - 4)
+
+  // Centered placement.
+  const pickerLeft = left + Math.max(0, Math.floor((cols - width) / 2))
+  const pickerTop = top + Math.max(0, Math.floor((rows - height) / 2))
+
+  // Clear background.
   for (let r = pickerTop; r < pickerTop + height; r += 1) {
     screen.put(r, pickerLeft, ' '.repeat(width), t.sidebarText, '')
   }
   screen.box(pickerTop, pickerLeft, width, height, 'round', t.sidebarBorder)
 
-  const title = ` ${picker.question.header} `
-  screen.put(pickerTop, pickerLeft + Math.floor((width - widthOf(title)) / 2), title, t.sidebarBorder, '', ATTR_BOLD)
+  // Title (centered in border).
+  const titleText = ` ${picker.question.header} `
+  screen.put(pickerTop, pickerLeft + Math.max(1, Math.floor((width - widthOf(titleText)) / 2)), titleText, t.sidebarBorder, '', ATTR_BOLD)
 
-  const innerWidth = width - 4
-  putLine(screen, pickerTop + 1, pickerLeft + 2, innerWidth, picker.question.question, t.sidebarText, '', ATTR_BOLD)
+  // Available content rows = height - 2 borders - 2 (footer + spacer above footer).
+  const contentRowsAvail = height - 4
+  // Auto-scroll so the selected option's first headLine is visible.
+  let firstSelectedIdx = -1
+  for (let i = 0; i < allLines.length; i += 1) {
+    if (allLines[i].kind === 'opt-head' && allLines[i].selected) { firstSelectedIdx = i; break }
+  }
+  let scrollOffset = 0
+  if (firstSelectedIdx >= 0 && allLines.length > contentRowsAvail) {
+    if (firstSelectedIdx >= contentRowsAvail) {
+      scrollOffset = Math.min(firstSelectedIdx - contentRowsAvail + 2, allLines.length - contentRowsAvail)
+    }
+  }
+  scrollOffset = Math.max(0, scrollOffset)
 
-  let r = pickerTop + 2
-  for (let i = 0; i < opts.length && r < pickerTop + height - 2; i += 1) {
-    const selected = i === picker.index
-    const opt = opts[i]
-    const checked = picker.selected.has(opt.label) ? '[x]' : (picker.question.multiSelect ? '[ ]' : '   ')
-    const text = ` ${checked} ${String.fromCharCode(97 + i)}. ${opt.label}${opt.description ? ` — ${opt.description}` : ''}`
-    screen.put(
-      r,
-      pickerLeft + 1,
-      padRight(text, innerWidth + 2),
-      selected ? t.sidebarSelected : t.sidebarText,
-      selected ? t.sidebarSelectedBg : '',
-      selected ? ATTR_INVERSE : 0,
-    )
+  let r = pickerTop + 1
+  for (let i = scrollOffset; i < allLines.length && r < pickerTop + 1 + contentRowsAvail; i += 1) {
+    const ln = allLines[i]
+    if (ln.kind === 'spacer') {
+      r += 1
+      continue
+    }
+    const isPromptHead = ln.kind === 'prompt'
+    const isInput = ln.kind === 'input'
+    const fg = ln.selected ? t.sidebarSelected : (ln.kind === 'opt-desc' ? t.sidebarMuted : t.sidebarText)
+    const bg = ln.selected ? t.sidebarSelectedBg : ''
+    const attrs = ln.selected ? ATTR_INVERSE : (isPromptHead ? ATTR_BOLD : (ln.kind === 'opt-desc' ? ATTR_DIM : 0))
+    const padded = padRight(ln.text, innerWidth)
+    screen.put(r, pickerLeft + 2, isInput ? ln.text : padded, fg, bg, attrs)
     r += 1
   }
 
-  if (picker.typing) {
-    const inputRow = pickerTop + height - 3
-    const text = picker.typing.text
-    const display = truncateEllipsis(text, innerWidth - 1)
-    putLine(screen, inputRow, pickerLeft + 2, innerWidth, `> ${display}█`, t.sidebarText)
-    putLine(screen, pickerTop + height - 2, pickerLeft + 2, innerWidth, 'type your answer | Enter submit | Esc back', t.sidebarMuted, '', ATTR_DIM)
-    return
-  }
-
-  const help = picker.question.multiSelect
-    ? 'j/k select | Space toggle | t type custom | Enter submit | Esc back'
-    : 'j/k select | t type custom | Enter submit | Esc back'
-  putLine(screen, pickerTop + height - 2, pickerLeft + 2, innerWidth, help, t.sidebarMuted, '', ATTR_DIM)
+  // Footer (always at the bottom, with a visual separator above).
+  const footerRow = pickerTop + height - 2
+  putLine(screen, footerRow, pickerLeft + 2, innerWidth, help, t.sidebarMuted, '', ATTR_DIM)
 }
 
 export function handleGatesKey(state: GatesModalState, key: string, actions: GatesActions): boolean {
