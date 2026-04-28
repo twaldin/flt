@@ -729,16 +729,21 @@ export function renderMetricsModal(screen: Screen, state: MetricsModalState, ter
     ? 'orchestrator'
     : (orchestrator ? (orchestrator.type === 'human' ? 'human' : 'orchestrator') : 'human')
 
-  // Drop _smoke* and other _-prefixed (internal) workflows from the tree —
-  // they're test/dev runs and clutter the real workflow view.
+  // Tree uses UNFILTERED archives intentionally: a workflow row should always
+  // show its full agent subtree regardless of the period filter, so the tree
+  // doesn't go stale (workflows-with-no-agents) for older runs. Period filter
+  // already applies to the by-group section + sparkline + total above.
+  // Smoke-only filter still applies — internal/_-prefixed workflows are
+  // pure noise in the tree view.
+  const runsForTree = data.runs.filter(r => !(r.workflow ?? '').startsWith('_'))
   const internalRunIds = new Set(
     data.runs.filter(r => (r.workflow ?? '').startsWith('_')).map(r => r.id ?? '').filter(Boolean),
   )
-  const runsForTree = data.runs.filter(r => !(r.workflow ?? '').startsWith('_'))
-  const archivesForTree = filtered.filter(a => {
-    const runId = String((a as unknown as { runId?: string }).runId ?? '')
-    if (runId && internalRunIds.has(runId)) return false
+  const archivesForTree = data.archives.filter(a => {
     if (a.name.startsWith('_smoke') || a.name.includes('-smoke-')) return false
+    for (const id of internalRunIds) {
+      if (id && a.name.startsWith(`${id}-`)) return false
+    }
     return true
   })
   const runRows = buildRunsTree(archivesForTree, runsForTree, data.parents, orchestratorName)
