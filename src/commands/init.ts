@@ -26,7 +26,7 @@ const SEED_PRESETS = {
   'orchestrator': { cli: 'claude-code', model: 'opus[1m]', description: 'Persistent fleet orchestrator', dir: '~/.flt/agents/orchestrator', parent: 'human', worktree: false, persistent: true, soul: 'agents/orchestrator/SOUL.md' },
   'pi-coder': { cli: 'pi', model: 'gpt-5.3-codex', description: 'Coder via pi (gpt-5.3-codex)', soul: 'roles/coder.md' },
   'pi-reviewer': { cli: 'pi', model: 'gpt-5.5', description: 'Reviewer via pi (gpt-5.5)', soul: 'roles/reviewer.md' },
-  'pi-deep': { cli: 'pi', model: 'gpt-5.4-high', description: 'Deep-reasoning oracle via pi (gpt-5.4 high)', soul: 'roles/oracle.md' },
+  'pi-deep': { cli: 'pi', model: 'gpt-5.5', description: 'Deep-reasoning oracle via pi (gpt-5.5)', soul: 'roles/oracle.md' },
 }
 
 function fltHome(): string {
