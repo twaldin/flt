@@ -684,7 +684,11 @@ export function renderMetricsModal(screen: Screen, state: MetricsModalState, ter
       t.sidebarText,
     )
     row += 1
-    putLine(screen, row, innerLeft + 2, Math.max(1, innerWidth - 2), bar(item.cost, maxCost, Math.min(barWidth, innerWidth - 2)), t.commandPrefix)
+    // Leave a 2-cell margin between the bar's right edge and the modal's
+    // right border — the bar uses `█` which fills its cell completely,
+    // so without breathing room it visually fuses with the `│` border.
+    const barRoom = Math.max(1, innerWidth - 4)
+    putLine(screen, row, innerLeft + 2, barRoom, bar(item.cost, maxCost, Math.min(barWidth, barRoom)), t.commandPrefix)
     row += 1
   }
   if (hidden > 0) {
