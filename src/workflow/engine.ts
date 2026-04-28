@@ -10,7 +10,7 @@ import {
 import { basename, join } from 'path'
 import { execSync } from 'child_process'
 import { loadWorkflowDef, resolveWorkflowYamlPath } from './parser'
-import { getAgent, allAgents } from '../state'
+import { getAgent, allAgents, setAgent } from '../state'
 import type {
   CollectArtifactsStep,
   ConditionStep,
@@ -1037,6 +1037,12 @@ async function spawnDagNode(def: WorkflowDef, run: WorkflowRun, step: DynamicDag
           }
         : undefined,
     })
+    // worktree was pre-created by the engine with worktree:false; backfill so
+    // applyAutoCommit can find the path (it guards on agent.worktreePath).
+    // worktreeBranch intentionally omitted — dag node branches are not pushed
+    // as standalone PRs; the reconciler merges them into the integration branch.
+    const spawnedCoder = getAgent(agentName)
+    if (spawnedCoder) setAgent(agentName, { ...spawnedCoder, worktreePath: wt.path })
   }
 
   saveWorkflowRun(run)
