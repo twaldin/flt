@@ -30,16 +30,35 @@ startPolling(1000)
 // Workflow advancement: when an agent goes idle, check if it's a workflow step
 setStatusChangeCallback((name, prev, next) => {
   if (next === 'idle' && prev === 'running') {
-    // Check if this agent belongs to a workflow
-    import('../workflow/engine').then(({ getWorkflowForAgent, advanceWorkflow }) => {
-      const workflowName = getWorkflowForAgent(name)
-      if (workflowName) {
-        console.log(`[workflow] Agent "${name}" went idle — advancing workflow "${workflowName}"`)
-        advanceWorkflow(workflowName, name).catch(e => {
-          console.error(`[workflow] Failed to advance "${workflowName}": ${e.message}`)
-        })
-      }
-    }).catch(() => {})
+    void (async () => {
+      // Ephemeral agents (e.g., ask-oracle) auto-kill on first idle so they
+      // don't accumulate as zombie idle agents. The oracle answered (via
+      // `flt send <caller>`) before going idle; first idle == done.
+      try {
+        const { getAgent } = await import('../state')
+        const agent = getAgent(name)
+        if (agent?.ephemeral) {
+          console.log(`[ephemeral] Agent "${name}" went idle — auto-killing`)
+          const { killDirect } = await import('../commands/kill')
+          await killDirect({ name, fromWorkflow: false }).catch(e => {
+            console.error(`[ephemeral] Failed to kill "${name}": ${e.message}`)
+          })
+          return
+        }
+      } catch {}
+
+      // Check if this agent belongs to a workflow
+      try {
+        const { getWorkflowForAgent, advanceWorkflow } = await import('../workflow/engine')
+        const workflowName = getWorkflowForAgent(name)
+        if (workflowName) {
+          console.log(`[workflow] Agent "${name}" went idle — advancing workflow "${workflowName}"`)
+          await advanceWorkflow(workflowName, name).catch(e => {
+            console.error(`[workflow] Failed to advance "${workflowName}": ${e.message}`)
+          })
+        }
+      } catch {}
+    })()
   }
 
   // Handle agent death → workflow failure

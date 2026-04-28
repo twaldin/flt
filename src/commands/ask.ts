@@ -46,6 +46,7 @@ export async function askOracle(question: string, opts?: AskOptions): Promise<st
     worktree: false,
     parent: caller,
     bootstrap,
+    ephemeral: true,
   })
 
   if (caller !== 'human') {

@@ -22,6 +22,7 @@ interface SpawnArgs {
   bootstrap?: string
   parent?: string
   persistent?: boolean
+  ephemeral?: boolean
   skills?: string[]
   allSkills?: boolean
   noModelResolve?: boolean
@@ -386,6 +387,7 @@ export async function spawnDirect(args: SpawnArgs): Promise<void> {
     workflow: args.workflow,
     spawnedAt: new Date().toISOString(),
     persistent: args.persistent ?? presetPersistent,
+    ephemeral: args.ephemeral,
   })
 
   appendEvent({

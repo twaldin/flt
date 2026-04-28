@@ -29,6 +29,9 @@ export interface AgentState {
   status?: AgentStatus
   statusAt?: string
   persistent?: boolean
+  /** Auto-kill on first idle transition. Used by ask-oracle: oracle answers
+   * once and then dies, so it can't accumulate as a zombie idle agent. */
+  ephemeral?: boolean
 }
 
 export interface FleetState {
