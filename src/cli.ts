@@ -282,23 +282,122 @@ modelsCmd
   })
 
 program
-  .command('ask <target> <question>')
-  .description('Ask the oracle (or another routed role) a question')
+  .command('ask <target> [question]')
+  .description('Ask the oracle, or `flt ask human <json>` (stdin if json omitted) for structured questions')
   .option('--from <name>', 'Caller agent name; default = human')
+  .option('--run-id <id>', 'Tag the question with a run-id (default = _unrouted)')
   .option('--timeout <ms>', 'Timeout in milliseconds', (v) => parseInt(v, 10))
   .action(async (target, question, opts) => {
     try {
-      if (target !== 'oracle') {
-        console.error('Only "oracle" is supported as a target right now.')
-        process.exit(1)
+      if (target === 'oracle') {
+        if (!question) {
+          console.error('flt ask oracle requires a question argument')
+          process.exit(1)
+        }
+        const { askOracle } = await import('./commands/ask')
+        await askOracle(question, { from: opts.from, timeoutMs: opts.timeout })
+        return
       }
-      const { askOracle } = await import('./commands/ask')
-      await askOracle(question, { from: opts.from, timeoutMs: opts.timeout })
+      if (target === 'human') {
+        const raw = question ?? await readStdin()
+        if (!raw || raw.trim().length === 0) {
+          console.error('flt ask human requires JSON via argv or stdin')
+          process.exit(1)
+        }
+        let parsed: unknown
+        try { parsed = JSON.parse(raw) } catch (e) {
+          console.error(`flt ask human: invalid JSON: ${(e as Error).message}`)
+          process.exit(1)
+        }
+        const { askHuman } = await import('./commands/ask')
+        const result = await askHuman(parsed as { questions: unknown[] } as Parameters<typeof askHuman>[0], {
+          runId: opts.runId,
+          timeoutMs: opts.timeout,
+        })
+        console.log(JSON.stringify(result, null, 2))
+        if (result.status === 'timeout') process.exit(2)
+        return
+      }
+      console.error(`Unknown ask target "${target}". Supported: oracle, human.`)
+      process.exit(1)
     } catch (e) {
       console.error('Error: ' + (e as Error).message)
       process.exit(1)
     }
   })
+
+const qnaCmd = program
+  .command('qna')
+  .description('Browse and export Q&A pairs from agent-initiated questions')
+
+qnaCmd
+  .command('list')
+  .description('List all Q&A rows')
+  .option('--json', 'Output as JSON')
+  .option('--pending', 'Only unanswered questions')
+  .option('--run-id <id>', 'Filter to a specific run-id')
+  .option('--qna-dir <path>', 'Override qna directory (test-only)')
+  .action(async (opts) => {
+    const { qnaList } = await import('./commands/qna')
+    qnaList({
+      qnaDir: opts.qnaDir,
+      json: opts.json,
+      pendingOnly: opts.pending,
+      runId: opts.runId,
+    })
+  })
+
+qnaCmd
+  .command('show <questionId>')
+  .description('Show a question + its answer (if any)')
+  .option('--run-id <id>', 'Filter to a specific run-id')
+  .option('--qna-dir <path>', 'Override qna directory (test-only)')
+  .action(async (questionId, opts) => {
+    const { qnaShow } = await import('./commands/qna')
+    qnaShow({ questionId, runId: opts.runId, qnaDir: opts.qnaDir })
+  })
+
+qnaCmd
+  .command('export')
+  .description('Export Q&A as JSONL (default) or JSON for mutator/GEPA training')
+  .option('--format <fmt>', 'jsonl | json (default jsonl)')
+  .option('--since <ms>', 'Only rows newer than N ms', (v) => parseInt(v, 10))
+  .option('--pending', 'Only unanswered questions')
+  .option('--qna-dir <path>', 'Override qna directory (test-only)')
+  .action(async (opts) => {
+    const { qnaExport } = await import('./commands/qna')
+    qnaExport({
+      qnaDir: opts.qnaDir,
+      format: opts.format === 'json' ? 'json' : 'jsonl',
+      sinceMs: opts.since,
+      pendingOnly: opts.pending,
+    })
+  })
+
+qnaCmd
+  .command('answer <questionId>')
+  .description('Submit an answer for a pending question (modal/CLI side)')
+  .requiredOption('--selected <labels>', 'Comma-separated selected labels')
+  .option('--text <text>', 'Free-text answer (for text-type questions)')
+  .option('--run-id <id>', 'Run id of the question')
+  .option('--qna-dir <path>', 'Override qna directory (test-only)')
+  .action(async (questionId, opts) => {
+    const { qnaAnswer } = await import('./commands/qna')
+    qnaAnswer({
+      qnaDir: opts.qnaDir,
+      runId: opts.runId,
+      questionId,
+      selected: String(opts.selected).split(',').map((s: string) => s.trim()).filter(Boolean),
+      text: opts.text,
+    })
+  })
+
+async function readStdin(): Promise<string> {
+  if (process.stdin.isTTY) return ''
+  let buf = ''
+  for await (const chunk of process.stdin) buf += chunk
+  return buf
+}
 
 program
   .command('promote <candidate>')
