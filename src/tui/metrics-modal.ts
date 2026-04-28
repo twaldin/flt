@@ -500,8 +500,36 @@ export function buildRunsTree(
       const historyAgents = Array.from(new Set((run.history ?? [])
         .map(h => h.agent)
         .filter((name): name is string => typeof name === 'string' && name)))
-      const inWorkflow = new Set(historyAgents)
-      const directRoots = historyAgents.filter(name => {
+      // dynamic_dag-spawned agents live in dynamicDagGroups, not in
+      // history. Pull them in too so the tree shows dag children.
+      const dagAgents: string[] = []
+      const dagGroups = (run as unknown as { dynamicDagGroups?: Record<string, unknown> }).dynamicDagGroups ?? {}
+      for (const group of Object.values(dagGroups)) {
+        const g = group as Record<string, unknown>
+        const reconcilerAgent = typeof g.reconcilerAgent === 'string' ? g.reconcilerAgent : null
+        if (reconcilerAgent) dagAgents.push(reconcilerAgent)
+        const nodes = (g.nodes ?? {}) as Record<string, unknown>
+        for (const node of Object.values(nodes)) {
+          const n = node as Record<string, unknown>
+          if (typeof n.coderAgent === 'string') dagAgents.push(n.coderAgent)
+          if (typeof n.reviewerAgent === 'string') dagAgents.push(n.reviewerAgent)
+          if (typeof n.mergeAgent === 'string') dagAgents.push(n.mergeAgent)
+          const candidates = (n.candidates ?? []) as Array<Record<string, unknown>>
+          for (const c of candidates) {
+            if (typeof c.agentName === 'string') dagAgents.push(c.agentName)
+          }
+        }
+      }
+      // Also pick up any archive whose name starts with the run id — catches
+      // agents whose state has been GC'd from dynamicDagGroups but whose
+      // archive json is still on disk.
+      const runId = run.id ?? ''
+      const archivePrefixAgents = runId
+        ? archives.filter(a => a.name.startsWith(`${runId}-`)).map(a => a.name)
+        : []
+      const allAgents = Array.from(new Set([...historyAgents, ...dagAgents, ...archivePrefixAgents]))
+      const inWorkflow = new Set(allAgents)
+      const directRoots = allAgents.filter(name => {
         const parent = parents[name]
         return !parent || !inWorkflow.has(parent)
       })
@@ -518,10 +546,13 @@ export function buildRunsTree(
       // (e.g. several idea-to-pr's) are visually distinct in the tree.
       const wfName = run.workflow ?? '(workflow)'
       const id = run.id ?? `${wfName}:${workflowNodes.length}`
-      const slug = id.startsWith(`${wfName}-`) ? id.slice(wfName.length + 1) : id
+      let slug: string
+      if (id === wfName) slug = '(default)'
+      else if (id.startsWith(`${wfName}-`)) slug = id.slice(wfName.length + 1)
+      else slug = id
       workflowNodes.push({
         id,
-        label: slug && slug !== wfName ? `${wfName} · ${slug}` : wfName,
+        label: `${wfName} · ${slug}`,
         archive: null,
         isWorkflowNode: true,
         children,
