@@ -1,19 +1,74 @@
 import * as fs from 'fs'
+import { writeFileSync } from 'fs'
 import { join } from 'path'
 import { homedir } from 'os'
 import { scanGates, scanBlockers, cleanStaleGates, type GateRow, type BlockerRow } from '../gates'
+import { pendingQna, type QnaRow, type Question, type Answer } from '../qna'
 import { computeColumnWidths, truncateEllipsis } from './columns'
 import { ATTR_BOLD, ATTR_DIM, ATTR_INVERSE, ATTR_UNDERLINE, type Screen } from './screen'
 import { getTheme } from './theme'
 
+export type ModalKind = GateRow['kind'] | 'question'
+
+export interface ModalRow {
+  runId: string
+  workflow: string
+  kind: ModalKind
+  reason: string
+  ageMs: number
+  runDir: string
+  payload: Record<string, unknown>
+  source: 'gate' | 'question'
+  question?: Question
+  questionPath?: string
+  answerPath?: string
+}
+
 export interface GatesModalState {
-  rows: GateRow[]
+  rows: ModalRow[]
   selectedIndex: number
   subPicker: { nodeId: string; candidates: string[]; index: number } | null
   rejectPrompt: { reason: string } | null
   cancelConfirm: boolean
   blockerOverlay: BlockerRow | null
+  questionPicker: { question: Question; answerPath: string; index: number; selected: Set<string> } | null
   watcher: fs.FSWatcher | null
+}
+
+function gateRowToModal(row: GateRow): ModalRow {
+  return { ...row, source: 'gate' }
+}
+
+function qnaRowToModal(row: QnaRow): ModalRow {
+  return {
+    runId: row.runId || '_unrouted',
+    workflow: row.question.header,
+    kind: 'question',
+    reason: row.question.question,
+    ageMs: row.ageMs,
+    runDir: '',
+    payload: { kind: 'question', questionId: row.questionId },
+    source: 'question',
+    question: row.question,
+    questionPath: row.questionPath,
+    answerPath: row.answerPath,
+  }
+}
+
+function loadAllRows(): ModalRow[] {
+  return [
+    ...scanGates().map(gateRowToModal),
+    ...pendingQna().map(qnaRowToModal),
+  ]
+}
+
+function writeAnswerFile(answerPath: string, questionId: string, selected: string[]): void {
+  const ans: Answer = {
+    questionId,
+    selected,
+    answeredAt: new Date().toISOString(),
+  }
+  writeFileSync(answerPath, JSON.stringify(ans, null, 2))
 }
 
 function defaultRunsDir(): string {
@@ -23,12 +78,13 @@ function defaultRunsDir(): string {
 export function initialGatesModalState(): GatesModalState {
   cleanStaleGates()
   return {
-    rows: scanGates(),
+    rows: loadAllRows(),
     selectedIndex: 0,
     subPicker: null,
     rejectPrompt: null,
     cancelConfirm: false,
     blockerOverlay: null,
+    questionPicker: null,
     watcher: null,
   }
 }
@@ -44,7 +100,7 @@ export function openGatesWatcher(state: GatesModalState, onChange: () => void): 
       timer = setTimeout(() => {
         timer = null
         cleanStaleGates()
-        state.rows = scanGates()
+        state.rows = loadAllRows()
         onChange()
       }, 150)
     })
@@ -123,6 +179,7 @@ function kindLabel(kind: string): string {
     case 'node-fail': return 'node-fail'
     case 'reconcile-fail': return 'recon-fail'
     case 'node-candidate': return 'candidate'
+    case 'question': return 'question'
     default: return kind
   }
 }
@@ -133,6 +190,7 @@ function kindFooter(kind: string): string {
     case 'node-fail': return 'r retry | s skip | a abort | c cancel'
     case 'reconcile-fail': return 'r retry | a abort | c cancel'
     case 'node-candidate': return 'Enter pick candidate | c cancel'
+    case 'question': return 'Enter answer | s skip'
     case 'blocker': return 'v view | c cancel'
     default: return 'c cancel'
   }
@@ -378,7 +436,61 @@ export function renderGatesModal(screen: Screen, state: GatesModalState, layout:
     renderRejectPrompt(screen, state, top, left, cols, rows)
   } else if (state.subPicker) {
     renderSubPicker(screen, state, top, left, cols, rows)
+  } else if (state.questionPicker) {
+    renderQuestionPicker(screen, state, top, left, cols, rows)
   }
+}
+
+function renderQuestionPicker(
+  screen: Screen,
+  state: GatesModalState,
+  top: number,
+  left: number,
+  cols: number,
+  rows: number,
+): void {
+  const t = getTheme()
+  const picker = state.questionPicker
+  if (!picker) return
+
+  const opts = picker.question.options
+  const width = Math.min(72, cols - 4)
+  const height = Math.min(opts.length + 6, rows - 4)
+  const pickerLeft = left + Math.floor((cols - width) / 2)
+  const pickerTop = top + Math.floor((rows - height) / 2)
+
+  for (let r = pickerTop; r < pickerTop + height; r += 1) {
+    screen.put(r, pickerLeft, ' '.repeat(width), t.sidebarText, '')
+  }
+  screen.box(pickerTop, pickerLeft, width, height, 'round', t.sidebarBorder)
+
+  const title = ` ${picker.question.header} `
+  screen.put(pickerTop, pickerLeft + Math.floor((width - widthOf(title)) / 2), title, t.sidebarBorder, '', ATTR_BOLD)
+
+  const innerWidth = width - 4
+  putLine(screen, pickerTop + 1, pickerLeft + 2, innerWidth, picker.question.question, t.sidebarText, '', ATTR_BOLD)
+
+  let r = pickerTop + 2
+  for (let i = 0; i < opts.length && r < pickerTop + height - 2; i += 1) {
+    const selected = i === picker.index
+    const opt = opts[i]
+    const checked = picker.selected.has(opt.label) ? '[x]' : (picker.question.multiSelect ? '[ ]' : '   ')
+    const text = ` ${checked} ${String.fromCharCode(97 + i)}. ${opt.label}${opt.description ? ` — ${opt.description}` : ''}`
+    screen.put(
+      r,
+      pickerLeft + 1,
+      padRight(text, innerWidth + 2),
+      selected ? t.sidebarSelected : t.sidebarText,
+      selected ? t.sidebarSelectedBg : '',
+      selected ? ATTR_INVERSE : 0,
+    )
+    r += 1
+  }
+
+  const help = picker.question.multiSelect
+    ? 'j/k select | Space toggle | Enter submit | Esc back'
+    : 'j/k select | Enter submit | Esc back'
+  putLine(screen, pickerTop + height - 2, pickerLeft + 2, innerWidth, help, t.sidebarMuted, '', ATTR_DIM)
 }
 
 export function handleGatesKey(state: GatesModalState, key: string, actions: GatesActions): boolean {
@@ -443,6 +555,48 @@ export function handleGatesKey(state: GatesModalState, key: string, actions: Gat
     return true
   }
 
+  if (state.questionPicker) {
+    const picker = state.questionPicker
+    const opts = picker.question.options
+    if (key === 'escape') {
+      state.questionPicker = null
+    } else if (key === 'j' || key === 'down') {
+      picker.index = Math.min(opts.length - 1, picker.index + 1)
+    } else if (key === 'k' || key === 'up') {
+      picker.index = Math.max(0, picker.index - 1)
+    } else if (key === 'space' || (key === ' ' && picker.question.multiSelect)) {
+      const label = opts[picker.index]?.label
+      if (label) {
+        if (picker.selected.has(label)) picker.selected.delete(label)
+        else picker.selected.add(label)
+      }
+    } else if (key === 'enter') {
+      const label = opts[picker.index]?.label
+      let selected: string[]
+      if (picker.question.multiSelect) {
+        selected = Array.from(picker.selected)
+      } else {
+        selected = label ? [label] : []
+      }
+      writeAnswerFile(picker.answerPath, picker.question.id, selected)
+      state.questionPicker = null
+      actions.refresh()
+    } else if (key.length === 1) {
+      const idx = key.charCodeAt(0) - 97
+      if (idx >= 0 && idx < opts.length) {
+        if (picker.question.multiSelect) {
+          picker.index = idx
+        } else {
+          const label = opts[idx].label
+          writeAnswerFile(picker.answerPath, picker.question.id, [label])
+          state.questionPicker = null
+          actions.refresh()
+        }
+      }
+    }
+    return true
+  }
+
   if (key === 'escape') return false
 
   if (key === 'j' || key === 'down') {
@@ -501,6 +655,23 @@ export function handleGatesKey(state: GatesModalState, key: string, actions: Gat
         if (candidates.length > 0) {
           state.subPicker = { nodeId, candidates, index: 0 }
         }
+        return true
+      }
+      break
+
+    case 'question':
+      if (key === 'enter' && row.question && row.answerPath) {
+        state.questionPicker = {
+          question: row.question,
+          answerPath: row.answerPath,
+          index: 0,
+          selected: new Set<string>(),
+        }
+        return true
+      }
+      if (key === 's' && row.answerPath && row.question) {
+        writeAnswerFile(row.answerPath, row.question.id, [])
+        actions.refresh()
         return true
       }
       break
