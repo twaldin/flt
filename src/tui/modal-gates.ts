@@ -162,6 +162,10 @@ function putLine(screen: Screen, row: number, col: number, width: number, text: 
   screen.put(row, col, padRight(text, width), fg, bg, attrs)
 }
 
+// 3-cell separator (" │ ") gives breathing room around vertical column
+// dividers so cells don't sit flush against the line glyph.
+const SEP_W = 3
+
 function putSeparatedRow(
   screen: Screen,
   row: number,
@@ -182,8 +186,8 @@ function putSeparatedRow(
     screen.put(row, x, padRight(cells[i] ?? '', widths[i]), fg, bg, attrs)
     x += widths[i]
     if (i < widths.length - 1) {
-      screen.put(row, x, '│', sepFg, bg, sepAttrs)
-      x += 1
+      screen.put(row, x, ' │ ', sepFg, bg, sepAttrs)
+      x += SEP_W
     }
   }
 }
@@ -422,7 +426,7 @@ export function renderGatesModal(screen: Screen, state: GatesModalState, layout:
   ])
 
   const minWidths = headers.map((h, i) => Math.max(widthOf(h), ...data.map(cells => widthOf(cells[i] ?? ''))))
-  const widths = computeColumnWidths(minWidths, innerWidth)
+  const widths = computeColumnWidths(minWidths, innerWidth, Math.max(0, (minWidths.length - 1) * SEP_W))
 
   let r = innerTop
   putSeparatedRow(screen, r, left + 1, widths, headers, t.sidebarTitle, t.sidebarBorder, '', ATTR_BOLD | ATTR_UNDERLINE)
