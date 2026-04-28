@@ -1,4 +1,5 @@
 name: daily-mutator
+auto_pr: false
 steps:
   - id: collect
     run: |

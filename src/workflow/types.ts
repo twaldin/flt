@@ -1,5 +1,6 @@
 export interface WorkflowDef {
   name: string
+  auto_pr?: boolean
   steps: WorkflowStepDef[]
 }
 

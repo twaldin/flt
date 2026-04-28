@@ -299,6 +299,9 @@ export function validateWorkflowDef(raw: unknown): WorkflowDef {
   if (typeof obj.name !== 'string' || !obj.name) {
     throw new Error('Workflow must have a "name" field')
   }
+  if (obj.auto_pr !== undefined && typeof obj.auto_pr !== 'boolean') {
+    throw new Error('Workflow "auto_pr" must be a boolean')
+  }
   if (!Array.isArray(obj.steps) || obj.steps.length === 0) {
     throw new Error('Workflow must have a non-empty "steps" array')
   }
@@ -373,5 +376,5 @@ export function validateWorkflowDef(raw: unknown): WorkflowDef {
     }
   }
 
-  return { name: obj.name, steps }
+  return { name: obj.name, auto_pr: obj.auto_pr as boolean | undefined, steps }
 }
