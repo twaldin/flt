@@ -99,6 +99,30 @@ function putSeparatedRow(
   }
 }
 
+/**
+ * Horizontal rule that uses ┼ at the column-separator positions, so the
+ * underline visually connects to the vertical separators instead of cutting
+ * through them with a flat ─.
+ */
+function putHorizontalRule(
+  screen: Screen,
+  row: number,
+  col: number,
+  widths: readonly number[],
+  fg: string,
+): void {
+  if (row < 0 || row >= screen.rows) return
+  let x = col
+  for (let i = 0; i < widths.length; i += 1) {
+    screen.put(row, x, '─'.repeat(widths[i]), fg)
+    x += widths[i]
+    if (i < widths.length - 1) {
+      screen.put(row, x, '┼', fg)
+      x += 1
+    }
+  }
+}
+
 function num(value: number | null | undefined): number {
   return typeof value === 'number' && Number.isFinite(value) ? value : 0
 }
@@ -620,7 +644,21 @@ export function renderMetricsModal(screen: Screen, state: MetricsModalState, ter
   const groupMinWidths = groupCols.map((header, i) => Math.max(widthOf(header), ...groupData.map(cells => widthOf(cells[i]))))
   const groupWidths = computeColumnWidths(groupMinWidths, innerWidth)
 
-  putSeparatedRow(screen, row, innerLeft, groupWidths, groupCols, t.sidebarMuted, t.sidebarBorder, ATTR_BOLD)
+  // by-<group> section: NO vertical separators (the share-bar row below each
+  // data row would break the grid anyway). Use plain padded cells joined by
+  // a 2-space gap.
+  const renderGroupRow = (cells: readonly string[], fg: string, attrs = 0): void => {
+    let x = innerLeft
+    for (let i = 0; i < groupWidths.length; i += 1) {
+      screen.put(row, x, padRight(cells[i] ?? '', groupWidths[i]), fg, '', attrs)
+      x += groupWidths[i]
+      if (i < groupWidths.length - 1) {
+        screen.put(row, x, '  ', fg, '')
+        x += 2
+      }
+    }
+  }
+  renderGroupRow(groupCols, t.sidebarMuted, ATTR_BOLD)
   row += 1
   putLine(screen, row, innerLeft, innerWidth, '─'.repeat(Math.max(0, innerWidth)), t.sidebarMuted)
   row += 1
@@ -634,11 +672,7 @@ export function renderMetricsModal(screen: Screen, state: MetricsModalState, ter
 
   for (const item of shown) {
     const sharePct = (item.cost / Math.max(0.0001, totalCost)) * 100
-    putSeparatedRow(
-      screen,
-      row,
-      innerLeft,
-      groupWidths,
+    renderGroupRow(
       [
         item.label,
         fmtCost(item.cost),
@@ -648,7 +682,6 @@ export function renderMetricsModal(screen: Screen, state: MetricsModalState, ter
         `${sharePct.toFixed(1)}%`,
       ],
       t.sidebarText,
-      t.sidebarBorder,
     )
     row += 1
     putLine(screen, row, innerLeft + 2, Math.max(1, innerWidth - 2), bar(item.cost, maxCost, Math.min(barWidth, innerWidth - 2)), t.commandPrefix)
@@ -689,7 +722,9 @@ export function renderMetricsModal(screen: Screen, state: MetricsModalState, ter
 
   putSeparatedRow(screen, row, innerLeft, runWidths, runCols, t.sidebarMuted, t.sidebarBorder, ATTR_BOLD)
   row += 1
-  putLine(screen, row, innerLeft, innerWidth, '─'.repeat(Math.max(0, innerWidth)), t.sidebarMuted)
+  // Horizontal rule with ┼ at the column-separator positions so the
+  // underline meets the vertical separators cleanly.
+  putHorizontalRule(screen, row, innerLeft, runWidths, t.sidebarMuted)
   row += 1
 
   const maxRunRows = Math.max(0, innerTop + innerHeight - 2 - row)
