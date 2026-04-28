@@ -15,22 +15,36 @@ steps:
     on_complete: coder
   - id: coder
     preset: pi-coder
-    task: 'Implement per {steps.architect.worktree}/design.md. flt workflow pass when green.'
+    task: |
+      Implement per {steps.architect.worktree}/design.md.
+
+      Previous-attempt feedback (only set on retry): {fail_reason}
+
+      flt workflow pass when tests are green and committed.
     on_complete: reviewer
     on_fail: coder
     max_retries: 2
   - id: reviewer
-    preset: cc-sonnet
+    preset: pi-reviewer
     dir: '{steps.coder.worktree}'
     worktree: false
-    task: 'Review impl. flt workflow pass / fail.'
+    task: |
+      Review the coder's diff against {steps.spec.worktree}/spec.md and {steps.architect.worktree}/design.md.
+
+      flt workflow pass if acceptable, flt workflow fail "<concrete actionable feedback>" otherwise.
+      The coder retry receives your fail message verbatim — be specific.
     on_complete: verifier
     on_fail: coder
   - id: verifier
     preset: pi-coder
     dir: '{steps.coder.worktree}'
     worktree: false
-    task: 'Run tests + lint. flt workflow pass on green.'
+    task: |
+      Run tests + lint.
+
+      Previous-verifier feedback (only set on retry): {fail_reason}
+
+      flt workflow pass on green.
     on_complete: gate
     on_fail: coder
   - id: gate

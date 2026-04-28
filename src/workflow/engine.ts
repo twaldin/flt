@@ -622,8 +622,14 @@ function shellEscapeArg(value: string): string {
 }
 
 function resolveTemplateShell(template: string, run: WorkflowRun): string {
+  // {{X}} -> {X} escape. Mirrors resolveTemplate so shell-string templates
+  // can preserve a literal placeholder.
+  const SENT_OPEN = String.fromCharCode(1)
+  const SENT_CLOSE = String.fromCharCode(2)
   // Escape shorthand vars for shell safety
   let result = template
+    .replace(/\{\{/g, SENT_OPEN)
+    .replace(/\}\}/g, SENT_CLOSE)
     .replace(/\{task\}/g, shellEscapeArg(run.vars._input?.task ?? ''))
     .replace(/\{dir\}/g, shellEscapeArg(run.vars._input?.dir ?? ''))
     .replace(/\{pr\}/g, shellEscapeArg(run.vars._pr?.url ?? ''))
@@ -636,6 +642,7 @@ function resolveTemplateShell(template: string, run: WorkflowRun): string {
     if (value === undefined) return match
     return shellEscapeArg(value)
   })
+  result = result.replace(new RegExp(SENT_OPEN, 'g'), '{').replace(new RegExp(SENT_CLOSE, 'g'), '}')
   return result
 }
 
@@ -1134,9 +1141,13 @@ async function handleNodeFailGate(def: WorkflowDef, run: WorkflowRun, step: Dyna
   if (action === 'abort') {
     writeResult(run.runDir, step.id, '_', 'fail', `aborted at node ${nodeId}`)
   } else if (action === 'retry') {
+    // Preserve the previous failReason so the retry coder's task body can
+    // reference it via the {fail_reason} template var. The architect should
+    // include "Previous-attempt feedback (only set on retry): {fail_reason}"
+    // in per-node tasks for this to be surfaced.
+    if (node.failReason) run.stepFailReason = node.failReason
     node.retries = 0
     node.status = 'pending'
-    node.failReason = undefined
     node.coderAgent = undefined
     node.reviewerAgent = undefined
     node.mergeAgent = undefined
@@ -1349,6 +1360,10 @@ async function advanceDynamicDag(def: WorkflowDef, run: WorkflowRun, step: Dynam
         if (c.node.retries >= (step.node_max_retries ?? 2)) {
           await fireNodeFailGate(run, step, c.node, result.failReason ?? 'node failed')
         } else {
+          c.node.failReason = result.failReason
+          // Plumb to {fail_reason} template var so the retry coder's task
+          // body can reference the reviewer's complaint.
+          run.stepFailReason = result.failReason
           c.node.status = 'pending'
           saveWorkflowRun(run)
           await spawnDagNode(def, run, step, c.node.id)
@@ -1375,6 +1390,8 @@ async function advanceDynamicDag(def: WorkflowDef, run: WorkflowRun, step: Dynam
         if (c.node.retries >= (step.node_max_retries ?? 2)) {
           await fireNodeFailGate(run, step, c.node, result.failReason ?? 'review failed')
         } else {
+          c.node.failReason = result.failReason
+          run.stepFailReason = result.failReason
           c.node.status = 'pending'
           saveWorkflowRun(run)
           await spawnDagNode(def, run, step, c.node.id)
@@ -1886,8 +1903,16 @@ async function executeStep(def: WorkflowDef, run: WorkflowRun, step: WorkflowSte
 }
 
 function resolveTemplate(template: string, run: WorkflowRun): string {
-  // Shorthand template vars
+  // Escape support: {{X}} survives one substitution pass as {X}. Useful when
+  // a coder needs to write a literal {task} or {steps.X.worktree} into a
+  // generated yaml whose own runtime substitution shouldn't happen during
+  // architect-time. Architect writes {{task}} -> coder sees {task} -> pastes
+  // verbatim into yaml -> daily-mutator runtime resolves to its own task.
+  const SENT_OPEN = ''
+  const SENT_CLOSE = ''
   let result = template
+    .replace(/\{\{/g, SENT_OPEN)
+    .replace(/\}\}/g, SENT_CLOSE)
     .replace(/\{task\}/g, run.vars._input?.task ?? '')
     .replace(/\{dir\}/g, run.vars._input?.dir ?? '')
     .replace(/\{pr\}/g, run.vars._pr?.url ?? '')
@@ -1898,6 +1923,7 @@ function resolveTemplate(template: string, run: WorkflowRun): string {
     if (!stepVars) return match
     return stepVars[field] ?? match
   })
+  result = result.replace(new RegExp(SENT_OPEN, 'g'), '{').replace(new RegExp(SENT_CLOSE, 'g'), '}')
   return result
 }
 
