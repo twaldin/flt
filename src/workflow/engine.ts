@@ -359,14 +359,14 @@ export async function advanceWorkflow(runId: string, idleAgentName?: string): Pr
   if (group) {
     for (const candidate of group.candidates) {
       const candidateAgent = getAgent(candidate.agentName)
-      applyAutoCommit(candidateAgent, run, currentStepDef.id, true)
+      applyAutoCommit(candidateAgent, run, def, currentStepDef.id, true)
       try {
         const { killDirect } = await import('../commands/kill')
         killDirect({ name: candidate.agentName, preserveWorktree: true, fromWorkflow: true })
       } catch {}
     }
   } else {
-    applyAutoCommit(agent, run, currentStepDef.id)
+    applyAutoCommit(agent, run, def, currentStepDef.id)
 
     // Kill the completed agent but preserve its worktree (next step may need it)
     try {
@@ -550,9 +550,14 @@ export async function cancelWorkflow(runId: string): Promise<void> {
   cleanupWorkflowWorktrees(run)
 }
 
+export function shouldCreatePr(def: WorkflowDef): boolean {
+  return def.auto_pr !== false
+}
+
 function applyAutoCommit(
   agent: ReturnType<typeof getAgent> | undefined,
   run: WorkflowRun,
+  def: WorkflowDef,
   stepId: string,
   commitOnly = false,
 ): void {
@@ -564,7 +569,7 @@ function applyAutoCommit(
     })
   } catch {}
 
-  if (commitOnly) return
+  if (commitOnly || !shouldCreatePr(def)) return
 
   if (agent.worktreeBranch && !run.vars._pr) {
     try {
@@ -1285,7 +1290,7 @@ async function advanceDynamicDag(def: WorkflowDef, run: WorkflowRun, step: Dynam
         if (c.node.coderAgent) {
           const coderAgent = getAgent(c.node.coderAgent)
           if (coderAgent) {
-            applyAutoCommit(coderAgent, run, step.id)
+            applyAutoCommit(coderAgent, run, def, step.id)
           }
           try {
             const { killDirect } = await import('../commands/kill')
