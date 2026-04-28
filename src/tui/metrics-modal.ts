@@ -415,8 +415,23 @@ function sortAgentsBySpawnedDesc(names: string[], byArchive: Map<string, Archive
 function flattenRunsTree(roots: RunTreeNode[]): RunsTreeRow[] {
   const out: RunsTreeRow[] = []
 
+  // Continuation rule: once any ancestor's branch still has siblings
+  // (anyAbove=true), every deeper ancestor column also emits `│  ` so the
+  // vertical rail doesn't break and reappear on last-child rows. Differs
+  // from `tree(1)` convention (which drops the immediate parent's column
+  // to spaces on its last child) in favor of a cleaner connected look.
+  function makeContinuation(ancestryContinues: boolean[]): string {
+    let anyAbove = false
+    let out = ''
+    for (const v of ancestryContinues) {
+      if (v) anyAbove = true
+      out += anyAbove ? '│  ' : '   '
+    }
+    return out
+  }
+
   function walk(node: RunTreeNode, depth: number, ancestryContinues: boolean[], isLast: boolean): void {
-    const continuation = ancestryContinues.map(v => (v ? '│  ' : '   ')).join('')
+    const continuation = makeContinuation(ancestryContinues)
     const connector: '' | '├─ ' | '└─ ' = depth === 0 ? '' : (isLast ? '└─ ' : '├─ ')
     out.push({
       depth,
@@ -494,6 +509,27 @@ export function buildRunsTree(
 
   const roots: RunTreeNode[] = []
 
+  // Build a longest-prefix map from agent name → run-id. An archive
+  // belongs to the run whose id is the longest prefix of the agent name
+  // (with `-` separator). This catches dag-spawned agents whose state has
+  // been cleared from dynamicDagGroups but whose archive json is still on
+  // disk — without over-claiming agents that belong to a longer-id run.
+  const orchestratorRuns = runs.filter(r => r.parentName === orchestratorName && r.id)
+  const sortedRunIds = orchestratorRuns
+    .map(r => r.id as string)
+    .sort((a, b) => b.length - a.length)
+  const archivesByRun = new Map<string, string[]>()
+  for (const a of archives) {
+    for (const id of sortedRunIds) {
+      if (a.name === id || a.name.startsWith(`${id}-`)) {
+        const bucket = archivesByRun.get(id) ?? []
+        bucket.push(a.name)
+        archivesByRun.set(id, bucket)
+        break
+      }
+    }
+  }
+
   if (orchestratorName) {
     const workflowNodes: RunTreeNode[] = []
     for (const run of runs.filter(r => r.parentName === orchestratorName)) {
@@ -520,14 +556,8 @@ export function buildRunsTree(
           }
         }
       }
-      // Also pick up any archive whose name starts with the run id — catches
-      // agents whose state has been GC'd from dynamicDagGroups but whose
-      // archive json is still on disk.
-      const runId = run.id ?? ''
-      const archivePrefixAgents = runId
-        ? archives.filter(a => a.name.startsWith(`${runId}-`)).map(a => a.name)
-        : []
-      const allAgents = Array.from(new Set([...historyAgents, ...dagAgents, ...archivePrefixAgents]))
+      const prefixAgents = run.id ? (archivesByRun.get(run.id) ?? []) : []
+      const allAgents = Array.from(new Set([...historyAgents, ...dagAgents, ...prefixAgents]))
       const inWorkflow = new Set(allAgents)
       const directRoots = allAgents.filter(name => {
         const parent = parents[name]
