@@ -33,6 +33,7 @@ export interface GatesModalState {
   blockerOverlay: BlockerRow | null
   questionPicker: { question: Question; answerPath: string; index: number; selected: Set<string> } | null
   watcher: fs.FSWatcher | null
+  qnaWatcher: fs.FSWatcher | null
 }
 
 function gateRowToModal(row: GateRow): ModalRow {
@@ -86,29 +87,44 @@ export function initialGatesModalState(): GatesModalState {
     blockerOverlay: null,
     questionPicker: null,
     watcher: null,
+    qnaWatcher: null,
   }
 }
 
-export function openGatesWatcher(state: GatesModalState, onChange: () => void): void {
-  if (state.watcher) return
-  const runsDir = defaultRunsDir()
-  let timer: ReturnType<typeof setTimeout> | null = null
+function defaultQnaDir(): string {
+  return join(homedir(), '.flt', 'qna')
+}
 
-  try {
-    state.watcher = fs.watch(runsDir, { recursive: true }, () => {
-      if (timer) clearTimeout(timer)
-      timer = setTimeout(() => {
-        timer = null
-        cleanStaleGates()
-        state.rows = loadAllRows()
-        onChange()
-      }, 150)
-    })
-    state.watcher.on('error', () => {
+export function openGatesWatcher(state: GatesModalState, onChange: () => void): void {
+  let timer: ReturnType<typeof setTimeout> | null = null
+  const refresh = (): void => {
+    if (timer) clearTimeout(timer)
+    timer = setTimeout(() => {
+      timer = null
+      cleanStaleGates()
+      state.rows = loadAllRows()
+      onChange()
+    }, 150)
+  }
+
+  if (!state.watcher) {
+    try {
+      state.watcher = fs.watch(defaultRunsDir(), { recursive: true }, refresh)
+      state.watcher.on('error', () => { state.watcher = null })
+    } catch {
       state.watcher = null
-    })
-  } catch {
-    state.watcher = null
+    }
+  }
+
+  if (!state.qnaWatcher) {
+    const qnaDir = defaultQnaDir()
+    try {
+      if (!fs.existsSync(qnaDir)) fs.mkdirSync(qnaDir, { recursive: true })
+      state.qnaWatcher = fs.watch(qnaDir, { recursive: true }, refresh)
+      state.qnaWatcher.on('error', () => { state.qnaWatcher = null })
+    } catch {
+      state.qnaWatcher = null
+    }
   }
 }
 
@@ -116,6 +132,10 @@ export function closeGatesWatcher(state: GatesModalState): void {
   if (state.watcher) {
     state.watcher.close()
     state.watcher = null
+  }
+  if (state.qnaWatcher) {
+    state.qnaWatcher.close()
+    state.qnaWatcher = null
   }
 }
 
