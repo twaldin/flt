@@ -25,6 +25,7 @@ const SEED_PRESETS = {
   'opencode-coder': { cli: 'opencode', model: 'default', description: 'Coder via opencode', soul: 'roles/coder.md' },
   'orchestrator': { cli: 'claude-code', model: 'opus[1m]', description: 'Persistent fleet orchestrator', dir: '~/.flt/agents/orchestrator', parent: 'human', worktree: false, persistent: true, soul: 'agents/orchestrator/SOUL.md' },
   'pi-coder': { cli: 'pi', model: 'gpt-5.3-codex', description: 'Coder via pi (gpt-5.3-codex)', soul: 'roles/coder.md' },
+  'pi-reviewer': { cli: 'pi', model: 'gpt-5.5', description: 'Reviewer via pi (gpt-5.5)', soul: 'roles/reviewer.md' },
   'pi-deep': { cli: 'pi', model: 'gpt-5.4-high', description: 'Deep-reasoning oracle via pi (gpt-5.4 high)', soul: 'roles/oracle.md' },
 }
 
