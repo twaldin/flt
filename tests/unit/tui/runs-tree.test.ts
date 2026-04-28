@@ -39,7 +39,10 @@ describe('buildRunsTree', () => {
 
     const rows = buildRunsTree(archives, runs, parents, 'human')
     const labels = rows.map(r => `${r.continuation}${r.connector}${r.label}`)
-    expect(labels).toContain('   └─ idea-to-pr')
+    // Label disambiguates multiple runs of the same workflow:
+    //   "<workflow> · <slug>" where slug is run-id minus the workflow prefix.
+    // run id = "run-1", workflow = "idea-to-pr" → slug = "run-1" (no prefix match).
+    expect(labels).toContain('   └─ idea-to-pr · run-1')
     expect(labels).toContain('   │  ├─ wf-a-step2')
     expect(labels).toContain('      └─ wf-a-step1')
     expect(labels).toContain('         └─ wf-a-sub')
