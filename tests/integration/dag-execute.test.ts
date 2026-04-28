@@ -156,7 +156,9 @@ describe('dynamic dag execute', () => {
     writeResult(run.runDir!, 'execute', 'a-b', 'pass')
     await advanceWorkflow(run.id, `${run.id}-execute-a-b`)
 
-    const pending = JSON.parse(readFileSync(join(run.runDir!, '.gate-pending'), 'utf-8')) as Record<string, unknown>
+    const pendingGates = JSON.parse(readFileSync(join(run.runDir!, '.gate-pending'), 'utf-8')) as Record<string, unknown>[]
+    expect(Array.isArray(pendingGates)).toBe(true)
+    const pending = pendingGates[0]
     expect(pending.kind).toBe('node-candidate')
     expect(pending.nodeId).toBe('a')
 
@@ -291,7 +293,8 @@ describe('dynamic dag execute', () => {
     writeResult(run.runDir!, 'execute', '_', 'fail', 'merge blew up')
     await advanceWorkflow(run.id, `${run.id}-execute-reconcile`)
 
-    const pending = JSON.parse(readFileSync(join(run.runDir!, '.gate-pending'), 'utf-8')) as Record<string, unknown>
+    const pendingGates = JSON.parse(readFileSync(join(run.runDir!, '.gate-pending'), 'utf-8')) as Record<string, unknown>[]
+    const pending = pendingGates[0]
     expect(pending.kind).toBe('reconcile-fail')
 
     const loaded = loadWorkflowRun(run.id)

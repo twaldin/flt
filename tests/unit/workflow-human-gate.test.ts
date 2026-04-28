@@ -71,7 +71,9 @@ steps:
     expect(loadWorkflowRun(run.id)?.currentStep).toBe('gate')
     expect(existsSync(join(run.runDir!, 'results', 'gate-_.json'))).toBe(false)
 
-    const pending = JSON.parse(readFileSync(pendingPath, 'utf-8')) as GatePending
+    const pendingGates = JSON.parse(readFileSync(pendingPath, 'utf-8')) as GatePending[]
+    expect(Array.isArray(pendingGates)).toBe(true)
+    const pending = pendingGates[0]
     expect(pending.step).toBe('gate')
     expect(pending.notify).toBe('check this')
     expect(pending.at).toBeTruthy()

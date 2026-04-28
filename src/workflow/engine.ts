@@ -1,4 +1,12 @@
 import { readFileSync, writeFileSync, mkdirSync, existsSync, readdirSync, renameSync, copyFileSync, unlinkSync } from 'fs'
+import {
+  appendPendingGate,
+  clearPendingGates,
+  hasPendingGates,
+  readPendingGates,
+  removePendingGate,
+  type PendingGate,
+} from './gates-store'
 import { basename, join } from 'path'
 import { execSync } from 'child_process'
 import { loadWorkflowDef, resolveWorkflowYamlPath } from './parser'
@@ -233,7 +241,7 @@ export async function advanceWorkflow(runId: string, idleAgentName?: string): Pr
     if (!run.runDir || !existsSync(join(run.runDir, 'results', `${currentStepDef.id}-_.json`))) {
       return
     }
-    if (existsSync(join(run.runDir, '.gate-pending'))) {
+    if (hasPendingGates(run.runDir)) {
       return
     }
   }
@@ -274,7 +282,8 @@ export async function advanceWorkflow(runId: string, idleAgentName?: string): Pr
     }
 
     try { unlinkSync(decisionPath) } catch {}
-    try { unlinkSync(join(run.runDir, '.gate-pending')) } catch {}
+    // Linear human_gate is one-at-a-time; clear all (there should only be one).
+    clearPendingGates(run.runDir)
   }
 
   let aggregated: { allDone: boolean; passers: string[]; failures: { label: string; reason?: string }[] }
@@ -536,7 +545,7 @@ export async function cancelWorkflow(runId: string): Promise<void> {
 
   run.status = 'cancelled'
   run.completedAt = new Date().toISOString()
-  if (run.runDir) try { unlinkSync(join(run.runDir, '.gate-pending')) } catch {}
+  if (run.runDir) clearPendingGates(run.runDir)
   finalizeRun(run)
   cleanupWorkflowWorktrees(run)
 }
@@ -1016,10 +1025,10 @@ async function scheduleReadyNodes(def: WorkflowDef, run: WorkflowRun, step: Dyna
 
 function openGate(run: WorkflowRun, payload: Record<string, unknown>): void {
   if (!run.runDir) return
-  const p = join(run.runDir, '.gate-pending')
-  const tmp = `${p}.tmp`
-  writeFileSync(tmp, JSON.stringify(payload) + '\n')
-  renameSync(tmp, p)
+  // Append to the pending-gates array. Multiple gates can coexist (e.g.
+  // several dag nodes fail in the same advance tick) — see gates-store
+  // for the format. Idempotent on (kind, step, nodeId).
+  appendPendingGate(run.runDir, payload as PendingGate)
 }
 
 async function fireNodeFailGate(run: WorkflowRun, step: DynamicDagStep, node: DagNodeState, reason: string): Promise<void> {
@@ -1132,7 +1141,9 @@ async function handleNodeFailGate(def: WorkflowDef, run: WorkflowRun, step: Dyna
     await maybeRunFinalReconcile(def, run, step)
   }
 
-  try { unlinkSync(join(run.runDir, '.gate-pending')) } catch {}
+  // Remove only THIS node's gate, leaving any other concurrent node-fail
+  // gates pending so the user can resolve them next.
+  removePendingGate(run.runDir, g => g.kind === 'node-fail' && g.nodeId === nodeId)
   try { unlinkSync(join(run.runDir, '.gate-decision')) } catch {}
 }
 
@@ -1150,7 +1161,7 @@ async function handleReconcileFailGate(run: WorkflowRun, step: DynamicDagStep, d
     await maybeRunFinalReconcile({ name: run.workflow, steps: [] }, run, step)
   }
 
-  try { unlinkSync(join(run.runDir, '.gate-pending')) } catch {}
+  removePendingGate(run.runDir, g => g.kind === 'reconcile-fail')
   try { unlinkSync(join(run.runDir, '.gate-decision')) } catch {}
 }
 
@@ -1178,7 +1189,7 @@ async function handleDagCandidateGate(def: WorkflowDef, run: WorkflowRun, step: 
     await fireNodeFailGate(run, step, node, 'tournament candidate not selected')
   }
 
-  try { unlinkSync(join(run.runDir, '.gate-pending')) } catch {}
+  removePendingGate(run.runDir, g => g.kind === 'node-candidate' && g.nodeId === nodeId)
   try { unlinkSync(join(run.runDir, '.gate-decision')) } catch {}
 }
 
@@ -1696,14 +1707,12 @@ async function executeHumanGateStep(_def: WorkflowDef, run: WorkflowRun, step: H
   // template substitution coder/reviewer/verifier task strings get.
   const resolvedNotify = step.notify ? resolveTemplate(step.notify, run) : ''
 
-  const pendingPath = join(run.runDir, '.gate-pending')
-  const tmpPath = `${pendingPath}.tmp`
-  writeFileSync(tmpPath, JSON.stringify({
+  appendPendingGate(run.runDir, {
+    kind: 'human_gate',
     step: step.id,
     notify: resolvedNotify,
     at: new Date().toISOString(),
-  }) + '\n')
-  renameSync(tmpPath, pendingPath)
+  })
 
   const notifySuffix = resolvedNotify ? `: ${resolvedNotify}` : ''
   await notifyWorkflowParent(run, `Workflow ${run.workflow} paused at human_gate "${step.id}"${notifySuffix}`)
