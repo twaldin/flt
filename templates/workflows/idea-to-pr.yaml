@@ -53,7 +53,10 @@ steps:
     max_retries: 2
 
   - id: reviewer
-    preset: cc-sonnet
+    # codex/gpt-5.4 — deliberately a DIFFERENT cli+model than the coder
+    # (pi/gpt-5.3-codex) so the review is an actual cross-check, not the
+    # same family second-guessing itself.
+    preset: codex-reviewer
     dir: '{steps.coder.worktree}'
     worktree: false
     task: |
