@@ -165,9 +165,18 @@ function renderListView(state: WorkflowModalState, screen: Screen, top: number, 
     row += 1
   }
 
+  const statusFg = (status: WorkflowRow['status']): string => {
+    switch (status) {
+      case 'running': return t.statusRunning
+      case 'failed': return t.statusError
+      case 'cancelled': return t.sidebarMuted
+      default: return t.sidebarText
+    }
+  }
+
   const renderItemRow = (item: WorkflowRow, absoluteIndex: number): void => {
     const selected = absoluteIndex === selectedIndex
-    const fg = selected ? t.sidebarSelected : t.sidebarText
+    const fg = selected ? t.sidebarSelected : statusFg(item.status)
     const bg = selected ? t.sidebarSelectedBg : ''
     const slug = deriveSlug(item.id, item.workflow)
     putSeparatedRow(
