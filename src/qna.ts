@@ -15,6 +15,7 @@ export interface Question {
   multiSelect: boolean
   options: QuestionOption[]
   askedBy?: string
+  batchId?: string
 }
 
 export interface AskPayload {

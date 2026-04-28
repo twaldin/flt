@@ -1,4 +1,7 @@
 import { describe, it, expect } from 'bun:test'
+import { mkdtempSync, mkdirSync, readFileSync } from 'fs'
+import { tmpdir } from 'os'
+import { join } from 'path'
 import {
   intervalToCron,
   cronToHuman,
@@ -6,6 +9,7 @@ import {
   parseCrontabLines,
   generateScript,
   cronPeriodMs,
+  cronAddWorkflow,
 } from '../../src/commands/cron'
 
 // ── intervalToCron ───────────────────────────────────────────────────────────
@@ -311,5 +315,52 @@ describe('generateScript (shell quoting)', () => {
       binPath: '/usr/bin:/bin',
     })
     expect(script).toContain('--parent cairn')
+  })
+})
+
+describe('cronAddWorkflow', () => {
+  it('writes a workflow script that runs the workflow', () => {
+    const home = mkdtempSync(join(tmpdir(), 'flt-cron-'))
+    const previousHome = process.env.HOME
+    process.env.HOME = home
+
+    try {
+      mkdirSync(join(home, '.flt', 'bin'), { recursive: true })
+      mkdirSync(join(home, '.flt', 'logs'), { recursive: true })
+
+      let nextCrontab = ''
+      cronAddWorkflow('daily-mutator', '0 3 * * *', {}, {
+        readCrontab: () => '',
+        writeCrontab: (content) => {
+          nextCrontab = content
+        },
+      })
+
+      const scriptPath = join(home, '.flt', 'bin', 'cron-daily-mutator')
+      const script = readFileSync(scriptPath, 'utf-8')
+      expect(script).toContain('flt workflow run daily-mutator')
+      expect(nextCrontab).toContain('0 3 * * *')
+      expect(nextCrontab).toContain(scriptPath)
+    } finally {
+      process.env.HOME = previousHome
+    }
+  })
+
+  it('throws on invalid cron spec', () => {
+    expect(() => cronAddWorkflow('daily-mutator', 'every 5 minutes', {}, {
+      readCrontab: () => '',
+      writeCrontab: () => {},
+    })).toThrow('Invalid cron spec')
+  })
+})
+
+describe('parseCrontabLines (workflow entry)', () => {
+  it('extracts workflow entry fields', () => {
+    const line = '0 3 * * * /Users/x/.flt/bin/cron-daily-mutator >> /Users/x/.flt/logs/cron-daily-mutator.log 2>&1'
+    const entries = parseCrontabLines(line)
+    expect(entries).toHaveLength(1)
+    expect(entries[0].schedule).toBe('0 3 * * *')
+    expect(entries[0].name).toBe('daily-mutator')
+    expect(entries[0].logPath).toBe('/Users/x/.flt/logs/cron-daily-mutator.log')
   })
 })

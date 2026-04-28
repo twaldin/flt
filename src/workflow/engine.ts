@@ -34,6 +34,14 @@ import { aggregateResults, writeResult } from './results'
 import { evaluateCondition } from './condition'
 import { computeTreatment, permuteTreatmentMap } from './treatment'
 import { writeMetricsForRun } from './metrics'
+import { pendingQna } from '../qna'
+
+function hasPendingQnaFromAgent(agentName: string | undefined, runId?: string): boolean {
+  if (!agentName) return false
+  return pendingQna().some(row =>
+    row.question.askedBy === agentName && (runId ? row.runId === runId : true),
+  )
+}
 import { getPreset } from '../presets'
 import { createWorktree, removeWorktree } from '../worktree'
 
@@ -299,6 +307,7 @@ export async function advanceWorkflow(runId: string, idleAgentName?: string): Pr
   if (!aggregated.allDone) {
     const verdictCount = aggregated.passers.length + aggregated.failures.length
     if (verdictCount === 0) {
+      if (hasPendingQnaFromAgent(agentName, run.id)) return
       const prods = run.stepProdCount ?? 0
       if (prods < 2 && agent && tmux.hasSession(agent.tmuxSession)) {
         run.stepProdCount = prods + 1
@@ -359,14 +368,14 @@ export async function advanceWorkflow(runId: string, idleAgentName?: string): Pr
   if (group) {
     for (const candidate of group.candidates) {
       const candidateAgent = getAgent(candidate.agentName)
-      applyAutoCommit(candidateAgent, run, currentStepDef.id, true)
+      applyAutoCommit(candidateAgent, run, def, currentStepDef.id, true)
       try {
         const { killDirect } = await import('../commands/kill')
         killDirect({ name: candidate.agentName, preserveWorktree: true, fromWorkflow: true })
       } catch {}
     }
   } else {
-    applyAutoCommit(agent, run, currentStepDef.id)
+    applyAutoCommit(agent, run, def, currentStepDef.id)
 
     // Kill the completed agent but preserve its worktree (next step may need it)
     try {
@@ -550,9 +559,14 @@ export async function cancelWorkflow(runId: string): Promise<void> {
   cleanupWorkflowWorktrees(run)
 }
 
+export function shouldCreatePr(def: WorkflowDef): boolean {
+  return def.auto_pr !== false
+}
+
 function applyAutoCommit(
   agent: ReturnType<typeof getAgent> | undefined,
   run: WorkflowRun,
+  def: WorkflowDef,
   stepId: string,
   commitOnly = false,
 ): void {
@@ -562,9 +576,11 @@ function applyAutoCommit(
     execSync('git add -A && git diff --cached --quiet || git commit -m "workflow: auto-commit step ' + stepId + '"', {
       cwd: agent.worktreePath, encoding: 'utf-8', timeout: 10_000,
     })
-  } catch {}
+  } catch (e) {
+    appendEvent({ type: 'workflow', detail: `auto-commit failed ${run.id}/${stepId}: ${(e as Error).message}`, at: new Date().toISOString() })
+  }
 
-  if (commitOnly) return
+  if (commitOnly || !shouldCreatePr(def)) return
 
   if (agent.worktreeBranch && !run.vars._pr) {
     try {
@@ -578,7 +594,9 @@ function applyAutoCommit(
         try {
           const pr = JSON.parse(existing)
           run.vars._pr = { url: pr.url, branch: agent.worktreeBranch }
-        } catch {}
+        } catch (e) {
+          appendEvent({ type: 'workflow', detail: `gh pr view parse failed ${run.id}/${stepId}: ${(e as Error).message}`, at: new Date().toISOString() })
+        }
       } else {
         const taskDesc = run.vars._input?.task ?? run.workflow
         const prUrl = execSync(
@@ -587,11 +605,15 @@ function applyAutoCommit(
         ).trim()
         run.vars._pr = { url: prUrl, branch: agent.worktreeBranch }
       }
-    } catch {}
+    } catch (e) {
+      appendEvent({ type: 'workflow', detail: `auto-pr push/create failed ${run.id}/${stepId}: ${(e as Error).message}`, at: new Date().toISOString() })
+    }
   } else if (agent.worktreeBranch && run.vars._pr) {
     try {
       execSync('git push', { cwd: agent.worktreePath, encoding: 'utf-8', timeout: 30_000 })
-    } catch {}
+    } catch (e) {
+      appendEvent({ type: 'workflow', detail: `auto-commit push failed ${run.id}/${stepId}: ${(e as Error).message}`, at: new Date().toISOString() })
+    }
   }
 }
 
@@ -1243,6 +1265,7 @@ async function advanceDynamicDag(def: WorkflowDef, run: WorkflowRun, step: Dynam
       // `flt workflow pass`. Hit live in gepa-prep dogfood (harvest-coder
       // went idle for 1h after printing its summary).
       if (!idleAgentName || agentName !== idleAgentName) continue
+      if (hasPendingQnaFromAgent(agentName, run.id)) continue
       const candidateAgent = getAgent(agentName)
       const prods = run.dagProdCounts?.[agentName] ?? 0
       if (prods < 2 && candidateAgent && tmux.hasSession(candidateAgent.tmuxSession)) {
@@ -1285,7 +1308,7 @@ async function advanceDynamicDag(def: WorkflowDef, run: WorkflowRun, step: Dynam
         if (c.node.coderAgent) {
           const coderAgent = getAgent(c.node.coderAgent)
           if (coderAgent) {
-            applyAutoCommit(coderAgent, run, step.id)
+            applyAutoCommit(coderAgent, run, def, step.id)
           }
           try {
             const { killDirect } = await import('../commands/kill')
@@ -1315,6 +1338,13 @@ async function advanceDynamicDag(def: WorkflowDef, run: WorkflowRun, step: Dynam
           },
         })
       } else {
+        if (c.node.coderAgent) {
+          try {
+            const { killDirect } = await import('../commands/kill')
+            await killDirect({ name: c.node.coderAgent, preserveWorktree: true, fromWorkflow: true })
+          } catch {}
+          c.node.coderAgent = undefined
+        }
         c.node.retries += 1
         if (c.node.retries >= (step.node_max_retries ?? 2)) {
           await fireNodeFailGate(run, step, c.node, result.failReason ?? 'node failed')
@@ -1382,6 +1412,14 @@ async function advanceDynamicDag(def: WorkflowDef, run: WorkflowRun, step: Dynam
             })
           }
         } else {
+          if (c.node.candidates) {
+            const { killDirect } = await import('../commands/kill')
+            for (const cand of c.node.candidates) {
+              try {
+                await killDirect({ name: cand.agentName, preserveWorktree: true, fromWorkflow: true })
+              } catch {}
+            }
+          }
           c.node.retries += 1
           if (c.node.retries >= (step.node_max_retries ?? 2)) {
             await fireNodeFailGate(run, step, c.node, 'all tournament candidates failed')
@@ -1422,6 +1460,13 @@ async function advanceDynamicDag(def: WorkflowDef, run: WorkflowRun, step: Dynam
       branch: state.integrationBranch,
       worktree: state.integrationWorktree,
       dir: state.integrationWorktree,
+    }
+    if (state.reconcilerAgent) {
+      try {
+        const { killDirect } = await import('../commands/kill')
+        await killDirect({ name: state.reconcilerAgent, preserveWorktree: true, fromWorkflow: true })
+      } catch {}
+      state.reconcilerAgent = undefined
     }
     saveWorkflowRun(run)
   }

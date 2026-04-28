@@ -20,6 +20,16 @@ describe('validateWorkflowDef', () => {
         default: { cli: 'claude-code', model: 'sonnet' },
         'pi-coder': { cli: 'pi', model: 'gpt-5' },
         'cc-opus': { cli: 'claude-code', model: 'opus' },
+        'cc-sonnet': { cli: 'claude-code', model: 'sonnet' },
+        'cc-architect': { cli: 'claude-code', model: 'opus' },
+        'cc-evaluator': { cli: 'claude-code', model: 'opus' },
+        'cc-mutator': { cli: 'claude-code', model: 'opus' },
+        'cc-coder': { cli: 'claude-code', model: 'sonnet' },
+        'cc-reviewer': { cli: 'claude-code', model: 'sonnet' },
+        'codex-reviewer': { cli: 'codex', model: 'gpt-5' },
+        'codex-coder': { cli: 'codex', model: 'gpt-5' },
+        'gemini-coder': { cli: 'gemini', model: 'gemini-2.5-pro' },
+        'opencode-coder': { cli: 'opencode', model: 'sonnet' },
         'glm-fast': { cli: 'pi', model: 'glm' },
       }),
     )
@@ -365,5 +375,47 @@ steps:
     const def = validate(readFileSync(workflowPath, 'utf-8'))
     expect(def.name).toBe('daily-mutator')
     expect(def.steps.map(step => step.id)).toEqual(['collect', 'redact', 'find_skills', 'mutate', 'eval', 'gate'])
+  })
+
+  it('auto_pr: true round-trips', () => {
+    const def = validate(`
+name: wf
+auto_pr: true
+steps:
+  - id: s
+    run: echo hi
+`)
+    expect(def.auto_pr).toBe(true)
+  })
+
+  it('auto_pr: false round-trips', () => {
+    const def = validate(`
+name: wf
+auto_pr: false
+steps:
+  - id: s
+    run: echo hi
+`)
+    expect(def.auto_pr).toBe(false)
+  })
+
+  it('omitting auto_pr leaves field undefined', () => {
+    const def = validate(`
+name: wf
+steps:
+  - id: s
+    run: echo hi
+`)
+    expect(def.auto_pr).toBeUndefined()
+  })
+
+  it('non-boolean auto_pr throws', () => {
+    expect(() => validate(`
+name: wf
+auto_pr: "yes"
+steps:
+  - id: s
+    run: echo hi
+`)).toThrow()
   })
 })

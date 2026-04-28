@@ -144,13 +144,22 @@ export async function askHuman(
   mkdirSync(dir, { recursive: true })
 
   const askedBy = opts.from ?? process.env.FLT_AGENT_NAME ?? undefined
+  // Multi-question calls share a batchId so the TUI can group them as one
+  // chained pick-flow instead of N separate gates rows.
+  const batchId = payload.questions.length > 1
+    ? `batch-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`
+    : undefined
 
   for (const q of payload.questions) {
     const qPath = questionPath(qnaDir, runId, q.id)
     if (existsSync(qPath)) {
       throw new Error(`question id "${q.id}" already exists at ${qPath}`)
     }
-    const enriched = askedBy ? { ...q, askedBy } : q
+    const enriched = {
+      ...q,
+      ...(askedBy ? { askedBy } : {}),
+      ...(batchId ? { batchId } : {}),
+    }
     writeFileSync(qPath, JSON.stringify(enriched, null, 2))
   }
 
