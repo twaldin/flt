@@ -1048,6 +1048,13 @@ async function spawnDagNode(def: WorkflowDef, run: WorkflowRun, step: DynamicDag
         ? {
             FLT_RUN_DIR: run.runDir,
             FLT_RUN_LABEL: `${node.id}-coder`,
+            // On retry, point at the previous reviewer's handoff so the coder
+            // can read full feedback rather than rely on the one-line failReason.
+            // Empty string when the file isn't there yet (first attempt) so the
+            // coder can `[ -s "$FLT_RETRY_REVIEW_PATH" ] && cat ...` cleanly.
+            ...(node.retries > 0 && run.runDir
+              ? { FLT_RETRY_REVIEW_PATH: join(run.runDir, 'handoffs', `${run.id}-${step.id}-${node.id}-reviewer.md`) }
+              : {}),
           }
         : undefined,
     })

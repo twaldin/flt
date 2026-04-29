@@ -1,7 +1,7 @@
 import { execFileSync } from 'child_process'
 import { tmpdir } from 'os'
-import { join } from 'path'
-import { existsSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'fs'
+import { dirname, join } from 'path'
+import { existsSync, mkdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'fs'
 
 export interface WorktreeInfo {
   path: string
@@ -91,7 +91,43 @@ export function createWorktree(repoDir: string, agentName: string, baseBranch?: 
   // entries that are actually missing.
   ensureFltGitignore(repoDir)
 
+  // Per-worktree exclude (.git/info/exclude — never committed). Belt-and-
+  // suspenders alongside ensureFltGitignore: even if the user's repo doesn't
+  // have .flt/ in .gitignore (or the change isn't staged yet), git itself
+  // skips these paths during `git add -A` for THIS worktree only.
+  ensureWorktreeExclude(wtPath)
+
   return { path: wtPath, branch }
+}
+
+/**
+ * Per-worktree git exclude (.git/info/exclude). For linked worktrees the
+ * info dir lives at .git/worktrees/<name>/info/exclude; we resolve it via
+ * `git rev-parse --git-path info/exclude` so it works for both linked and
+ * the main worktree.
+ */
+function ensureWorktreeExclude(wtPath: string): void {
+  let excludePath: string
+  try {
+    excludePath = gitNoThrowOutput(wtPath, 'rev-parse', '--git-path', 'info/exclude') ?? ''
+    if (!excludePath) return
+    if (!excludePath.startsWith('/')) excludePath = join(wtPath, excludePath)
+  } catch { return }
+  let body = ''
+  try { body = existsSync(excludePath) ? readFileSync(excludePath, 'utf-8') : '' } catch { return }
+  const lines = body.split('\n')
+  const has = (entry: string) => lines.some(l => l.trim() === entry)
+  const additions: string[] = []
+  if (!has('.flt/')) additions.push('.flt/')
+  if (!has('handoffs/')) additions.push('handoffs/')
+  if (!has('.harness-backup-*')) additions.push('.harness-backup-*')
+  if (additions.length === 0) return
+  try {
+    mkdirSync(dirname(excludePath), { recursive: true })
+    const sep = body.length > 0 && !body.endsWith('\n') ? '\n' : ''
+    const block = `${sep}\n# flt agent fleet (per-worktree, not committed)\n${additions.join('\n')}\n`
+    writeFileSync(excludePath, body + block)
+  } catch { /* best-effort */ }
 }
 
 /**

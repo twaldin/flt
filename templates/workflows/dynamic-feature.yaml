@@ -39,13 +39,18 @@ steps:
       yaml. The generated yaml then has `{task}` for its own runtime to resolve.
 
       ## Retry context (always include in per-node tasks)
-      Always include this literal line in every per-node `task` body so retries
-      after a reviewer-fail get the previous failure feedback in their bootstrap:
+      Always include these two literal lines in every per-node `task` body so
+      retries after a reviewer-fail get the previous failure feedback:
 
         Previous-attempt feedback (only set on retry): {fail_reason}
 
+        On retry, if the env var $FLT_RETRY_REVIEW_PATH points at a file
+        that exists, READ THAT FILE FIRST — it is the previous reviewer's
+        full handoff with detailed blockers, supersedes the one-line
+        {fail_reason} above. Engine sets this var only on retry.
+
       The engine plumbs reviewer fail messages into {fail_reason} automatically
-      on retry; coders ignore the line on the first attempt.
+      on retry; coders ignore both lines on the first attempt.
 
       Output a plan.json file in your worktree's root with this shape:
       {
