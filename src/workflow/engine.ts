@@ -575,6 +575,20 @@ function applyAutoCommit(
 ): void {
   if (!agent?.worktreePath) return
 
+  // Restore flt's instruction projection (CLAUDE.md / AGENTS.md / etc) before
+  // staging so it doesn't appear as noise in the coder's diff. projectInstructions
+  // ran on spawn and saved a backup; without restoring, every commit catches
+  // flt's own injection as if the coder modified it. Symmetric: project on
+  // spawn, restore on commit.
+  if (agent.instructionProjection) {
+    try {
+      const { restoreInstructions } = require('../instructions') as typeof import('../instructions')
+      restoreInstructions(agent.instructionProjection)
+    } catch (e) {
+      appendEvent({ type: 'workflow', detail: `restoreInstructions failed ${run.id}/${stepId}: ${(e as Error).message}`, at: new Date().toISOString() })
+    }
+  }
+
   try {
     execSync('git add -A && git diff --cached --quiet || git commit -m "workflow: auto-commit step ' + stepId + '"', {
       cwd: agent.worktreePath, encoding: 'utf-8', timeout: 10_000,

@@ -93,7 +93,8 @@ steps:
       - Each node task MUST specify exact file paths to create/edit, plus
         the test files (TDD: write tests first, watch them fail, then code).
       - Each node task MUST end with: "flt workflow pass when tests are green
-        and your coder.md handoff is written."
+        and your handoff is written to $FLT_RUN_DIR/handoffs/$FLT_AGENT_NAME.md
+        (do NOT write coder.md inside the worktree — that ends up in the diff)."
 
       Aim for 3-6 nodes total. Don't over-fragment — too many tiny nodes
       multiplies orchestration overhead and reconciler conflict surface.
