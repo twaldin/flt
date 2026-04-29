@@ -273,6 +273,25 @@ function putSeparatedRow(
   }
 }
 
+function putHorizontalRule(
+  screen: Screen,
+  row: number,
+  col: number,
+  widths: readonly number[],
+  fg: string,
+): void {
+  if (row < 0 || row >= screen.rows) return
+  let x = col
+  for (let i = 0; i < widths.length; i += 1) {
+    screen.put(row, x, '─'.repeat(widths[i]), fg)
+    x += widths[i]
+    if (i < widths.length - 1) {
+      screen.put(row, x, '─┼─', fg)
+      x += SEP_W
+    }
+  }
+}
+
 function formatAge(ms: number): string {
   const secs = Math.floor(ms / 1000)
   if (secs < 60) return `${secs}s`
@@ -563,7 +582,9 @@ export function renderGatesModal(screen: Screen, state: GatesModalState, layout:
   const widths = computeColumnWidths(minWidths, innerWidth, Math.max(0, (minWidths.length - 1) * SEP_W))
 
   let r = innerTop
-  putSeparatedRow(screen, r, innerLeft, widths, headers, t.sidebarTitle, t.sidebarBorder, '', ATTR_BOLD | ATTR_UNDERLINE)
+  putSeparatedRow(screen, r, innerLeft, widths, headers, t.sidebarTitle, t.sidebarBorder, '', ATTR_BOLD)
+  r += 1
+  putHorizontalRule(screen, r, innerLeft, widths, t.sidebarBorder)
   r += 1
 
   if (state.rows.length === 0) {
