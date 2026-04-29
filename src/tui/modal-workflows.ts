@@ -326,13 +326,17 @@ function renderDrilldownView(state: WorkflowModalState, screen: Screen, top: num
 export function renderWorkflowModal(state: WorkflowModalState, screen: Screen, cols: number, rows: number): void {
   const t = getTheme()
 
-  const modalWidth = cols
-  const modalHeight = rows
-  const left = 0
-  const top = 0
+  // Screen-edge padding so the table doesn't run flush against the terminal edges.
+  const PAD_X = 3
+  const PAD_Y = 1
+  const modalWidth = Math.max(40, cols - PAD_X * 2)
+  const modalHeight = Math.max(10, rows - PAD_Y * 2)
+  const left = PAD_X
+  const top = PAD_Y
 
-  for (let r = top; r < top + modalHeight; r += 1) {
-    screen.put(r, left, ' '.repeat(modalWidth), t.sidebarText, '')
+  // Clear the entire screen first (including the padding strip outside the modal).
+  for (let r = 0; r < rows; r += 1) {
+    screen.put(r, 0, ' '.repeat(cols), t.sidebarText, '')
   }
 
   screen.box(top, left, modalWidth, modalHeight, 'round', t.sidebarBorder)
@@ -343,11 +347,34 @@ export function renderWorkflowModal(state: WorkflowModalState, screen: Screen, c
   const titleCol = left + Math.max(1, Math.floor((modalWidth - widthOf(title)) / 2))
   screen.put(top, titleCol, title, t.sidebarBorder, '', ATTR_BOLD)
 
+  // Always render the list view first so drilldown can overlay on top.
+  renderListView(state, screen, top, left, modalWidth, modalHeight)
+
+  // Drilldown is now an overlay (centered, smaller) on top of the list, so the
+  // user retains visual context of which row they drilled into.
   if (state.drilldown) {
-    renderDrilldownView(state, screen, top, left, modalWidth, modalHeight)
-  } else {
-    renderListView(state, screen, top, left, modalWidth, modalHeight)
+    renderDrilldownOverlay(state, screen, cols, rows)
   }
+}
+
+function renderDrilldownOverlay(state: WorkflowModalState, screen: Screen, cols: number, rows: number): void {
+  const t = getTheme()
+  const overlayWidth = Math.max(60, Math.min(cols - 8, Math.floor(cols * 0.85)))
+  const overlayHeight = Math.max(15, Math.min(rows - 4, Math.floor(rows * 0.8)))
+  const overlayLeft = Math.max(0, Math.floor((cols - overlayWidth) / 2))
+  const overlayTop = Math.max(0, Math.floor((rows - overlayHeight) / 2))
+
+  // Clear the overlay area + draw frame on top of the underlying list view.
+  for (let r = overlayTop; r < overlayTop + overlayHeight; r += 1) {
+    screen.put(r, overlayLeft, ' '.repeat(overlayWidth), t.sidebarText, '')
+  }
+  screen.box(overlayTop, overlayLeft, overlayWidth, overlayHeight, 'round', t.sidebarBorder)
+
+  const title = ` ${truncateEllipsis(state.drilldownTitle ?? state.drilldownId ?? '', overlayWidth - 6)} `
+  const titleCol = overlayLeft + Math.max(1, Math.floor((overlayWidth - widthOf(title)) / 2))
+  screen.put(overlayTop, titleCol, title, t.sidebarBorder, '', ATTR_BOLD)
+
+  renderDrilldownView(state, screen, overlayTop, overlayLeft, overlayWidth, overlayHeight)
 }
 
 export function openWorkflowDrilldown(state: WorkflowModalState): WorkflowModalState {

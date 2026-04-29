@@ -45,6 +45,8 @@ export type KeybindAction =
   | 'workflowsRunning'
   | 'workflowsCompleted'
   | 'workflowsFailed'
+  | 'sidebarShrink'
+  | 'sidebarGrow'
 
 export type ModeKeybinds = Record<string, KeybindAction>
 export type KeybindConfig = Record<ConfigurableMode, ModeKeybinds>
@@ -104,6 +106,8 @@ const ACTION_LABELS: Record<KeybindAction, string> = {
   workflowsRunning: 'running',
   workflowsCompleted: 'completed',
   workflowsFailed: 'failed',
+  sidebarShrink: 'sidebar-',
+  sidebarGrow: 'sidebar+',
 }
 
 const PAIR_GROUPS: Array<{ a: KeybindAction; b: KeybindAction; label: string }> = [
@@ -265,6 +269,8 @@ export const DEFAULT_KEYBINDS: KeybindConfig = {
     i: 'enterInsert',
     Enter: 'focusLog',
     Tab: 'toggleCollapse',
+    '[': 'sidebarShrink',
+    ']': 'sidebarGrow',
   },
   'log-focus': {
     i: 'enterInsert',

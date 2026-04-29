@@ -68,6 +68,8 @@ export interface InputBindings {
   sendShellKey: (key: TmuxInsertKey) => void
   flushShell: () => void
   quit: () => void
+  adjustSidebarWidth: (delta: number) => void
+  navigateCommandHistory: (delta: number) => void
   onResize?: () => void
   openSpawnModal: () => void
   openWorkflowsModal: () => void
@@ -746,6 +748,8 @@ function executeKeybindAction(mode: ConfigurableMode, action: KeybindAction, bin
     }
   } else if (action === 'openShell') bindings.openShell()
   else if (action === 'openMetrics') bindings.openMetrics()
+  else if (action === 'sidebarShrink') bindings.adjustSidebarWidth(-2)
+  else if (action === 'sidebarGrow') bindings.adjustSidebarWidth(2)
   else if (action === 'quit') bindings.quit()
   else if (action === 'focusLog') bindings.setMode('log-focus')
   else if (action === 'toggleCollapse') bindings.toggleCollapse()
@@ -790,11 +794,15 @@ function executeKeybindAction(mode: ConfigurableMode, action: KeybindAction, bin
     if (state.completionItems.length > 1) {
       const next = Math.max(0, state.completionSelectedIndex - 1)
       bindings.setCompletionSelectedIndex(next)
+    } else if (mode === 'command') {
+      bindings.navigateCommandHistory(-1)
     }
   } else if (action === 'completionDown') {
     if (state.completionItems.length > 1) {
       const next = Math.min(state.completionItems.length - 1, state.completionSelectedIndex + 1)
       bindings.setCompletionSelectedIndex(next)
+    } else if (mode === 'command') {
+      bindings.navigateCommandHistory(1)
     }
   } else if (action === 'cancel') {
     if (mode === 'kill-confirm') {

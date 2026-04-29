@@ -253,6 +253,8 @@ export class App {
         this.stop()
         process.exit(0)
       },
+      adjustSidebarWidth: (delta) => this.adjustSidebarWidth(delta),
+      navigateCommandHistory: (delta) => this.navigateCommandHistory(delta),
       onResize: () => this.resize(process.stdout.columns ?? this.screen.cols, process.stdout.rows ?? this.screen.rows),
       openSpawnModal: () => this.openSpawnModal(),
       openWorkflowsModal: () => this.openWorkflowsModal(),
@@ -348,7 +350,7 @@ export class App {
   }
 
   private resizeAgentPanes(agents: Record<string, AgentState> = allAgents()): void {
-    const layout = calculateLayout(this.state.termWidth, this.state.termHeight, this.state.agents)
+    const layout = calculateLayout(this.state.termWidth, this.state.termHeight, this.state.agents, undefined, this.state.sidebarWidth)
     const paneWidth = Math.max(20, layout.logInnerWidth)
     const paneHeight = Math.max(10, layout.logInnerHeight)
 
@@ -400,7 +402,7 @@ export class App {
       const { createSession } = require('../tmux') as typeof import('../tmux')
       createSession(this.shellSession, cwd, process.env.SHELL || 'zsh', {})
     }
-    const layout = calculateLayout(this.state.termWidth, this.state.termHeight, this.state.agents)
+    const layout = calculateLayout(this.state.termWidth, this.state.termHeight, this.state.agents, undefined, this.state.sidebarWidth)
     resizeWindow(this.shellSession, Math.max(20, layout.logInnerWidth), Math.max(5, layout.logInnerHeight))
     this.state.mode = 'shell'
     this.captureShell() // immediate capture so content shows right away
@@ -553,6 +555,13 @@ export class App {
       this.state.completionItems = []
       return
     }
+    // Empty input → no suggestions, so up/down arrows can navigate history
+    // instead of an unsolicited "all commands" suggestion list.
+    if (this.state.commandInput.length === 0) {
+      this.state.completionItems = []
+      this.state.completionSelectedIndex = 0
+      return
+    }
     try {
       const items = getCompletionItems(
         this.state.commandInput,
@@ -603,7 +612,7 @@ export class App {
   }
 
   private sidebarVisibleCount(): number {
-    const layout = calculateLayout(this.state.termWidth, this.state.termHeight, this.state.agents)
+    const layout = calculateLayout(this.state.termWidth, this.state.termHeight, this.state.agents, undefined, this.state.sidebarWidth)
     const logoHeight = getAsciiLogo(layout.sidebarInnerWidth).length
     const entryRows = layout.sidebarInnerHeight - 2 - logoHeight
     return Math.max(1, Math.floor(entryRows / 5))
@@ -621,6 +630,28 @@ export class App {
       this.state.sidebarScrollOffset = Math.max(0, idx - visible + 1)
     }
     this.state.sidebarScrollOffset = Math.max(0, Math.min(this.state.sidebarScrollOffset, Math.max(0, count - visible)))
+  }
+
+  private adjustSidebarWidth(delta: number): void {
+    const SIDEBAR_MIN = 20
+    const SIDEBAR_MAX = 60
+    const next = Math.max(SIDEBAR_MIN, Math.min(SIDEBAR_MAX, this.state.sidebarWidth + delta))
+    if (next === this.state.sidebarWidth) return
+    this.state.sidebarWidth = next
+    this.requestRender()
+  }
+
+  private navigateCommandHistory(delta: number): void {
+    const hist = this.state.commandHistory
+    if (hist.length === 0) return
+    let idx = this.state.commandHistoryIndex
+    if (idx < 0) idx = hist.length
+    idx = Math.max(0, Math.min(hist.length, idx + delta))
+    this.state.commandHistoryIndex = idx
+    const next = idx >= hist.length ? '' : hist[idx]!
+    this.state.commandInput = next
+    this.state.commandCursor = next.length
+    this.requestRender()
   }
 
   private toggleCollapse(): void {
@@ -654,7 +685,7 @@ export class App {
   }
 
   private logViewHeight(): number {
-    const layout = calculateLayout(this.state.termWidth, this.state.termHeight, this.state.agents)
+    const layout = calculateLayout(this.state.termWidth, this.state.termHeight, this.state.agents, undefined, this.state.sidebarWidth)
     return Math.max(1, layout.logInnerHeight)
   }
 
@@ -818,6 +849,14 @@ export class App {
     this.requestRender()
 
     if (!command) return
+
+    // Push to history (dedupe consecutive). Reset history navigation index.
+    const hist = this.state.commandHistory
+    if (hist.length === 0 || hist[hist.length - 1] !== command) {
+      hist.push(command)
+      if (hist.length > 200) hist.shift()
+    }
+    this.state.commandHistoryIndex = -1
 
     // Detect incomplete commands → open modal
     const parsed = parseCommand(`:${command}`)
@@ -1188,7 +1227,7 @@ export class App {
     const agent = agents[selected.name]
     if (!agent) return
     try {
-      const layout = calculateLayout(this.state.termWidth, this.state.termHeight, this.state.agents)
+      const layout = calculateLayout(this.state.termWidth, this.state.termHeight, this.state.agents, undefined, this.state.sidebarWidth)
       const paneHeight = Math.max(10, layout.logInnerHeight)
       // In auto-follow, include style context above the viewport so ANSI state
       // that begins just off-screen still applies to visible rows.
@@ -1344,7 +1383,7 @@ export class App {
         }
       } else if (agent) {
         try {
-          const layout = calculateLayout(this.state.termWidth, this.state.termHeight, this.state.agents)
+          const layout = calculateLayout(this.state.termWidth, this.state.termHeight, this.state.agents, undefined, this.state.sidebarWidth)
           const paneHeight = Math.max(10, layout.logInnerHeight)
 
           // In auto-follow, still capture some context above the viewport so

@@ -90,6 +90,9 @@ export interface AppState {
   metrics: MetricsModalState | null
   completionItems: CompletionItem[]
   completionSelectedIndex: number
+  sidebarWidth: number
+  commandHistory: string[]
+  commandHistoryIndex: number
 }
 
 export function createInitialState(width = 80, height = 24): AppState {
@@ -119,5 +122,8 @@ export function createInitialState(width = 80, height = 24): AppState {
     metrics: null,
     completionItems: [],
     completionSelectedIndex: 0,
+    sidebarWidth: 30,
+    commandHistory: [],
+    commandHistoryIndex: -1,
   }
 }

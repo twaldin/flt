@@ -764,32 +764,23 @@ function renderCompletionPopup(screen: Screen, state: AppState, commandRow: numb
 
 const SIDEBAR_NAME_LAYOUT_WIDTH = 24
 
-export function calculateLayout(cols: number, rows: number, agents?: AgentView[], precomputedOrder?: TreeEntry[]): LayoutMetrics {
+export const SIDEBAR_WIDTH_MIN = 20
+export const SIDEBAR_WIDTH_MAX = 60
+
+export function calculateLayout(cols: number, rows: number, agents?: AgentView[], precomputedOrder?: TreeEntry[], requestedSidebarWidth = 30): LayoutMetrics {
+  void agents
+  void precomputedOrder
   const safeCols = Math.max(1, cols)
   const safeRows = Math.max(1, rows)
 
   const statusHeight = Math.min(2, safeRows)
   const contentHeight = Math.max(0, safeRows - statusHeight)
 
-  // Dynamic sidebar width based on content
-  const bannerMaxWidth = getAsciiLogoWidth()
+  // Fixed sidebar width (user-controllable via [ / ]). Sidebar no longer
+  // auto-grows to fit longest agent name — content gets truncated instead.
   const minLogWidth = 24
-  let contentWidth = bannerMaxWidth
-
-  if (agents && agents.length > 0) {
-    const ordered = precomputedOrder ?? treeOrder(agents)
-    for (const { agent, continuation, connector } of ordered) {
-      const pLen = (continuation + connector).length
-      const dLen = continuation.length + 4  // continuation + "    " detail indent
-      contentWidth = Math.max(contentWidth, pLen + 2 + SIDEBAR_NAME_LAYOUT_WIDTH + 4 + 3)
-      contentWidth = Math.max(contentWidth, dLen + agent.cli.length + 1 + agent.model.length)
-      contentWidth = Math.max(contentWidth, dLen + shortenPath(agent.dir).length)
-    }
-  }
-
-  // +2 for box borders, +2 for horizontal padding inside agent entries
-  let sidebarWidth = contentWidth + 4
-  sidebarWidth = clamp(sidebarWidth, 18, Math.max(18, safeCols - minLogWidth))
+  let sidebarWidth = clamp(requestedSidebarWidth, SIDEBAR_WIDTH_MIN, SIDEBAR_WIDTH_MAX)
+  sidebarWidth = clamp(sidebarWidth, SIDEBAR_WIDTH_MIN, Math.max(SIDEBAR_WIDTH_MIN, safeCols - minLogWidth))
   if (safeCols - sidebarWidth < 1) sidebarWidth = Math.max(1, safeCols - 1)
 
   const logWidth = Math.max(1, safeCols - sidebarWidth)
@@ -961,7 +952,7 @@ export function renderLayout(screen: Screen, state: AppState): void {
   const cols = screen.cols
   const rows = screen.rows
   const ordered = treeOrder(state.agents)
-  const layout = calculateLayout(cols, rows, state.agents, ordered)
+  const layout = calculateLayout(cols, rows, state.agents, ordered, state.sidebarWidth)
 
   screen.clear(0, 0, cols, rows)
 

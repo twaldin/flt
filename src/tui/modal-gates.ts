@@ -529,12 +529,18 @@ function renderDetailOverlay(
 
 export function renderGatesModal(screen: Screen, state: GatesModalState, layout: { width: number; height: number }): void {
   const t = getTheme()
-  const { width: cols, height: rows } = layout
-  const left = 0
-  const top = 0
+  const { width: screenCols, height: screenRows } = layout
 
-  for (let r = top; r < top + rows; r += 1) {
-    screen.put(r, left, ' '.repeat(cols), t.sidebarText, '')
+  // Screen-edge padding so the table doesn't run flush against terminal edges.
+  const PAD_X = 3
+  const PAD_Y = 1
+  const cols = Math.max(40, screenCols - PAD_X * 2)
+  const rows = Math.max(10, screenRows - PAD_Y * 2)
+  const left = PAD_X
+  const top = PAD_Y
+
+  for (let r = 0; r < screenRows; r += 1) {
+    screen.put(r, 0, ' '.repeat(screenCols), t.sidebarText, '')
   }
 
   screen.box(top, left, cols, rows, 'round', t.sidebarBorder)
