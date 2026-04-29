@@ -326,17 +326,13 @@ function renderDrilldownView(state: WorkflowModalState, screen: Screen, top: num
 export function renderWorkflowModal(state: WorkflowModalState, screen: Screen, cols: number, rows: number): void {
   const t = getTheme()
 
-  // Screen-edge padding so the table doesn't run flush against the terminal edges.
-  const PAD_X = 3
-  const PAD_Y = 1
-  const modalWidth = Math.max(40, cols - PAD_X * 2)
-  const modalHeight = Math.max(10, rows - PAD_Y * 2)
-  const left = PAD_X
-  const top = PAD_Y
+  const modalWidth = cols
+  const modalHeight = rows
+  const left = 0
+  const top = 0
 
-  // Clear the entire screen first (including the padding strip outside the modal).
-  for (let r = 0; r < rows; r += 1) {
-    screen.put(r, 0, ' '.repeat(cols), t.sidebarText, '')
+  for (let r = top; r < top + modalHeight; r += 1) {
+    screen.put(r, left, ' '.repeat(modalWidth), t.sidebarText, '')
   }
 
   screen.box(top, left, modalWidth, modalHeight, 'round', t.sidebarBorder)
@@ -347,8 +343,15 @@ export function renderWorkflowModal(state: WorkflowModalState, screen: Screen, c
   const titleCol = left + Math.max(1, Math.floor((modalWidth - widthOf(title)) / 2))
   screen.put(top, titleCol, title, t.sidebarBorder, '', ATTR_BOLD)
 
+  // Inner padding: shift the content rectangle inward from the box border so
+  // table cells aren't flush against the vertical lines. The border stays on
+  // the screen edge; only the content gets pushed in.
+  const INNER_PAD = 2
+  const padLeft = left + INNER_PAD
+  const padWidth = Math.max(20, modalWidth - INNER_PAD * 2)
+
   // Always render the list view first so drilldown can overlay on top.
-  renderListView(state, screen, top, left, modalWidth, modalHeight)
+  renderListView(state, screen, top, padLeft, padWidth, modalHeight)
 
   // Drilldown is now an overlay (centered, smaller) on top of the list, so the
   // user retains visual context of which row they drilled into.

@@ -664,30 +664,26 @@ export function invalidateMetricsModalCache(): void {
 
 export function renderMetricsModal(screen: Screen, state: MetricsModalState, term: { width: number; height: number }): void {
   const t = getTheme()
-  // Screen-edge padding so the modal doesn't run flush against terminal edges.
-  const PAD_X = 3
-  const PAD_Y = 1
-  const screenWidth = term.width
-  const screenHeight = term.height
-  const width = Math.max(40, screenWidth - PAD_X * 2)
-  const height = Math.max(10, screenHeight - PAD_Y * 2)
-  const boxLeft = PAD_X
-  const boxTop = PAD_Y
+  const width = term.width
+  const height = term.height
 
-  for (let r = 0; r < screenHeight; r += 1) {
-    screen.put(r, 0, ' '.repeat(screenWidth), t.sidebarText, '')
+  for (let r = 0; r < height; r += 1) {
+    screen.put(r, 0, ' '.repeat(width), t.sidebarText, '')
   }
-  screen.box(boxTop, boxLeft, width, height, 'single', t.sidebarBorder)
+  screen.box(0, 0, width, height, 'single', t.sidebarBorder)
 
   const topTitle = ' flt metrics '
-  screen.put(boxTop, boxLeft + 2, topTitle, t.sidebarBorder, '', ATTR_BOLD)
+  screen.put(0, 2, topTitle, t.sidebarBorder, '', ATTR_BOLD)
   const controls = '[m] group | [t] period | j/k scroll'
-  const controlsCol = Math.max(boxLeft + 2, boxLeft + width - controls.length - 3)
-  screen.put(boxTop, controlsCol, controls, t.sidebarMuted, '', ATTR_DIM)
+  const controlsCol = Math.max(2, width - controls.length - 3)
+  screen.put(0, controlsCol, controls, t.sidebarMuted, '', ATTR_DIM)
 
-  const innerLeft = boxLeft + 1
-  const innerTop = boxTop + 1
-  const innerWidth = Math.max(1, width - 2)
+  // Inner padding: keep the box at screen edges but inset content from the
+  // borders so cells/labels don't sit flush against the vertical lines.
+  const INNER_PAD = 2
+  const innerLeft = 1 + INNER_PAD
+  const innerTop = 1
+  const innerWidth = Math.max(1, width - 2 - INNER_PAD * 2)
   const innerHeight = Math.max(1, height - 2)
 
   const now = Date.now()

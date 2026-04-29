@@ -529,18 +529,12 @@ function renderDetailOverlay(
 
 export function renderGatesModal(screen: Screen, state: GatesModalState, layout: { width: number; height: number }): void {
   const t = getTheme()
-  const { width: screenCols, height: screenRows } = layout
+  const { width: cols, height: rows } = layout
+  const left = 0
+  const top = 0
 
-  // Screen-edge padding so the table doesn't run flush against terminal edges.
-  const PAD_X = 3
-  const PAD_Y = 1
-  const cols = Math.max(40, screenCols - PAD_X * 2)
-  const rows = Math.max(10, screenRows - PAD_Y * 2)
-  const left = PAD_X
-  const top = PAD_Y
-
-  for (let r = 0; r < screenRows; r += 1) {
-    screen.put(r, 0, ' '.repeat(screenCols), t.sidebarText, '')
+  for (let r = top; r < top + rows; r += 1) {
+    screen.put(r, left, ' '.repeat(cols), t.sidebarText, '')
   }
 
   screen.box(top, left, cols, rows, 'round', t.sidebarBorder)
@@ -548,7 +542,11 @@ export function renderGatesModal(screen: Screen, state: GatesModalState, layout:
   const title = ' Gates '
   screen.put(top, left + Math.floor((cols - widthOf(title)) / 2), title, t.sidebarBorder, '', ATTR_BOLD)
 
-  const innerWidth = cols - 2
+  // Inner padding: keep the box at screen edges but inset content from the
+  // borders so cells don't sit flush against the vertical lines.
+  const INNER_PAD = 2
+  const innerWidth = Math.max(10, cols - 2 - INNER_PAD * 2)
+  const innerLeft = left + INNER_PAD
   const innerTop = top + 1
   const innerBottom = top + rows - 2
 
@@ -565,11 +563,11 @@ export function renderGatesModal(screen: Screen, state: GatesModalState, layout:
   const widths = computeColumnWidths(minWidths, innerWidth, Math.max(0, (minWidths.length - 1) * SEP_W))
 
   let r = innerTop
-  putSeparatedRow(screen, r, left + 1, widths, headers, t.sidebarTitle, t.sidebarBorder, '', ATTR_BOLD | ATTR_UNDERLINE)
+  putSeparatedRow(screen, r, innerLeft, widths, headers, t.sidebarTitle, t.sidebarBorder, '', ATTR_BOLD | ATTR_UNDERLINE)
   r += 1
 
   if (state.rows.length === 0) {
-    putLine(screen, r, left + 1, innerWidth, '  No pending gates', t.sidebarMuted, '', ATTR_DIM)
+    putLine(screen, r, innerLeft, innerWidth, '  No pending gates', t.sidebarMuted, '', ATTR_DIM)
     r += 1
   } else {
     const maxDataRows = Math.max(0, innerBottom - r)
@@ -583,7 +581,7 @@ export function renderGatesModal(screen: Screen, state: GatesModalState, layout:
       putSeparatedRow(
         screen,
         r,
-        left + 1,
+        innerLeft,
         widths,
         [formatAge(row.ageMs), row.runId, row.workflow, kindLabel(row.kind), row.reason],
         selected ? t.sidebarSelected : kindFg,
@@ -596,7 +594,7 @@ export function renderGatesModal(screen: Screen, state: GatesModalState, layout:
   }
 
   while (r <= innerBottom - 1) {
-    putLine(screen, r, left + 1, innerWidth, '', t.sidebarText)
+    putLine(screen, r, innerLeft, innerWidth, '', t.sidebarText)
     r += 1
   }
 
