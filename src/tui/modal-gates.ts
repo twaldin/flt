@@ -605,10 +605,10 @@ export function renderGatesModal(screen: Screen, state: GatesModalState, layout:
         innerLeft,
         widths,
         [formatAge(row.ageMs), row.runId, row.workflow, kindLabel(row.kind), row.reason],
-        selected ? t.sidebarSelected : kindFg,
+        kindFg,
         t.sidebarBorder,
-        selected ? t.sidebarSelectedBg : '',
-        0,
+        '',
+        selected ? ATTR_INVERSE : 0,
       )
       r += 1
     }

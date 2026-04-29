@@ -173,15 +173,23 @@ function renderListView(state: WorkflowModalState, screen: Screen, top: number, 
     switch (status) {
       case 'running': return t.statusRunning
       case 'failed': return t.statusError
-      case 'cancelled': return t.sidebarMuted
+      // 'cancelled' uses sidebarText (not sidebarMuted) so the row text never
+      // shares the border color and stays distinguishable from the line glyphs.
+      case 'cancelled': return t.sidebarText
       default: return t.sidebarText
     }
   }
 
+  const statusAttrs = (status: WorkflowRow['status']): number => {
+    return status === 'cancelled' ? ATTR_DIM : 0
+  }
+
   const renderItemRow = (item: WorkflowRow, absoluteIndex: number): void => {
     const selected = absoluteIndex === selectedIndex
-    const fg = selected ? t.sidebarSelected : statusFg(item.status)
-    const bg = selected ? t.sidebarSelectedBg : ''
+    // Selected: keep the row's own status color as fg, render via ATTR_INVERSE
+    // so the terminal swaps fg/bg — the row's color becomes the highlight bg.
+    const fg = statusFg(item.status)
+    const attrs = statusAttrs(item.status) | (selected ? ATTR_INVERSE : 0)
     const slug = deriveSlug(item.id, item.workflow)
     putSeparatedRow(
       screen,
@@ -199,8 +207,8 @@ function renderListView(state: WorkflowModalState, screen: Screen, top: number, 
       ],
       fg,
       t.sidebarBorder,
-      bg,
-      0,
+      '',
+      attrs,
     )
     row += 1
   }
