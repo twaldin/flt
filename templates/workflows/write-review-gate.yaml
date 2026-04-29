@@ -1,0 +1,88 @@
+name: write-review-gate
+# Writer drafts an artifact. A FRESH reviewer agent reads it + the voice refs
+# and produces a critique. If the critique is REWRITE, control bounces back to
+# the writer with the full review available at $FLT_RETRY_REVIEW_PATH (env var
+# the engine sets on retry; falls back to {fail_reason} one-liner). If PASS,
+# control flows to a human_gate where the operator approves or rejects via the
+# gates modal (g key in flt tui). Rejection bounces back to the writer.
+#
+# This is an artifact-only workflow — no code, no PR. Set auto_pr: false so
+# the engine doesn't try to push or open one.
+auto_pr: false
+
+steps:
+  - id: write
+    preset: cc-sonnet
+    task: |
+      Original task: {task}
+
+      Previous-attempt feedback (only on retry): {fail_reason}
+
+      On retry, if the env var $FLT_RETRY_REVIEW_PATH points at a file that
+      exists, READ THAT FILE FIRST — it contains the previous reviewer's full
+      critique. The {fail_reason} above is just a one-line summary; the file
+      has every quoted-offending-sentence + suggested rewrite.
+
+      ALWAYS READ before drafting (whether first attempt or retry):
+      - ~/.flt/skills/writing-refs/tim-voice.md
+      - ~/.flt/skills/writing-refs/stopslop-rules.md
+      - ~/.flt/skills/writing-refs/corpus.md (skim at least one sample)
+
+      Draft the artifact in Tim's voice. Save to:
+        $FLT_RUN_DIR/artifacts/draft.md
+
+      Self-audit BEFORE signaling pass. Grep your draft for:
+        delve|robust|seamless|unlock|elevate|leverage|dive|game-chang|revolution|paradigm|journey|ecosystem|plethora|myriad|underscore|furthermore|moreover|cutting-edge|state-of-the-art|next-gen|empower
+      Any hit → rewrite that sentence. Do not pass with slop terms in the draft.
+
+      flt workflow pass when draft.md is written and self-audit is clean.
+    on_complete: review
+    on_fail: write
+    max_retries: 2
+
+  - id: review
+    preset: codex-reviewer
+    worktree: false
+    dir: '{steps.write.worktree}'
+    task: |
+      Original task: {task}
+
+      Read the draft at $FLT_RUN_DIR/artifacts/draft.md.
+      Read the voice refs (at ~/.flt/skills/writing-refs/):
+      - tim-voice.md
+      - stopslop-rules.md
+      - corpus.md (and skim ONE sample referenced in there)
+
+      Produce a critique at $FLT_RUN_DIR/handoffs/write-feedback.md.
+      (Engine convention: $FLT_RUN_DIR/handoffs/<next-step-id>-feedback.md is
+      auto-injected as $FLT_RETRY_REVIEW_PATH for the next attempt of that step.)
+
+      For each issue, include:
+      - the offending sentence (quoted verbatim)
+      - what's wrong (banned slop word? voice mismatch? missing number?
+        ceremony header? marketing tone? 3-beat parallel? hedge stack?)
+      - the concrete rewrite
+
+      Final line of write-feedback.md must be exactly one of:
+        VERDICT: PASS
+        VERDICT: REWRITE
+
+      Pass condition: zero banned slop words, zero ceremony headers, voice
+      matches at least one corpus sample, every claim has a concrete number
+      where the sample uses one. Be strict.
+
+      flt workflow pass if VERDICT: PASS.
+      flt workflow fail "<3-5 word summary of top issue>" if VERDICT: REWRITE.
+    on_complete: gate
+    on_fail: write
+
+  - id: gate
+    type: human_gate
+    notify: |
+      Draft ready for your approval.
+        draft:    $FLT_RUN_DIR/artifacts/draft.md
+        critique: $FLT_RUN_DIR/handoffs/write-feedback.md
+      Open the gates modal (g) and press [a] approve or [x] reject.
+      Rejection bounces back to the writer with your reason as fail_reason.
+    on_complete: done
+    on_fail: write

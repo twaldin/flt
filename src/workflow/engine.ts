@@ -1908,6 +1908,14 @@ async function executeStep(def: WorkflowDef, run: WorkflowRun, step: WorkflowSte
   saveWorkflowRun(run)
 
   const spawn = await getSpawnFn()
+  // On retry of a self-loop step, point at the previous reviewer-style handoff
+  // so the writer/coder can read the full critique instead of relying on the
+  // truncated one-liner failReason. Convention: predecessor step writes its
+  // detailed feedback to $FLT_RUN_DIR/handoffs/<step>-feedback.md.
+  const isRetry = (run.retries[step.id] ?? 0) > 0
+  const retryReviewPath = isRetry && run.runDir
+    ? join(run.runDir, 'handoffs', `${step.id}-feedback.md`)
+    : undefined
   await spawn({
     name: agentName,
     preset: step.preset,
@@ -1922,6 +1930,7 @@ async function executeStep(def: WorkflowDef, run: WorkflowRun, step: WorkflowSte
       ? {
           FLT_RUN_DIR: run.runDir,
           FLT_RUN_LABEL: '_',
+          ...(retryReviewPath ? { FLT_RETRY_REVIEW_PATH: retryReviewPath } : {}),
         }
       : undefined,
   })
