@@ -1253,6 +1253,13 @@ async function advanceDynamicDag(def: WorkflowDef, run: WorkflowRun, step: Dynam
   const state = run.dynamicDagGroups?.[step.id]
   if (!state || !run.runDir) return
 
+  // On every advance, try to schedule ready nodes. Without this, manually
+  // edited node state (e.g. operator marks a node passed after a hand-fix)
+  // never triggers scheduling — the per-candidate loop only fires when an
+  // agent goes idle. Idempotent: scheduleReadyNodes respects max_parallel
+  // caps and skips already-running nodes.
+  await scheduleReadyNodes(def, run, step)
+
   const decisionPath = join(run.runDir, '.gate-decision')
   if (existsSync(decisionPath)) {
     const decision = readJsonFile(decisionPath)
