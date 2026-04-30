@@ -10,8 +10,8 @@ import {
   type WorkflowStepRow,
 } from '../metrics-workflows'
 import { computeColumnWidths, truncateEllipsis } from './columns'
-import { ATTR_BOLD, ATTR_DIM, ATTR_INVERSE, ATTR_UNDERLINE, type Screen } from './screen'
-import { COLORS, getTheme } from './theme'
+import { ATTR_BOLD, ATTR_DIM, ATTR_UNDERLINE, type Screen } from './screen'
+import { COLORS, fgToBg, getTheme } from './theme'
 
 export interface WorkflowModalState {
   filter: WorkflowFilter
@@ -185,10 +185,14 @@ function renderListView(state: WorkflowModalState, screen: Screen, top: number, 
 
   const renderItemRow = (item: WorkflowRow, absoluteIndex: number): void => {
     const selected = absoluteIndex === selectedIndex
-    // Selected: keep the row's own status color as fg, render via ATTR_INVERSE
-    // so the terminal swaps fg/bg — the row's color becomes the highlight bg.
-    const fg = statusFg(item.status)
-    const attrs = statusAttrs(item.status) | (selected ? ATTR_INVERSE : 0)
+    // Selected: explicit bg = the status color converted to bg SGR, fg = the
+    // theme's bg color so text contrasts. ATTR_INVERSE relied on the terminal
+    // swapping cell.fg with cell.bg, which renders pink-on-pink (unreadable)
+    // when bg='' on truecolor terminals like wezterm/iTerm with monokai.
+    const statusColor = statusFg(item.status)
+    const fg = selected ? COLORS.black : statusColor
+    const bg = selected ? fgToBg(statusColor) : ''
+    const attrs = statusAttrs(item.status)
     const slug = deriveSlug(item.id, item.workflow)
     putSeparatedRow(
       screen,
@@ -206,7 +210,7 @@ function renderListView(state: WorkflowModalState, screen: Screen, top: number, 
       ],
       fg,
       t.sidebarBorder,
-      '',
+      bg,
       attrs,
     )
     row += 1

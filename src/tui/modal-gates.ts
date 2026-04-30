@@ -7,7 +7,7 @@ import { removePendingGate } from '../workflow/gates-store'
 import { pendingQna, writeAnswer, type QnaRow, type Question } from '../qna'
 import { computeColumnWidths, truncateEllipsis } from './columns'
 import { ATTR_BOLD, ATTR_DIM, ATTR_INVERSE, ATTR_UNDERLINE, type Screen } from './screen'
-import { getTheme } from './theme'
+import { COLORS, fgToBg, getTheme } from './theme'
 
 export type ModalKind = GateRow['kind'] | 'question'
 
@@ -603,16 +603,20 @@ export function renderGatesModal(screen: Screen, state: GatesModalState, layout:
       const row = state.rows[i]
       const selected = i === selectedIndex
       const kindFg = kindColor(row.kind, t)
+      // Selected: kind color as explicit bg + dark fg. ATTR_INVERSE rendered
+      // pink-on-pink on truecolor terminals when bg was empty.
+      const fg = selected ? COLORS.black : kindFg
+      const bg = selected ? fgToBg(kindFg) : ''
       putSeparatedRow(
         screen,
         r,
         innerLeft,
         widths,
         [formatAge(row.ageMs), row.runId, row.workflow, kindLabel(row.kind), row.reason],
-        kindFg,
+        fg,
         t.sidebarBorder,
-        '',
-        selected ? ATTR_INVERSE : 0,
+        bg,
+        0,
       )
       r += 1
     }
