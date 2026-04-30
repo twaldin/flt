@@ -374,7 +374,7 @@ steps:
     const workflowPath = join(import.meta.dir, '..', '..', 'templates', 'workflows', 'daily-mutator.yaml')
     const def = validate(readFileSync(workflowPath, 'utf-8'))
     expect(def.name).toBe('daily-mutator')
-    expect(def.steps.map(step => step.id)).toEqual(['collect', 'redact', 'find_skills', 'mutate', 'eval', 'gate'])
+    expect(def.steps.map(step => step.id)).toEqual(['collect', 'redact', 'find_skills', 'mutate', 'eval', 'gate', 'open-gate'])
   })
 
   it('auto_pr: true round-trips', () => {

@@ -549,10 +549,11 @@ workflowCmd
 workflowCmd
   .command('fail [reason]')
   .description('Signal FAIL from inside a workflow step agent')
-  .action((reason) => {
+  .option('--fixes <json-array>', 'Structured reviewer fixes: [{ file, kind?, what, suggested? }]')
+  .action((reason, opts) => {
     try {
       const { workflowFail } = require('./commands/workflow')
-      workflowFail(reason)
+      workflowFail(reason, { fixes: opts.fixes })
     } catch (e) {
       console.error(`Error: ${(e as Error).message}`)
       process.exit(1)
@@ -727,6 +728,27 @@ cronCmd
   .action((name) => {
     try {
       cronRemove(name)
+    } catch (e) {
+      console.error(`Error: ${(e as Error).message}`)
+      process.exit(1)
+    }
+  })
+
+const gateCmd = program
+  .command('gate')
+  .description('Manage workflow gates')
+
+gateCmd
+  .command('open')
+  .description('Open a pending workflow gate')
+  .requiredOption('--kind <kind>', 'Gate kind')
+  .requiredOption('--options <json>', 'JSON array of options')
+  .requiredOption('--reason <string>', 'Reason shown in gates modal')
+  .option('--run-dir <path>', 'Workflow run directory; defaults to FLT_RUN_DIR')
+  .action((opts) => {
+    try {
+      const { gateOpen } = require('./commands/gate')
+      gateOpen({ kind: opts.kind, options: opts.options, reason: opts.reason, runDir: opts.runDir })
     } catch (e) {
       console.error(`Error: ${(e as Error).message}`)
       process.exit(1)

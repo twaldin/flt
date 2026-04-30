@@ -1,7 +1,9 @@
 import * as fs from 'fs'
 import { join } from 'path'
+import { execSync } from 'child_process'
 import { homedir } from 'os'
 import { scanGates, scanBlockers, cleanStaleGates, type GateRow, type BlockerRow } from '../gates'
+import { removePendingGate } from '../workflow/gates-store'
 import { pendingQna, writeAnswer, type QnaRow, type Question } from '../qna'
 import { computeColumnWidths, truncateEllipsis } from './columns'
 import { ATTR_BOLD, ATTR_DIM, ATTR_INVERSE, ATTR_UNDERLINE, type Screen } from './screen'
@@ -247,7 +249,7 @@ function putLine(screen: Screen, row: number, col: number, width: number, text: 
 // dividers so cells don't sit flush against the line glyph.
 const SEP_W = 3
 
-function putSeparatedRow(
+export function putSeparatedRow(
   screen: Screen,
   row: number,
   col: number,
@@ -260,14 +262,13 @@ function putSeparatedRow(
 ): void {
   if (row < 0 || row >= screen.rows) return
   let x = col
-  // Separator never inherits ATTR_INVERSE — keeps the line glyph crisp on
-  // selected rows (highlight is bg-only).
-  const sepAttrs = attrs & ~ATTR_INVERSE
+  // Keep separator attrs aligned with row attrs so ATTR_INVERSE highlights
+  // selected rows as one continuous bar across cells and separators.
   for (let i = 0; i < widths.length; i += 1) {
     screen.put(row, x, padRight(cells[i] ?? '', widths[i]), fg, bg, attrs)
     x += widths[i]
     if (i < widths.length - 1) {
-      screen.put(row, x, ' │ ', sepFg, bg, sepAttrs)
+      screen.put(row, x, ' │ ', sepFg, bg, attrs)
       x += SEP_W
     }
   }
@@ -307,6 +308,7 @@ function kindColor(kind: string, t: ReturnType<typeof getTheme>): string {
     case 'node-fail': return t.statusError       // failure — alert
     case 'reconcile-fail': return t.statusError  // failure — alert
     case 'node-candidate': return t.statusRunning // calls for action
+    case 'mutation-candidate': return t.statusRunning
     case 'question': return t.commandPrefix       // info / waiting on you
     case 'blocker': return t.statusError         // hard stop
     default: return t.sidebarText
@@ -319,6 +321,7 @@ function kindLabel(kind: string): string {
     case 'node-fail': return 'node-fail'
     case 'reconcile-fail': return 'recon-fail'
     case 'node-candidate': return 'candidate'
+    case 'mutation-candidate': return 'mutation'
     case 'question': return 'question'
     default: return kind
   }
@@ -330,6 +333,7 @@ function kindFooter(kind: string): string {
     case 'node-fail': return 'r retry | s skip | a abort | c cancel'
     case 'reconcile-fail': return 'r retry | a abort | c cancel'
     case 'node-candidate': return 'Enter pick candidate | c cancel'
+    case 'mutation-candidate': return 'a approve | x reject | c cancel'
     case 'question': return 'Enter answer | s skip'
     case 'blocker': return 'v view | c cancel'
     default: return 'c cancel'
@@ -787,6 +791,38 @@ function renderQuestionPicker(
   putLine(screen, footerRow, pickerLeft + 2, innerWidth, help, t.sidebarMuted, '', ATTR_DIM)
 }
 
+function mutationOptions(row: ModalRow): string[] {
+  const opts = row.payload.options
+  return Array.isArray(opts) ? opts.filter((v): v is string => typeof v === 'string') : []
+}
+
+function approveMutationCandidate(row: ModalRow): void {
+  const options = mutationOptions(row)
+  for (const option of options) {
+    const role = option.split('-')[0]
+    if (!role) continue
+    const src = join(row.runDir, 'artifacts', `${option}.vNext.md`)
+    const dest = join(process.cwd(), 'templates', 'roles', `${role}.md`)
+    if (fs.existsSync(src)) fs.copyFileSync(src, dest)
+  }
+  try {
+    execSync(`git add templates/roles && git commit -m ${JSON.stringify(`daily-mutator: approve ${row.runId} mutation candidates`)}`, { cwd: process.cwd(), stdio: 'ignore' })
+  } catch {}
+  removePendingGate(row.runDir, g => g.kind === 'mutation-candidate')
+}
+
+function rejectMutationCandidate(row: ModalRow): void {
+  const rejectedDir = join(row.runDir, 'artifacts', 'rejected')
+  fs.mkdirSync(rejectedDir, { recursive: true })
+  for (const option of mutationOptions(row)) {
+    for (const suffix of ['.vNext.md', '.hypothesis.json']) {
+      const src = join(row.runDir, 'artifacts', `${option}${suffix}`)
+      if (fs.existsSync(src)) fs.renameSync(src, join(rejectedDir, `${option}${suffix}`))
+    }
+  }
+  removePendingGate(row.runDir, g => g.kind === 'mutation-candidate')
+}
+
 export function handleGatesKey(state: GatesModalState, key: string, actions: GatesActions): boolean {
   if (state.blockerOverlay) {
     if (key === 'escape') state.blockerOverlay = null
@@ -817,6 +853,10 @@ export function handleGatesKey(state: GatesModalState, key: string, actions: Gat
         case 'reconcile-fail':
           if (k === 'r') { actions.reconcileRetry(row.runId); state.detailOverlay = null; return true }
           if (k === 'a') { actions.reconcileAbort(row.runId); state.detailOverlay = null; return true }
+          break
+        case 'mutation-candidate':
+          if (k === 'a') { approveMutationCandidate(row); actions.refresh(); state.detailOverlay = null; return true }
+          if (k === 'x') { rejectMutationCandidate(row); actions.refresh(); state.detailOverlay = null; return true }
           break
         case 'blocker':
           if (k === 'v') {
@@ -1030,6 +1070,11 @@ export function handleGatesKey(state: GatesModalState, key: string, actions: Gat
         }
         return true
       }
+      break
+
+    case 'mutation-candidate':
+      if (key === 'a') { approveMutationCandidate(row); actions.refresh(); return true }
+      if (key === 'x') { rejectMutationCandidate(row); actions.refresh(); return true }
       break
 
     case 'question':

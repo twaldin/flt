@@ -81,6 +81,7 @@ export interface WorkflowRun {
   parentName: string
   stepResult?: 'pass' | 'fail'
   stepFailReason?: string
+  stepFixesFromReview?: ReviewFix[]
   stepProdCount?: number
   dagProdCounts?: Record<string, number>
   history: WorkflowStepResult[]
@@ -113,6 +114,19 @@ export interface ParallelGroupState {
   allDone: boolean
 }
 
+export interface ReviewFix {
+  file: string
+  kind?: 'missing' | 'wrong' | 'test-gap' | 'regression' | 'style' | string
+  what: string
+  suggested?: string
+}
+
+export interface WorkflowResultPayload {
+  verdict: 'pass' | 'fail'
+  failReason?: string
+  fixes?: ReviewFix[]
+}
+
 export interface ParallelCandidate {
   label: string
   agentName: string
@@ -137,6 +151,7 @@ export interface DagNodeState {
   retries: number
   status: 'pending' | 'running' | 'reviewing' | 'passed' | 'failed' | 'skipped'
   failReason?: string
+  fixesFromReview?: ReviewFix[]
   reviewerAgent?: string
   reviewerWorktree?: string
   coderAgent?: string

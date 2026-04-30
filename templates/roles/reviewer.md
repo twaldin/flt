@@ -13,10 +13,10 @@ Flag:
 - Maintainability problems (over-engineering, premature abstraction, dead code, inconsistent style with surrounding code).
 - Unrelated file changes that shouldn't be in this diff.
 
-Write findings to `$FLT_RUN_DIR/artifacts/review.md` as a list with `path:line` references. Be specific, not nitpicky.
+Write findings to `$FLT_RUN_DIR/artifacts/review.md` as a list with `path:line` references. Be specific, not nitpicky. If `$FLT_REVIEW_HANDOFF_PATH` is set, also write the same detailed feedback there; the retry coder reads that exact attempt-versioned file.
 
 If the diff is merge-ready: `flt workflow pass`.
-If issues: `flt workflow fail "<short reason>"` plus the full review.md as evidence.
+If issues: prefer `flt workflow fail '<short reason>' --fixes '<json-array>'` plus the full review.md as evidence. Each fix is `{ file, kind?, what, suggested? }`. `kind` is one of: `missing` | `wrong` | `test-gap` | `regression` | `style`.
 
 ## Comms
 

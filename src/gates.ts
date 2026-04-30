@@ -4,7 +4,7 @@ import { join } from 'path'
 import type { WorkflowRun } from './workflow/types'
 import { readPendingGates } from './workflow/gates-store'
 
-export type GateKind = 'human_gate' | 'node-fail' | 'reconcile-fail' | 'node-candidate'
+export type GateKind = 'human_gate' | 'node-fail' | 'reconcile-fail' | 'node-candidate' | 'mutation-candidate'
 
 export interface GatePayload {
   kind: GateKind

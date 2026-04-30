@@ -46,7 +46,7 @@ function putLine(screen: Screen, row: number, col: number, width: number, text: 
 // dividers so cells don't sit flush against the line glyph.
 const SEP_W = 3
 
-function putSeparatedRow(
+export function putSeparatedRow(
   screen: Screen,
   row: number,
   col: number,
@@ -59,14 +59,13 @@ function putSeparatedRow(
 ): void {
   if (row < 0 || row >= screen.rows) return
   let x = col
-  // Separator never inherits ATTR_INVERSE — keeps the line glyph crisp on
-  // selected rows (highlight is bg-only).
-  const sepAttrs = attrs & ~ATTR_INVERSE
+  // Keep separator attrs aligned with row attrs so ATTR_INVERSE highlights
+  // selected rows as one continuous bar across cells and separators.
   for (let i = 0; i < widths.length; i += 1) {
     screen.put(row, x, padRight(cells[i] ?? '', widths[i]), fg, bg, attrs)
     x += widths[i]
     if (i < widths.length - 1) {
-      screen.put(row, x, ' │ ', sepFg, bg, sepAttrs)
+      screen.put(row, x, ' │ ', sepFg, bg, attrs)
       x += SEP_W
     }
   }

@@ -21,6 +21,7 @@ import type {
   MergeBestStep,
   ParallelCandidate,
   ParallelStep,
+  ReviewFix,
   SpawnStep,
   WorkflowDef,
   WorkflowRun,
@@ -416,6 +417,8 @@ export async function advanceWorkflow(runId: string, idleAgentName?: string): Pr
       }
       run.retries[currentStepDef.id] = retryCount + 1
       run.stepFailReason = failReason  // made available to next spawn via {fail_reason} template var
+      const stepResult = readJsonFile(join(run.runDir, 'results', `${currentStepDef.id}-_.json`)) as { fixes?: ReviewFix[] } | null
+      run.stepFixesFromReview = Array.isArray(stepResult?.fixes) && stepResult.fixes.length > 0 ? stepResult.fixes : undefined
       saveWorkflowRun(run)
       appendEvent({ type: 'workflow', detail: `retry ${run.id} step ${currentStepDef.id} (${retryCount + 1}/${maxRetries})`, at: new Date().toISOString() })
       await executeStep(def, run, currentStepDef)
@@ -992,6 +995,7 @@ async function spawnDagNode(def: WorkflowDef, run: WorkflowRun, step: DynamicDag
 
   const repoDir = resolveRepoDir(run)
   const spawn = await getSpawnFn()
+  const bootstrap = buildRetryPromptIfFixes(node.task, node.fixesFromReview, run)
 
   if (node.parallel > 1) {
     const presets = Array(node.parallel).fill(node.preset)
@@ -1008,7 +1012,7 @@ async function spawnDagNode(def: WorkflowDef, run: WorkflowRun, step: DynamicDag
         dir: wt.path,
         worktree: false,
         parent: run.parentName,
-        bootstrap: resolveTemplate(node.task, run),
+        bootstrap,
         workflow: run.workflow,
         workflowStep: step.id,
         projectRoot: run.vars._input?.dir,
@@ -1040,7 +1044,7 @@ async function spawnDagNode(def: WorkflowDef, run: WorkflowRun, step: DynamicDag
       dir: wt.path,
       worktree: false,
       parent: run.parentName,
-      bootstrap: resolveTemplate(node.task, run),
+      bootstrap,
       workflow: run.workflow,
       workflowStep: step.id,
       projectRoot: run.vars._input?.dir,
@@ -1053,7 +1057,7 @@ async function spawnDagNode(def: WorkflowDef, run: WorkflowRun, step: DynamicDag
             // Empty string when the file isn't there yet (first attempt) so the
             // coder can `[ -s "$FLT_RETRY_REVIEW_PATH" ] && cat ...` cleanly.
             ...(node.retries > 0 && run.runDir
-              ? { FLT_RETRY_REVIEW_PATH: join(run.runDir, 'handoffs', `${run.id}-${step.id}-${node.id}-reviewer.md`) }
+              ? { FLT_RETRY_REVIEW_PATH: reviewerHandoffPath(run, step, node, node.retries) }
               : {}),
           }
         : undefined,
@@ -1067,6 +1071,11 @@ async function spawnDagNode(def: WorkflowDef, run: WorkflowRun, step: DynamicDag
   }
 
   saveWorkflowRun(run)
+}
+
+function reviewerHandoffPath(run: WorkflowRun, step: DynamicDagStep, node: DagNodeState, attempt: number): string {
+  if (!run.runDir) throw new Error(`workflow run "${run.id}" is missing runDir`)
+  return join(run.runDir, 'handoffs', `${run.id}-${step.id}-${node.id}-reviewer.attempt-${attempt}.md`)
 }
 
 async function scheduleReadyNodes(def: WorkflowDef, run: WorkflowRun, step: DynamicDagStep): Promise<void> {
@@ -1340,7 +1349,7 @@ async function advanceDynamicDag(def: WorkflowDef, run: WorkflowRun, step: Dynam
         continue
       }
     }
-    const result = readJsonFile(resultPath) as { verdict?: 'pass' | 'fail'; failReason?: string } | null
+    const result = readJsonFile(resultPath) as { verdict?: 'pass' | 'fail'; failReason?: string; fixes?: ReviewFix[] } | null
     if (!result?.verdict) continue
     // Clear prod count once the agent emitted a verdict (success or fail).
     if (run.dagProdCounts?.[agentName] !== undefined) {
@@ -1383,6 +1392,7 @@ async function advanceDynamicDag(def: WorkflowDef, run: WorkflowRun, step: Dynam
           extraEnv: {
             FLT_RUN_DIR: run.runDir,
             FLT_RUN_LABEL: `${c.node.id}-reviewer`,
+            FLT_REVIEW_HANDOFF_PATH: reviewerHandoffPath(run, step, c.node, c.node.retries + 1),
           },
         })
       } else {
@@ -1398,6 +1408,7 @@ async function advanceDynamicDag(def: WorkflowDef, run: WorkflowRun, step: Dynam
           await fireNodeFailGate(run, step, c.node, result.failReason ?? 'node failed')
         } else {
           c.node.failReason = result.failReason
+          c.node.fixesFromReview = Array.isArray(result.fixes) && result.fixes.length > 0 ? result.fixes : undefined
           // Plumb to {fail_reason} template var so the retry coder's task
           // body can reference the reviewer's complaint.
           run.stepFailReason = result.failReason
@@ -1428,6 +1439,7 @@ async function advanceDynamicDag(def: WorkflowDef, run: WorkflowRun, step: Dynam
           await fireNodeFailGate(run, step, c.node, result.failReason ?? 'review failed')
         } else {
           c.node.failReason = result.failReason
+          c.node.fixesFromReview = Array.isArray(result.fixes) && result.fixes.length > 0 ? result.fixes : undefined
           run.stepFailReason = result.failReason
           c.node.status = 'pending'
           saveWorkflowRun(run)
@@ -1492,7 +1504,7 @@ async function advanceDynamicDag(def: WorkflowDef, run: WorkflowRun, step: Dynam
   if (idleAgentName && state.reconcilerAgent === idleAgentName) {
     const resultPath = join(run.runDir, 'results', `${step.id}-_.json`)
     if (!existsSync(resultPath)) return
-    const result = readJsonFile(resultPath) as { verdict?: 'pass' | 'fail'; failReason?: string } | null
+    const result = readJsonFile(resultPath) as { verdict?: 'pass' | 'fail'; failReason?: string; fixes?: ReviewFix[] } | null
     if (!result?.verdict) return
 
     if (result.verdict === 'fail') {
@@ -1890,7 +1902,8 @@ async function executeStep(def: WorkflowDef, run: WorkflowRun, step: WorkflowSte
   }
 
   const agentName = workflowAgentName(run.id, step.id)
-  const task = resolveTemplate(step.task, run)
+  const isRetry = (run.retries[step.id] ?? 0) > 0
+  const task = buildRetryPromptIfFixes(step.task, isRetry ? run.stepFixesFromReview : undefined, run)
   const dir = step.dir
     ? resolveTemplate(step.dir, run)
     : (run.vars._input?.dir || undefined)
@@ -1912,7 +1925,6 @@ async function executeStep(def: WorkflowDef, run: WorkflowRun, step: WorkflowSte
   // so the writer/coder can read the full critique instead of relying on the
   // truncated one-liner failReason. Convention: predecessor step writes its
   // detailed feedback to $FLT_RUN_DIR/handoffs/<step>-feedback.md.
-  const isRetry = (run.retries[step.id] ?? 0) > 0
   const retryReviewPath = isRetry && run.runDir
     ? join(run.runDir, 'handoffs', `${step.id}-feedback.md`)
     : undefined
@@ -1946,6 +1958,15 @@ async function executeStep(def: WorkflowDef, run: WorkflowRun, step: WorkflowSte
     }
     saveWorkflowRun(run)
   }
+}
+
+function buildRetryPromptIfFixes(task: string, fixes: ReviewFix[] | undefined, run: WorkflowRun): string {
+  if (!fixes || fixes.length === 0) return resolveTemplate(task, run)
+  const items = fixes.map((fix, i) => {
+    const suggested = fix.suggested ? `\n   Suggested: ${fix.suggested}` : ''
+    return `${i + 1}. ${fix.file}: ${fix.what}${suggested}`
+  }).join('\n')
+  return `## Previous attempt failed. Fix exactly these items:\n\n${items}\n\n## Original task (context only — do NOT redo from scratch):\n\n${resolveTemplate(task, run)}`
 }
 
 function resolveTemplate(template: string, run: WorkflowRun): string {
@@ -2052,7 +2073,7 @@ async function notifyWorkflowParent(run: WorkflowRun, message: string): Promise<
 }
 
 /** Signal pass/fail from inside a workflow agent */
-export function signalWorkflowResult(result: 'pass' | 'fail', reason?: string): void {
+export function signalWorkflowResult(result: 'pass' | 'fail', reason?: string, fixes?: ReviewFix[]): void {
   const runs = listWorkflowRuns().filter(r => r.status === 'running')
   const caller = process.env.FLT_AGENT_NAME ?? resolveAgentNameFromTmux()
   if (!caller) {
@@ -2086,7 +2107,7 @@ export function signalWorkflowResult(result: 'pass' | 'fail', reason?: string): 
       throw new Error(`workflow run "${run.id}" is missing runDir`)
     }
     const label = dagLabel ?? candidate?.label ?? '_'
-    writeResult(run.runDir, run.currentStep, label, result, reason)
+    writeResult(run.runDir, run.currentStep, label, result, reason, fixes)
     return
   }
 

@@ -32,6 +32,28 @@ export async function kill(args: KillArgs): Promise<void> {
   return killDirect(args)
 }
 
+interface WorkflowEngineNotifier {
+  getWorkflowForAgent: (name: string) => string | null
+  handleStepFailure: (workflowId: string) => Promise<void>
+}
+
+export async function notifyEngineOfKill(
+  name: string,
+  fromWorkflow: boolean | undefined,
+  engine?: WorkflowEngineNotifier,
+): Promise<void> {
+  if (fromWorkflow) return
+
+  try {
+    const resolvedEngine = engine
+      ?? (require('../workflow/engine') as typeof import('../workflow/engine'))
+    const workflowId = resolvedEngine.getWorkflowForAgent(name)
+    if (workflowId) {
+      await resolvedEngine.handleStepFailure(workflowId)
+    }
+  } catch {}
+}
+
 export function killDirect(args: KillArgs): void {
   const { name } = args
   const agent = getAgent(name)
@@ -104,18 +126,9 @@ export function killDirect(args: KillArgs): void {
     // Best-effort
   }
 
-  // Cancel any workflow this agent belongs to — but only if this kill came
-  // from outside the engine. Engine-initiated kills set fromWorkflow so they
-  // don't cancel the run they're actively advancing.
-  if (!args.fromWorkflow) {
-    try {
-      const { getWorkflowForAgent, cancelWorkflow } = require('../workflow/engine') as typeof import('../workflow/engine')
-      const workflowId = getWorkflowForAgent(name)
-      if (workflowId) {
-        cancelWorkflow(workflowId).catch(() => {})
-      }
-    } catch {}
-  }
+  // Notify workflow engine for external kills so it can apply normal
+  // step-failure handling. Engine-initiated kills set fromWorkflow and skip.
+  notifyEngineOfKill(name, args.fromWorkflow).catch(() => {})
 
   // Remove from state + clean up poller tracking
   removeAgent(name)
