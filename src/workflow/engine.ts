@@ -1127,9 +1127,19 @@ async function fireNodeFailGate(run: WorkflowRun, step: DynamicDagStep, node: Da
 async function maybeRunFinalReconcile(def: WorkflowDef, run: WorkflowRun, step: DynamicDagStep): Promise<void> {
   void def
   const state = run.dynamicDagGroups?.[step.id]
-  if (!state) return
+  if (!state || !run.runDir) return
   if (state.pendingGateNode) return
   if (state.reconcilerAgent) return
+
+  // Already-passed guard: if the step result file exists with verdict=pass,
+  // reconcile is done — let advanceWorkflow transition to on_complete. Without
+  // this, advance-on-tick keeps re-spawning a fresh reconciler after each
+  // restart because state.reconcilerAgent gets cleared on agent kill.
+  const stepResultPath = join(run.runDir, 'results', `${step.id}-_.json`)
+  if (existsSync(stepResultPath)) {
+    const result = readJsonFile(stepResultPath) as { verdict?: string } | null
+    if (result?.verdict === 'pass') return
+  }
 
   const nodes = Object.values(state.nodes)
   if (nodes.some(n => ['pending', 'running', 'reviewing'].includes(n.status))) return
@@ -1276,6 +1286,18 @@ async function handleDagCandidateGate(def: WorkflowDef, run: WorkflowRun, step: 
 async function advanceDynamicDag(def: WorkflowDef, run: WorkflowRun, step: DynamicDagStep, idleAgentName?: string): Promise<void> {
   const state = run.dynamicDagGroups?.[step.id]
   if (!state || !run.runDir) return
+
+  // Self-heal stale node-fail gates: when an operator hand-resolves a node
+  // (edits run.json to passed/skipped + clears pendingGateNode), the
+  // .gate-pending entry for that node sticks around. hasPendingGates() then
+  // blocks advanceWorkflow from transitioning to on_complete. Sweep any
+  // node-fail gates whose target node is no longer in failed status.
+  removePendingGate(run.runDir, g => {
+    if (g.kind !== 'node-fail') return false
+    const nid = typeof g.nodeId === 'string' ? g.nodeId : ''
+    const node = state.nodes[nid]
+    return Boolean(node) && node.status !== 'failed'
+  })
 
   // On every advance, try to schedule ready nodes. Without this, manually
   // edited node state (e.g. operator marks a node passed after a hand-fix)
