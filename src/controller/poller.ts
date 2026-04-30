@@ -9,7 +9,8 @@ import { appendEvent } from '../activity'
 import { killDirect } from '../commands/kill'
 
 const CONTENT_STABLE_TIMEOUT_MS = 60_000
-const STUCK_THRESHOLD_MS = 30 * 60 * 1000  // 30 minutes
+const STUCK_THRESHOLD_MS = 30 * 60 * 1000      // 30 min: warn
+const STUCK_KILL_MS = 60 * 60 * 1000           // 60 min: force-kill (workflow agents only)
 const DEATH_GRACE_MS = 2000
 
 function getTypingAgent(): string | null {
@@ -210,7 +211,12 @@ export function pollOnce(): void {
 
     const prevStatus = agent.status
     const pane = capturePane(agent.tmuxSession, 50)
-    const paneHash = simpleHash(pane)
+    // Hash the stripped pane (no ANSI/cursor moves) so spinner-only changes
+    // don't keep paneHash churning. Without this, spinner-heavy CLIs (gemini,
+    // codex) never satisfy the content-idle grace and look "stuck running"
+    // indefinitely even when the underlying agent is genuinely idle.
+    const strippedForHash = pane.replace(/\x1b\[[0-9;?]*[A-Za-z]/g, '').replace(/\x1b\][^\x07]*\x07/g, '')
+    const paneHash = simpleHash(strippedForHash)
     let status = detectAgentStatusFromPane(name, agent, pane, paneHash)
 
     // Auto-approve dialogs
@@ -232,9 +238,20 @@ export function pollOnce(): void {
     // Stuck detector
     if (status === 'running') {
       if (!runningSince[name]) runningSince[name] = nowMs
-      if (!stuckWarned[name] && nowMs - runningSince[name] >= STUCK_THRESHOLD_MS) {
+      const runningFor = nowMs - runningSince[name]
+      if (!stuckWarned[name] && runningFor >= STUCK_THRESHOLD_MS) {
         appendInbox('WATCHDOG', `Agent ${name} has been running for 30+ minutes — may be stuck`)
         stuckWarned[name] = true
+      }
+      // Hard timeout: 60 min for workflow agents — force-kill so engine can
+      // fail the node and either retry or open a gate. Non-workflow agents
+      // get the warning but no auto-kill (user may have legit long tasks).
+      if (runningFor >= STUCK_KILL_MS && (agent.workflow || agent.workflowStep)) {
+        appendInbox('WATCHDOG', `Agent ${name} stuck running ${Math.round(runningFor / 60000)}m — force-killing for engine retry`)
+        toCleanup.push({ name, reason: 'stuck-timeout' })
+        delete runningSince[name]
+        delete stuckWarned[name]
+        continue
       }
     } else {
       delete runningSince[name]

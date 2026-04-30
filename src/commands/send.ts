@@ -43,12 +43,6 @@ export async function sendDirect(args: SendArgs): Promise<void> {
     process.stderr.write('[flt] warning: rerouted send target from "human" to "parent" for subagent\n')
   }
 
-  if (caller.agentName && effectiveTarget === 'parent') {
-    const sourceAgent = getAgent(caller.agentName)
-    if (sourceAgent?.workflowStep) {
-      process.stderr.write(`[flt send] warning: workflow agent ${caller.agentName} sent parent — engine tracks via results/, this message will be ignored by the engine\n`)
-    }
-  }
 
   if (effectiveTarget === 'parent') {
     if (caller.mode !== 'agent') {

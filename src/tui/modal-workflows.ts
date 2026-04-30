@@ -390,7 +390,10 @@ function renderDrilldownOverlay(state: WorkflowModalState, screen: Screen, cols:
 }
 
 export function openWorkflowDrilldown(state: WorkflowModalState): WorkflowModalState {
-  const row = state.rows[state.selectedIndex]
+  const running = state.rows.filter(r => r.status === 'running')
+  const past = state.rows.filter(r => r.status !== 'running')
+  const items = [...running, ...past]
+  const row = items[state.selectedIndex]
   if (!row) return state
   return {
     ...state,

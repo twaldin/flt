@@ -1056,8 +1056,10 @@ async function spawnDagNode(def: WorkflowDef, run: WorkflowRun, step: DynamicDag
             // can read full feedback rather than rely on the one-line failReason.
             // Empty string when the file isn't there yet (first attempt) so the
             // coder can `[ -s "$FLT_RETRY_REVIEW_PATH" ] && cat ...` cleanly.
-            ...(node.retries > 0 && run.runDir
-              ? { FLT_RETRY_REVIEW_PATH: reviewerHandoffPath(run, step, node, node.retries) }
+            // Set when EITHER retries>0 OR there's a non-empty stepFailReason
+            // (covers gate-retry which resets retries to 0 but preserves reason).
+            ...(((node.retries > 0) || (run.stepFailReason && run.stepFailReason.trim().length > 0)) && run.runDir
+              ? { FLT_RETRY_REVIEW_PATH: reviewerHandoffPath(run, step, node, Math.max(1, node.retries)) }
               : {}),
           }
         : undefined,
@@ -1961,12 +1963,26 @@ async function executeStep(def: WorkflowDef, run: WorkflowRun, step: WorkflowSte
 }
 
 function buildRetryPromptIfFixes(task: string, fixes: ReviewFix[] | undefined, run: WorkflowRun): string {
-  if (!fixes || fixes.length === 0) return resolveTemplate(task, run)
-  const items = fixes.map((fix, i) => {
-    const suggested = fix.suggested ? `\n   Suggested: ${fix.suggested}` : ''
-    return `${i + 1}. ${fix.file}: ${fix.what}${suggested}`
-  }).join('\n')
-  return `## Previous attempt failed. Fix exactly these items:\n\n${items}\n\n## Original task (context only — do NOT redo from scratch):\n\n${resolveTemplate(task, run)}`
+  const resolved = resolveTemplate(task, run)
+
+  // Structured fixes case: list them as primary, original task as context.
+  if (fixes && fixes.length > 0) {
+    const items = fixes.map((fix, i) => {
+      const suggested = fix.suggested ? `\n   Suggested: ${fix.suggested}` : ''
+      return `${i + 1}. ${fix.file}: ${fix.what}${suggested}`
+    }).join('\n')
+    return `## Previous attempt failed. Fix exactly these items:\n\n${items}\n\n## Original task (context only — do NOT redo from scratch):\n\n${resolved}`
+  }
+
+  // Unstructured fail-reason case: prepend it as primary so the retry coder's
+  // FIRST instruction is the reviewer's complaint, not the original task. This
+  // is the core retry contract — without it, retries silently re-attempt the
+  // original task with no awareness of what the reviewer flagged.
+  if (run.stepFailReason && run.stepFailReason.trim().length > 0) {
+    return `## Previous attempt FAILED. Reviewer's reason:\n\n${run.stepFailReason}\n\nIf $FLT_RETRY_REVIEW_PATH points at a file that exists, READ IT FIRST — that's the full reviewer handoff with detail, not just this one-liner.\n\n## Original task (context only — fix the failure above, do NOT redo the task from scratch):\n\n${resolved}`
+  }
+
+  return resolved
 }
 
 function resolveTemplate(template: string, run: WorkflowRun): string {
