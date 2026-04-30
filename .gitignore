@@ -24,3 +24,6 @@ demo/demo.cast
 # flt agent fleet artifacts (per-spawn scratch + handoff docs)
 handoffs/
 research/
+HANDOFF.md
+plan.json
+tree.md
