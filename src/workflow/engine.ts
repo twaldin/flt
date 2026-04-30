@@ -1057,7 +1057,7 @@ async function spawnDagNode(def: WorkflowDef, run: WorkflowRun, step: DynamicDag
             // Empty string when the file isn't there yet (first attempt) so the
             // coder can `[ -s "$FLT_RETRY_REVIEW_PATH" ] && cat ...` cleanly.
             ...(node.retries > 0 && run.runDir
-              ? { FLT_RETRY_REVIEW_PATH: join(run.runDir, 'handoffs', `${run.id}-${step.id}-${node.id}-reviewer.md`) }
+              ? { FLT_RETRY_REVIEW_PATH: reviewerHandoffPath(run, step, node, node.retries) }
               : {}),
           }
         : undefined,
@@ -1071,6 +1071,11 @@ async function spawnDagNode(def: WorkflowDef, run: WorkflowRun, step: DynamicDag
   }
 
   saveWorkflowRun(run)
+}
+
+function reviewerHandoffPath(run: WorkflowRun, step: DynamicDagStep, node: DagNodeState, attempt: number): string {
+  if (!run.runDir) throw new Error(`workflow run "${run.id}" is missing runDir`)
+  return join(run.runDir, 'handoffs', `${run.id}-${step.id}-${node.id}-reviewer.attempt-${attempt}.md`)
 }
 
 async function scheduleReadyNodes(def: WorkflowDef, run: WorkflowRun, step: DynamicDagStep): Promise<void> {
@@ -1387,6 +1392,7 @@ async function advanceDynamicDag(def: WorkflowDef, run: WorkflowRun, step: Dynam
           extraEnv: {
             FLT_RUN_DIR: run.runDir,
             FLT_RUN_LABEL: `${c.node.id}-reviewer`,
+            FLT_REVIEW_HANDOFF_PATH: reviewerHandoffPath(run, step, c.node, c.node.retries + 1),
           },
         })
       } else {
