@@ -90,7 +90,7 @@ steps:
 
         flt workflow pass when eval output is written.
         flt workflow fail "eval did not run" only if neither command can execute.
-    on_complete: gate
+    on_complete: open-gate
     on_fail: abort
 
   - id: gate
@@ -105,5 +105,17 @@ steps:
 
       Promotion is manual only:
       flt promote $FLT_RUN_DIR/artifacts/<artifact>.vNext.md --evidence <run-id-1>,<run-id-2>
+    on_complete: done
+    on_fail: abort
+
+  - id: open-gate
+    run: |
+      # Build options array from artifacts/*.vNext.md files
+      OPTIONS=$(ls "$FLT_RUN_DIR/artifacts/"*.vNext.md 2>/dev/null | xargs -I{} basename {} .vNext.md | jq -R . | jq -s .)
+      flt gate open \
+        --kind mutation-candidate \
+        --options "$OPTIONS" \
+        --reason "Daily mutator: review proposed role-prompt mutations" \
+        --run-dir "$FLT_RUN_DIR"
     on_complete: done
     on_fail: abort
