@@ -37,23 +37,17 @@ export async function sendDirect(args: SendArgs): Promise<void> {
 
   let effectiveTarget = target
 
-  // Block workflow agents from sending messages — they should use flt workflow pass/fail
-  if (caller.agentName) {
-    try {
-      const { getWorkflowForAgent } = await import('../workflow/engine')
-      const workflowId = getWorkflowForAgent(caller.agentName)
-      if (workflowId) {
-        throw new Error(`Blocked: you are in workflow "${workflowId}". Use "flt workflow pass" or "flt workflow fail <reason>" instead of flt send.`)
-      }
-    } catch (e) {
-      if (e instanceof Error && e.message.startsWith('Blocked:')) throw e
-    }
-  }
-
   // Subagents cannot message human directly; auto-reroute to parent.
   if (caller.mode === 'agent' && caller.parentName && caller.parentName !== 'human' && target === 'human') {
     effectiveTarget = 'parent'
     process.stderr.write('[flt] warning: rerouted send target from "human" to "parent" for subagent\n')
+  }
+
+  if (caller.agentName && effectiveTarget === 'parent') {
+    const sourceAgent = getAgent(caller.agentName)
+    if (sourceAgent?.workflowStep) {
+      process.stderr.write(`[flt send] warning: workflow agent ${caller.agentName} sent parent — engine tracks via results/, this message will be ignored by the engine\n`)
+    }
   }
 
   if (effectiveTarget === 'parent') {

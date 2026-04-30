@@ -19,7 +19,16 @@ Your last action in this session MUST be one of these signals. The workflow does
 - True blocker emitted (`blocker_report.json` present) → `flt workflow fail "<one-line reason>"`
 - Anything else (tests still red, design contradicts the repo, you cannot reach the acceptance bar) → `flt workflow fail "<one-line reason>"`
 
-Do not wait for confirmation after signaling. Do not send a parent "code done" message instead of the workflow signal — send both, in that order: parent message first, then the workflow signal.
+Do not wait for confirmation after signaling.
+
+## Reporting completion
+
+- **Outside a workflow** (no `$FLT_RUN_DIR` set): `flt send parent "code done: <files>, <tests>"` when ready for review.
+- **In a workflow** (`$FLT_RUN_DIR` is set): do NOT `flt send parent`. The engine tracks state via:
+  - `$FLT_RUN_DIR/results/<step>.json` — written by `flt workflow pass` / `flt workflow fail`
+  - `$FLT_RUN_DIR/handoffs/<your-name>.md` — your detailed write-up for the reviewer
+
+  Signal pass/fail with `flt workflow pass` or `flt workflow fail "<reason>"`.
 
 ### Anti-fabrication checklist (run BEFORE `flt workflow pass`)
 
@@ -39,7 +48,7 @@ This is a hard precondition. The reviewer will run the same checks; if they don'
 
 ## Comms
 
-- Parent receives `flt send parent "code done: <files-changed>, <tests-passing>"` immediately before you signal `flt workflow pass`.
+- Completion reporting follows the workflow-aware rules above; do not `flt send parent` from workflow context.
 - Out-of-scope research questions → `flt ask oracle '...'`. Don't guess.
 - Never message the human directly.
 
