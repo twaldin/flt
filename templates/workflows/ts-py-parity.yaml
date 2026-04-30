@@ -1,0 +1,138 @@
+name: ts-py-parity
+# Reconcile TS and Python halves of a dual-language library so both expose
+# the same features. Architect surveys both sides, identifies drift, plans
+# parallel per-module ports. Coders implement + test in parallel. Reconciler
+# merges + runs both test suites.
+#
+# Designed for harness (ts/src/adapters/*.ts ↔ src/harness/adapters/*.py),
+# but task body is generic — point at any TS-leading codebase with a Python
+# sibling.
+auto_pr: false  # caller decides PR shape after review; reconcile branch sits
+                # on local main until they say ship.
+
+steps:
+  - id: plan
+    preset: cc-architect
+    task: |
+      Original task: {task}
+
+      ## What you're doing
+      Inventory drift between the TypeScript and Python halves of this
+      repository. Produce a plan.json that splits the port work into
+      parallel nodes for downstream coders.
+
+      ## How to inventory
+      Look at every TS module that has a Python sibling. For each pair:
+      - List exported public surface (methods, fields, types).
+      - Mark each surface item as: ts-only, py-only, or both.
+      - For 'both' items, sanity-check signatures + return shapes match.
+
+      Write the inventory to $FLT_RUN_DIR/artifacts/parity-inventory.md
+      with sections per module pair. Be specific — list actual method names
+      and types, not "session-aware methods".
+
+      ## How to plan nodes
+      Output plan.json in your worktree's root with this shape:
+      {
+        "default_preset": "pi-coder",
+        "nodes": [
+          { "id": "<short-slug>", "preset": "<override?>", "task": "<self-contained instructions>", "depends_on": [] }
+        ]
+      }
+
+      Group by what minimizes coder context overhead and merge conflicts.
+      For most dual-language libraries that means ONE NODE PER MODULE PAIR
+      (e.g., one node = port adapter foo). Per-method nodes (one node = port
+      detectReady across all adapters) are also valid if the work is more
+      mechanical and per-method conflict-free.
+
+      Aim for 5-15 nodes total. Each node should be 50-300 LOC of work.
+
+      ## Per-node task body MUST include
+      Every per-node task body MUST contain these literal lines (paste
+      verbatim, do NOT replace the {{ }} braces — they're a runtime escape
+      so {fail_reason} stays a literal placeholder for the coder retry):
+
+        Previous-attempt feedback (only on retry): {{fail_reason}}
+
+        On retry, if $FLT_RETRY_REVIEW_PATH points at a file that exists,
+        READ THAT FILE FIRST.
+
+      ## Per-node implementation guidance
+      Each node task should specify:
+      - Exact source file (TS) to read and target file (Python) to write.
+      - Python conventions: snake_case method names (camelCase → snake_case),
+        type hints (PEP-484), Literal[...] for string union returns, dataclass
+        for record-shaped returns.
+      - Tests required: per-module unit tests that exercise the new Python
+        methods on the SAME pane fixtures the TS unit tests use (load via
+        tests/fixtures/... or inline in the test).
+      - Validation: bun test (TS untouched, no regressions) + uv run pytest
+        (or whatever Python test runner the repo uses — `pyproject.toml`
+        usually shows it).
+      - Import paths the new code adds (so the reconciler can grep + verify).
+
+      ## Constraints
+      - Do NOT modify the TS side. This port is one-directional (TS → Py).
+        If you find a real bug in TS during inventory, file it as a note
+        in parity-inventory.md and continue — out of scope for this run.
+      - Per-module-pair ports must be independent. depends_on stays empty
+        unless one module legit imports another's port.
+
+      flt workflow pass when plan.json is written and parity-inventory.md
+      is at $FLT_RUN_DIR/artifacts/.
+    on_complete: execute
+    on_fail: abort
+
+  - id: execute
+    type: dynamic_dag
+    plan_from: '{steps.plan.worktree}/plan.json'
+    node_max_retries: 2
+    max_nodes: 16
+    max_depth: 3
+    node_reviewer_preset: cc-evaluator   # reviewer uses opus[1m] for cross-language port review — judgment matters more than speed here
+    reconciler:
+      preset: cc-evaluator
+      task: |
+        Merge each node's branch into the integration branch in topo order
+        (deps before dependents). Resolve any conflicts by preferring the
+        version that keeps both test suites green.
+
+        After all merges land, run BOTH test suites on the integration branch:
+          bun test            # in ts/ subdirectory if applicable, else repo root
+          uv run pytest -q    # or whatever Python test runner the repo uses
+
+        ## CRITICAL: pre-existing vs new failures
+        If any test fails:
+        1. Re-run the same suite on main (git stash; git checkout main; run
+           tests; git checkout -; git stash pop).
+        2. Diff main's failures vs integration's. Pre-existing failures
+           (fail on main too) are NOT regressions — note them but don't block.
+        3. NEW failures (passed on main, fail on integration) ARE blocking.
+
+        flt workflow pass when no NEW failures in EITHER test suite.
+        flt workflow fail "<short reason naming any new failures>" otherwise.
+    on_complete: report
+    on_fail: abort
+
+  - id: report
+    preset: cc-sonnet
+    dir: '{steps.execute.worktree}'
+    worktree: false
+    task: |
+      You're in the integration worktree with all per-node ports merged.
+
+      Write $FLT_RUN_DIR/artifacts/parity-report.md summarizing:
+      - Modules ported (one bullet per module).
+      - New Python public surface (one section per module: methods + signatures).
+      - Tests added (file paths + test count).
+      - Anything skipped or noted as out-of-scope (link back to inventory).
+      - bun test + pytest final counts (pulled from reconciler logs).
+
+      Do NOT push the branch and do NOT open a PR — auto_pr is false on
+      this workflow by design. The branch is ready for the human to review
+      and decide ship/iterate.
+
+      flt workflow pass when parity-report.md is written.
+    on_complete: done
+    on_fail: abort
