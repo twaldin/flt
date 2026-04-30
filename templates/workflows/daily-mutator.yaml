@@ -44,6 +44,7 @@ steps:
     step:
       id: mutate-child
       preset: cc-mutator
+      dir: /Users/twaldin/flt
       worktree: true
       task: |
         You are a per-domain GEPA mutator. Map your $FLT_RUN_LABEL to one role file:
@@ -75,6 +76,7 @@ steps:
     step:
       id: eval-child
       preset: pi-coder
+      dir: /Users/twaldin/flt
       worktree: true
       task: |
         Evaluate treatment $FLT_RUN_LABEL of the candidate.
