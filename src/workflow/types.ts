@@ -81,6 +81,7 @@ export interface WorkflowRun {
   parentName: string
   stepResult?: 'pass' | 'fail'
   stepFailReason?: string
+  stepFixesFromReview?: ReviewFix[]
   stepProdCount?: number
   dagProdCounts?: Record<string, number>
   history: WorkflowStepResult[]
@@ -150,6 +151,7 @@ export interface DagNodeState {
   retries: number
   status: 'pending' | 'running' | 'reviewing' | 'passed' | 'failed' | 'skipped'
   failReason?: string
+  fixesFromReview?: ReviewFix[]
   reviewerAgent?: string
   reviewerWorktree?: string
   coderAgent?: string

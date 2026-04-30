@@ -27,7 +27,6 @@ function gateId(payload: PendingGate): string {
     String(payload.kind ?? ''),
     String(payload.step ?? ''),
     String(payload.nodeId ?? ''),
-    String(payload.at ?? Date.now()),
   ]
   return parts.join(':')
 }
