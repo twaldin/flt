@@ -1510,6 +1510,13 @@ async function advanceDynamicDag(def: WorkflowDef, run: WorkflowRun, step: Dynam
     saveWorkflowRun(run)
   }
 
+  // Idempotent reconcile probe: if all nodes are terminal (passed/skipped/
+  // failed) and no gate is open, fire the reconciler. Without this the only
+  // path that reaches reconcile is a reviewer's pass result handler — manual
+  // edits (operator marks a node passed via run.json + advance) never trigger
+  // it. maybeRunFinalReconcile guards on its own preconditions; safe to call.
+  await maybeRunFinalReconcile(def, run, step)
+
   if (idleAgentName && state.reconcilerAgent === idleAgentName) {
     const resultPath = join(run.runDir, 'results', `${step.id}-_.json`)
     if (!existsSync(resultPath)) return
