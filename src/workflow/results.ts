@@ -1,5 +1,6 @@
 import { existsSync, mkdirSync, readFileSync, readdirSync, renameSync, writeFileSync } from 'fs'
 import { join } from 'path'
+import type { ReviewFix } from './types'
 
 const SAFE_ID = /^[a-zA-Z0-9_-]+$/
 
@@ -17,6 +18,7 @@ export function writeResult(
   label: string,
   verdict: Verdict,
   failReason?: string,
+  fixes?: ReviewFix[],
 ): void {
   assertSafeId(step, 'step')
   assertSafeId(label, 'label')
@@ -31,6 +33,7 @@ export function writeResult(
     label,
     verdict,
     ...(failReason === undefined ? {} : { failReason }),
+    ...(fixes === undefined ? {} : { fixes }),
     at: new Date().toISOString(),
   }
 

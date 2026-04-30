@@ -549,10 +549,11 @@ workflowCmd
 workflowCmd
   .command('fail [reason]')
   .description('Signal FAIL from inside a workflow step agent')
-  .action((reason) => {
+  .option('--fixes <json-array>', 'Structured reviewer fixes: [{ file, kind?, what, suggested? }]')
+  .action((reason, opts) => {
     try {
       const { workflowFail } = require('./commands/workflow')
-      workflowFail(reason)
+      workflowFail(reason, { fixes: opts.fixes })
     } catch (e) {
       console.error(`Error: ${(e as Error).message}`)
       process.exit(1)

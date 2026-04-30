@@ -113,6 +113,19 @@ export interface ParallelGroupState {
   allDone: boolean
 }
 
+export interface ReviewFix {
+  file: string
+  kind?: 'missing' | 'wrong' | 'test-gap' | 'regression' | 'style' | string
+  what: string
+  suggested?: string
+}
+
+export interface WorkflowResultPayload {
+  verdict: 'pass' | 'fail'
+  failReason?: string
+  fixes?: ReviewFix[]
+}
+
 export interface ParallelCandidate {
   label: string
   agentName: string

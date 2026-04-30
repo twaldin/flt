@@ -287,9 +287,15 @@ export function workflowPass(): void {
   console.log('Signaled PASS — workflow will advance to on_complete step.')
 }
 
-export function workflowFail(reason?: string): void {
+export function workflowFail(reason?: string, opts?: { fixes?: string }): void {
   const { signalWorkflowResult } = require('../workflow/engine') as typeof import('../workflow/engine')
-  signalWorkflowResult('fail', reason)
+  let fixes: import('../workflow/types').ReviewFix[] | undefined
+  if (opts?.fixes) {
+    const parsed = JSON.parse(opts.fixes) as import('../workflow/types').ReviewFix[]
+    if (!Array.isArray(parsed)) throw new Error('--fixes must be a JSON array')
+    fixes = parsed
+  }
+  signalWorkflowResult('fail', reason, fixes)
   console.log(`Signaled FAIL${reason ? ': ' + reason : ''} — workflow will follow on_fail path.`)
 }
 

@@ -16,7 +16,7 @@ Flag:
 Write findings to `$FLT_RUN_DIR/artifacts/review.md` as a list with `path:line` references. Be specific, not nitpicky.
 
 If the diff is merge-ready: `flt workflow pass`.
-If issues: `flt workflow fail "<short reason>"` plus the full review.md as evidence.
+If issues: prefer `flt workflow fail '<short reason>' --fixes '<json-array>'` plus the full review.md as evidence. Each fix is `{ file, kind?, what, suggested? }`. `kind` is one of: `missing` | `wrong` | `test-gap` | `regression` | `style`.
 
 ## Comms
 

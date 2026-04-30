@@ -21,6 +21,7 @@ import type {
   MergeBestStep,
   ParallelCandidate,
   ParallelStep,
+  ReviewFix,
   SpawnStep,
   WorkflowDef,
   WorkflowRun,
@@ -2052,7 +2053,7 @@ async function notifyWorkflowParent(run: WorkflowRun, message: string): Promise<
 }
 
 /** Signal pass/fail from inside a workflow agent */
-export function signalWorkflowResult(result: 'pass' | 'fail', reason?: string): void {
+export function signalWorkflowResult(result: 'pass' | 'fail', reason?: string, fixes?: ReviewFix[]): void {
   const runs = listWorkflowRuns().filter(r => r.status === 'running')
   const caller = process.env.FLT_AGENT_NAME ?? resolveAgentNameFromTmux()
   if (!caller) {
@@ -2086,7 +2087,7 @@ export function signalWorkflowResult(result: 'pass' | 'fail', reason?: string): 
       throw new Error(`workflow run "${run.id}" is missing runDir`)
     }
     const label = dagLabel ?? candidate?.label ?? '_'
-    writeResult(run.runDir, run.currentStep, label, result, reason)
+    writeResult(run.runDir, run.currentStep, label, result, reason, fixes)
     return
   }
 
