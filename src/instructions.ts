@@ -51,7 +51,7 @@ export function buildSystemBlock(opts: InstructionOpts): string {
   template = template.replace(/\{\{model\}\}/g, opts.model || 'default')
   template = template.replace(/\{\{workflow\}\}/g, opts.workflow || '')
   template = template.replace(/\{\{step\}\}/g, opts.step || '')
-  template = template.replace(/\{\{comms\}\}/g, buildCommsBlock(opts.parentName))
+  template = template.replace(/\{\{comms\}\}/g, buildCommsBlock(opts.parentName, opts.workflow))
   template = template.replace(/\{\{skills\}\}/g, buildSkillsBlock(opts.skillNames ?? [], opts.cli))
   return template
 }
@@ -70,7 +70,20 @@ export function loadSoulMd(agentName: string, presetSoul?: string): string | nul
   return null
 }
 
-function buildCommsBlock(parentName: string): string {
+function buildCommsBlock(parentName: string, workflow?: string): string {
+  // In a workflow context, completion goes through the engine via
+  // `flt workflow pass`/`flt workflow fail`. Telling the agent to also send
+  // parent creates competing channels and the engine ignores parent messages
+  // anyway — leads to noisy "code done" pings the human/orchestrator filters.
+  if (workflow) {
+    return [
+      '- You are in a workflow run. Engine is your only consumer.',
+      '- Signal completion: `flt workflow pass` (success) or `flt workflow fail "<one-line reason>"` (failure).',
+      '- Do NOT `flt send parent` — engine reads $FLT_RUN_DIR/results/<step>.json, not chat.',
+      '- Out-of-scope research: `flt ask oracle "..."` (reply lands in your inbox).',
+      '- Detailed handoff: write `$FLT_RUN_DIR/handoffs/<your-name>.md` for the reviewer.',
+    ].join('\n')
+  }
   if (parentName === 'human' || parentName === 'cron') {
     return '- Parent is human. Use `flt send parent "..."` for important updates/blockers.\n- Terminal output can be useful and may be visible in logs.'
   }
