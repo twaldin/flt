@@ -139,9 +139,16 @@ function extractClaudeCode(workdir: string, spawnedAt: string): HarnessExtractRe
       1_000_000
   }
 
+  // Display tokens_in as TOTAL billable input (raw + cache_creation + cache_read).
+  // Without this, the column shows ~10-100 "new input" tokens per turn while cost
+  // reflects millions of cache-read tokens at smaller rates — math looks wildly
+  // off ($4k cost on "10M tokens" = $400/M effective, way over Opus list price).
+  // Real billed totals make the cost-per-token math add up to the actual blended
+  // Opus rate. cacheCreate + cacheRead are already factored into `cost` correctly
+  // (line above) — this just exposes them in the token display.
   return {
     cost_usd: cost,
-    tokens_in: tokensIn,
+    tokens_in: tokensIn + cacheCreate + cacheRead,
     tokens_out: tokensOut,
     model,
   }
