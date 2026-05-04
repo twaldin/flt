@@ -3,6 +3,18 @@ import { mkdtempSync, rmSync, mkdirSync, writeFileSync } from 'fs'
 import { join } from 'path'
 import { tmpdir } from 'os'
 
+mock.module('@twaldin/harness-ts', () => ({
+  projectInstructions: mock(() => ({})),
+  restoreProjectedInstructions: mock(() => {}),
+  getAdapter: mock((_name: string) => ({
+    instructionsFilename: 'AGENTS.md',
+    submitKeys: ['Enter'],
+    detectReady: (_pane: string) => 'ready',
+    handleDialog: (_pane: string) => null,
+    detectStatus: (_pane: string) => 'idle',
+  })),
+}))
+
 // These mocks are hoisted by bun:test before static imports resolve.
 const mockSetAgent = mock((_name: string, _state: unknown) => {})
 const mockHasAgent = mock((_name: string) => false)
@@ -16,6 +28,7 @@ mock.module('../../src/state', () => ({
   loadState: mockLoadState,
   setAgent: mockSetAgent,
   hasAgent: mockHasAgent,
+  getLocation: mock((_agent: { location?: { type: 'local' } }) => _agent.location ?? { type: 'local' as const }),
 }))
 
 mock.module('../../src/worktree', () => ({
@@ -34,6 +47,7 @@ mock.module('../../src/tmux', () => ({
   sendKeys: mock(() => {}),
   pasteBuffer: mock(() => {}),
   sendLiteral: mock(() => {}),
+  resizeWindow: mock(() => {}),
 }))
 
 mock.module('../../src/instructions', () => ({
@@ -48,8 +62,6 @@ mock.module('../../src/activity', () => ({
   appendEvent: mock(() => {}),
 }))
 
-
-import { spawnDirect } from '../../src/commands/spawn'
 
 describe('spawnDirect — preset auto-resolution', () => {
   let tempDir: string
@@ -76,6 +88,7 @@ describe('spawnDirect — preset auto-resolution', () => {
       JSON.stringify({ cairn: { cli: 'claude-code', model: 'opus[1m]', persistent: true } }, null, 2) + '\n',
     )
 
+    const { spawnDirect } = await import('../../src/commands/spawn')
     await spawnDirect({ name: 'cairn' })
 
     expect(mockSetAgent).toHaveBeenCalledTimes(1)
@@ -95,6 +108,7 @@ describe('spawnDirect — preset auto-resolution', () => {
       }, null, 2) + '\n',
     )
 
+    const { spawnDirect } = await import('../../src/commands/spawn')
     await spawnDirect({ name: 'cairn', preset: 'other' })
 
     const [, agentState] = mockSetAgent.mock.calls[0] as [string, Record<string, unknown>]
@@ -107,6 +121,7 @@ describe('spawnDirect — preset auto-resolution', () => {
       JSON.stringify({ default: { cli: 'claude-code', model: 'sonnet' } }, null, 2) + '\n',
     )
 
+    const { spawnDirect } = await import('../../src/commands/spawn')
     await spawnDirect({ name: 'worker', cli: 'claude-code', model: 'haiku' })
 
     const [, agentState] = mockSetAgent.mock.calls[0] as [string, Record<string, unknown>]
