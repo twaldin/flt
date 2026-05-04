@@ -247,6 +247,26 @@ export async function advanceWorkflow(runId: string, idleAgentName?: string): Pr
     return
   }
 
+  // Timeout check for parallel steps
+  if (currentStepDef.type === 'parallel' && currentStepDef.timeout_seconds) {
+    const group = run.parallelGroups?.[run.currentStep]
+    if (group?.startedAt) {
+      const elapsed = Date.now() - new Date(group.startedAt).getTime()
+      if (elapsed > currentStepDef.timeout_seconds * 1000) {
+        if (!run.runDir) throw new Error(`workflow run "${run.id}" is missing runDir`)
+        const timeoutSecs = Math.round(elapsed / 1000)
+        const failReason = `step timeout after ${timeoutSecs}s`
+        writeResult(run.runDir, run.currentStep, '_', 'fail', failReason)
+        appendEvent({ type: 'workflow', detail: `timeout ${run.id}/${run.currentStep}: ${failReason}`, at: new Date().toISOString() })
+        const { killDirect } = await import('../commands/kill')
+        for (const c of group.candidates) {
+          try { killDirect({ name: c.agentName, fromWorkflow: true }) } catch {}
+        }
+        // Fall through to normal advance logic which will pick up the fail result
+      }
+    }
+  }
+
   if (currentStepDef.type === 'dynamic_dag') {
     await advanceDynamicDag(def, run, currentStepDef, idleAgentName)
     if (!run.runDir || !existsSync(join(run.runDir, 'results', `${currentStepDef.id}-_.json`))) {
@@ -1321,6 +1341,30 @@ async function handleDagCandidateGate(def: WorkflowDef, run: WorkflowRun, step: 
 async function advanceDynamicDag(def: WorkflowDef, run: WorkflowRun, step: DynamicDagStep, idleAgentName?: string): Promise<void> {
   const state = run.dynamicDagGroups?.[step.id]
   if (!state || !run.runDir) return
+
+  // Timeout check for dynamic_dag steps
+  if (step.timeout_seconds && state.startedAt) {
+    const elapsed = Date.now() - new Date(state.startedAt).getTime()
+    if (elapsed > step.timeout_seconds * 1000) {
+      const timeoutSecs = Math.round(elapsed / 1000)
+      const failReason = `step timeout after ${timeoutSecs}s`
+      writeResult(run.runDir, step.id, '_', 'fail', failReason)
+      appendEvent({ type: 'workflow', detail: `timeout ${run.id}/${step.id}: ${failReason}`, at: new Date().toISOString() })
+      const { killDirect } = await import('../commands/kill')
+      if (state.reconcilerAgent) {
+        try { killDirect({ name: state.reconcilerAgent, fromWorkflow: true }) } catch {}
+      }
+      for (const node of Object.values(state.nodes)) {
+        for (const agentName of [node.coderAgent, node.reviewerAgent, node.mergeAgent].filter(Boolean) as string[]) {
+          try { killDirect({ name: agentName, fromWorkflow: true }) } catch {}
+        }
+        for (const c of node.candidates ?? []) {
+          try { killDirect({ name: c.agentName, fromWorkflow: true }) } catch {}
+        }
+      }
+      return
+    }
+  }
 
   // Self-heal stale node-fail gates: when an operator hand-resolves a node
   // (edits run.json to passed/skipped + clears pendingGateNode), the
