@@ -1651,6 +1651,11 @@ async function executeDynamicDagStep(def: WorkflowDef, run: WorkflowRun, step: D
   }
   saveWorkflowRun(run)
 
+  // Capture baseline test/tsc output at step start (best-effort, non-blocking).
+  // Agents can call `flt workflow baseline-diff` to distinguish pre-existing
+  // failures from regressions they introduced.
+  captureBaseline(run.runDir, repoDir).catch(() => {})
+
   await scheduleReadyNodes(def, run, step)
 }
 
@@ -2283,4 +2288,84 @@ function resolveAgentNameFromTmux(): string | null {
     }
   } catch {}
   return null
+}
+
+function extractFailureLines(output: string): string[] {
+  return output
+    .split('\n')
+    .map(l => l.trimEnd())
+    .filter(l => /fail|error ts\d|✗/i.test(l))
+}
+
+/**
+ * Compare current test/tsc output against the baseline captured at step init.
+ * When `currentOutput` is omitted the live command is run.
+ * Exported for `flt workflow baseline-diff` and unit tests.
+ */
+export function compareToBaseline(
+  runDir: string,
+  kind: 'test' | 'tsc',
+  currentOutput?: string,
+): { newFailures: string[]; preExistingFailures: string[] } {
+  const baselineFile = join(runDir, kind === 'test' ? '.baseline-test.txt' : '.baseline-tsc.txt')
+
+  let baselineContent = ''
+  try {
+    baselineContent = existsSync(baselineFile) ? readFileSync(baselineFile, 'utf-8') : ''
+  } catch {}
+
+  // Treat the tsc-unavailable sentinel as no baseline — every current error is new.
+  const baselineIsSentinel = baselineContent.trim() === 'tsc-unavailable'
+  const baselineLines = baselineIsSentinel ? [] : extractFailureLines(baselineContent)
+  const baselineSet = new Set(baselineLines)
+
+  let current = currentOutput ?? ''
+  if (!currentOutput) {
+    try {
+      const cmd = kind === 'test'
+        ? 'bun test 2>&1 | tail -50'
+        : 'bunx tsc --noEmit 2>&1 | head -50'
+      const cwd = readFileSync(join(runDir, 'run.json'), 'utf-8')
+        .match(/"dir"\s*:\s*"([^"]+)"/)?.[1] ?? process.cwd()
+      current = execSync(cmd, { cwd, encoding: 'utf-8', timeout: 120_000, shell: true as unknown as string })
+    } catch (e) {
+      current = (e as Error & { stdout?: string }).stdout ?? ''
+    }
+  }
+
+  const currentLines = extractFailureLines(current)
+  const newFailures: string[] = []
+  const preExistingFailures: string[] = []
+
+  for (const line of currentLines) {
+    if (baselineSet.has(line)) {
+      preExistingFailures.push(line)
+    } else {
+      newFailures.push(line)
+    }
+  }
+
+  return { newFailures, preExistingFailures }
+}
+
+async function captureBaseline(runDir: string, repoDir: string): Promise<void> {
+  try {
+    const testOut = execSync('bun test 2>&1 | tail -50', {
+      cwd: repoDir, encoding: 'utf-8', timeout: 120_000, shell: true as unknown as string,
+    })
+    writeFileSync(join(runDir, '.baseline-test.txt'), testOut)
+  } catch (e) {
+    const out = (e as Error & { stdout?: string }).stdout ?? (e as Error).message
+    writeFileSync(join(runDir, '.baseline-test.txt'), out)
+  }
+
+  try {
+    const tscOut = execSync('bunx tsc --noEmit 2>&1 | head -50', {
+      cwd: repoDir, encoding: 'utf-8', timeout: 60_000, shell: true as unknown as string,
+    })
+    writeFileSync(join(runDir, '.baseline-tsc.txt'), tscOut)
+  } catch (e) {
+    const out = (e as Error & { stdout?: string }).stdout ?? ''
+    writeFileSync(join(runDir, '.baseline-tsc.txt'), out || 'tsc-unavailable')
+  }
 }

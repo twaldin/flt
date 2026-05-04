@@ -1,7 +1,7 @@
 import { existsSync, renameSync, writeFileSync } from 'fs'
 import { join } from 'path'
 import { homedir } from 'os'
-import { startWorkflow, loadWorkflowRun, listWorkflowRuns, cancelWorkflow, advanceWorkflow, saveWorkflowRun, slugFromTask } from '../workflow/engine'
+import { startWorkflow, loadWorkflowRun, listWorkflowRuns, cancelWorkflow, advanceWorkflow, saveWorkflowRun, slugFromTask, compareToBaseline } from '../workflow/engine'
 import { listWorkflowDefs, loadWorkflowDef } from '../workflow/parser'
 
 export async function workflowRun(name: string, opts?: { parent?: string; task?: string; dir?: string; n?: number; slug?: string }): Promise<void> {
@@ -279,6 +279,24 @@ export async function workflowReconcileDecision(action: 'retry-reconcile' | 'abo
 
   console.log(`Queued reconcile gate decision for ${runId}: ${action}`)
   await advanceWorkflow(runId)
+}
+
+export function workflowBaselineDiff(kind: 'test' | 'tsc'): void {
+  const runDir = process.env.FLT_RUN_DIR
+  if (!runDir) {
+    throw new Error('FLT_RUN_DIR is not set — must be called from within a workflow step')
+  }
+  const result = compareToBaseline(runDir, kind)
+  if (result.preExistingFailures.length > 0) {
+    console.log(`Pre-existing ${kind} failures (ignore — not caused by this change):`)
+    for (const f of result.preExistingFailures) console.log(`  ${f}`)
+  }
+  if (result.newFailures.length > 0) {
+    console.error(`New ${kind} failures introduced by this change:`)
+    for (const f of result.newFailures) console.error(`  ${f}`)
+    process.exit(1)
+  }
+  console.log(`No new ${kind} failures.`)
 }
 
 export function workflowPass(): void {
