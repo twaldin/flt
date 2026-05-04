@@ -550,12 +550,29 @@ export async function cancelWorkflow(runId: string): Promise<void> {
   if (!run) throw new Error(`No workflow run found for "${runId}"`)
   if (run.status !== 'running') throw new Error(`Workflow "${runId}" is not running (status: ${run.status})`)
 
-  // Kill the current step's agent
-  const agentName = workflowAgentName(run.id, run.currentStep)
-  try {
-    const { killDirect } = await import('../commands/kill')
-    killDirect({ name: agentName, fromWorkflow: true })
-  } catch {}
+  // Build the full list of agents to kill: main step agent + all parallel/dag members
+  const agentsToKill = new Set<string>()
+  agentsToKill.add(workflowAgentName(run.id, run.currentStep))
+
+  const parallelGroup = run.parallelGroups?.[run.currentStep]
+  if (parallelGroup) {
+    for (const c of parallelGroup.candidates) agentsToKill.add(c.agentName)
+  }
+
+  for (const dagState of Object.values(run.dynamicDagGroups ?? {})) {
+    if (dagState.reconcilerAgent) agentsToKill.add(dagState.reconcilerAgent)
+    for (const node of Object.values(dagState.nodes)) {
+      if (node.coderAgent) agentsToKill.add(node.coderAgent)
+      if (node.reviewerAgent) agentsToKill.add(node.reviewerAgent)
+      if (node.mergeAgent) agentsToKill.add(node.mergeAgent)
+      for (const c of node.candidates ?? []) agentsToKill.add(c.agentName)
+    }
+  }
+
+  const { killDirect } = await import('../commands/kill')
+  for (const name of agentsToKill) {
+    try { killDirect({ name, fromWorkflow: true }) } catch {}
+  }
 
   run.status = 'cancelled'
   run.completedAt = new Date().toISOString()
