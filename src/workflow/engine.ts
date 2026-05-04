@@ -872,11 +872,22 @@ async function executeParallelStep(def: WorkflowDef, run: WorkflowRun, parallelS
     }
   })
 
+  let baseSha: string | undefined
+  try {
+    baseSha = execSync('git rev-parse HEAD', {
+      cwd: run.vars._input?.dir || process.cwd(),
+      encoding: 'utf-8',
+      timeout: 5_000,
+    }).trim() || undefined
+  } catch {}
+
   run.parallelGroups = run.parallelGroups ?? {}
   run.parallelGroups[parallelStep.id] = {
     candidates,
     treatmentMap,
     allDone: false,
+    baseSha,
+    startedAt: new Date().toISOString(),
   }
   saveWorkflowRun(run)
 
@@ -893,6 +904,7 @@ async function executeParallelStep(def: WorkflowDef, run: WorkflowRun, parallelS
         ? resolveTemplate(parallelStep.step.dir, run)
         : (run.vars._input?.dir || undefined),
       worktree: parallelStep.step.worktree !== false,
+      worktreeBase: baseSha,
       parent: run.parentName,
       bootstrap: resolveTemplate(parallelStep.step.task ?? '', run),
       workflow: run.workflow,
@@ -970,7 +982,11 @@ async function spawnDagNode(def: WorkflowDef, run: WorkflowRun, step: DynamicDag
   const node = state.nodes[nodeId]
   if (!node) return
 
-  let baseBranch = run.startBranch ?? ''
+  // For root nodes (no deps), use the pinned baseSha captured at step init
+  // so all nodes in this step start from the same commit, not whatever HEAD
+  // is at spawn time (which can drift when multiple nodes spawn in sequence).
+  // Existing in-flight runs without baseSha fall back to startBranch.
+  let baseBranch = state.baseSha ?? run.startBranch ?? ''
   if (node.dependsOn.length === 1) {
     baseBranch = state.nodes[node.dependsOn[0]]?.branch ?? baseBranch
   } else if (node.dependsOn.length > 1) {
@@ -1611,7 +1627,17 @@ async function executeDynamicDagStep(def: WorkflowDef, run: WorkflowRun, step: D
   }))
 
   const repoDir = resolveRepoDir(run)
-  const integration = createWorktree(repoDir, `${run.id}-${step.id}-integration`, run.startBranch || 'HEAD')
+
+  let baseSha: string | undefined
+  try {
+    baseSha = execSync('git rev-parse HEAD', {
+      cwd: repoDir,
+      encoding: 'utf-8',
+      timeout: 5_000,
+    }).trim() || undefined
+  } catch {}
+
+  const integration = createWorktree(repoDir, `${run.id}-${step.id}-integration`, baseSha ?? run.startBranch ?? 'HEAD')
 
   run.dynamicDagGroups = run.dynamicDagGroups ?? {}
   run.dynamicDagGroups[step.id] = {
@@ -1620,6 +1646,8 @@ async function executeDynamicDagStep(def: WorkflowDef, run: WorkflowRun, step: D
     integrationBranch: integration.branch,
     integrationWorktree: integration.path,
     skipped: [],
+    baseSha,
+    startedAt: new Date().toISOString(),
   }
   saveWorkflowRun(run)
 
