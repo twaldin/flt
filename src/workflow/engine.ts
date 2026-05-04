@@ -2211,12 +2211,42 @@ export function signalWorkflowResult(result: 'pass' | 'fail', reason?: string, f
     if (!run.runDir) {
       throw new Error(`workflow run "${run.id}" is missing runDir`)
     }
+
+    // Commit any uncommitted work in the caller's worktree BEFORE writing the
+    // result file. This ensures the engine sees a clean final state regardless
+    // of whether it processes the result immediately or after a delay.
+    const callerAgent = getAgent(caller)
+    if (callerAgent?.worktreePath) {
+      commitFinalState(caller, callerAgent.worktreePath, callerAgent.instructionProjection)
+    }
+
     const label = dagLabel ?? candidate?.label ?? '_'
     writeResult(run.runDir, run.currentStep, label, result, reason, fixes)
     return
   }
 
   throw new Error(`No running workflow found for agent "${caller}"`)
+}
+
+function commitFinalState(
+  agentName: string,
+  worktreePath: string,
+  instructionProjection?: import('../instructions').InstructionProjection,
+): void {
+  if (instructionProjection) {
+    try {
+      const { restoreInstructions } = require('../instructions') as typeof import('../instructions')
+      restoreInstructions(instructionProjection)
+    } catch {}
+  }
+  try {
+    execSync(
+      `git add -A && git diff --cached --quiet || git commit -m "node: ${agentName} final state"`,
+      { cwd: worktreePath, encoding: 'utf-8', timeout: 10_000 },
+    )
+  } catch (e) {
+    appendEvent({ type: 'workflow', detail: `final-state commit failed ${agentName}: ${(e as Error).message}`, at: new Date().toISOString() })
+  }
 }
 
 // Map agent names to workflow run IDs for the controller poller
