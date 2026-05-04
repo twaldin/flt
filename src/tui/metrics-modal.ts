@@ -161,6 +161,20 @@ function fmtTokens(value: number): string {
   return k < 10 ? `${k.toFixed(1)}k` : `${Math.round(k)}k`
 }
 
+// Per-row hue for cost bars. Palette is theme keys distinct from sidebarBorder
+// so the bar contrasts with the surrounding table chrome (the bug-6 issue —
+// bars were rendered in sidebarBorder and disappeared into the box edges).
+// djb2 hash of the row's label picks deterministically from the palette so a
+// given model/run always gets the same color.
+export function barColor(label: string, t: ReturnType<typeof getTheme>): string {
+  const palette = [t.statusRunning, t.commandPrefix, t.statusError, t.sidebarText]
+  let h = 5381
+  for (let i = 0; i < label.length; i += 1) {
+    h = ((h * 33) + label.charCodeAt(i)) | 0
+  }
+  return palette[Math.abs(h) % palette.length]
+}
+
 function bar(value: number, max: number, width: number): string {
   if (width <= 0 || max <= 0 || value <= 0) return ' '.repeat(Math.max(0, width))
   const ratio = Math.max(0, Math.min(1, value / max))
@@ -761,7 +775,7 @@ export function renderMetricsModal(screen: Screen, state: MetricsModalState, ter
     // right border — the bar uses `█` which fills its cell completely,
     // so without breathing room it visually fuses with the `│` border.
     const barRoom = Math.max(1, innerWidth - 4)
-    putLine(screen, row, innerLeft + 2, barRoom, bar(item.cost, maxCost, Math.min(barWidth, barRoom)), t.sidebarBorder)
+    putLine(screen, row, innerLeft + 2, barRoom, bar(item.cost, maxCost, Math.min(barWidth, barRoom)), barColor(item.label, t))
     row += 1
   }
   if (hidden > 0) {

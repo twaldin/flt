@@ -34,6 +34,23 @@ function bgRgb(r: number, g: number, b: number): string {
   return `48;2;${r};${g};${b}`
 }
 
+// Convert a fg SGR code into its bg equivalent. Used for selected-row
+// highlights where the row's status color should become the bg, not just
+// be inverted (ATTR_INVERSE renders inconsistently on truecolor terminals
+// when the cell's bg is empty — pink-on-pink unreadable rows on monokai).
+export function fgToBg(fg: string): string {
+  if (!fg) return ''
+  if (fg.startsWith('38;2;')) return '48' + fg.slice(2)
+  if (fg.startsWith('38;5;')) return '48' + fg.slice(2)
+  // Standard ANSI: 30-37 -> 40-47, 90-97 -> 100-107
+  const n = parseInt(fg, 10)
+  if (Number.isFinite(n)) {
+    if (n >= 30 && n <= 37) return String(n + 10)
+    if (n >= 90 && n <= 97) return String(n + 10)
+  }
+  return ''
+}
+
 export type ThemeBackground = 'transparent' | string
 
 export interface ThemeColors {

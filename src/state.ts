@@ -10,6 +10,12 @@ export interface OrchestratorState {
   initAt: string
 }
 
+export type Location =
+  | { type: 'local' }
+  | { type: 'ssh'; host: string }
+  | { type: 'sandbox'; runtime: 'docker' | 'apple' | 'podman'; container: string }
+  | { type: 'ssh+sandbox'; host: string; runtime: 'docker' | 'apple' | 'podman'; container: string }
+
 export interface AgentState {
   cli: string
   model: string
@@ -32,6 +38,7 @@ export interface AgentState {
   /** Auto-kill on first idle transition. Used by ask-oracle: oracle answers
    * once and then dies, so it can't accumulate as a zombie idle agent. */
   ephemeral?: boolean
+  location?: Location
 }
 
 export interface FleetState {
@@ -137,4 +144,8 @@ export function getOrchestrator(): OrchestratorState | undefined {
 
 export function allAgents(): Record<string, AgentState> {
   return loadState().agents
+}
+
+export function getLocation(agent: AgentState): Location {
+  return agent.location ?? { type: 'local' }
 }

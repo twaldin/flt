@@ -18,6 +18,20 @@ Write findings to `$FLT_RUN_DIR/artifacts/review.md` as a list with `path:line` 
 If the diff is merge-ready: `flt workflow pass`.
 If issues: prefer `flt workflow fail '<short reason>' --fixes '<json-array>'` plus the full review.md as evidence. Each fix is `{ file, kind?, what, suggested? }`. `kind` is one of: `missing` | `wrong` | `test-gap` | `regression` | `style`.
 
+### Authoring the retry brief (REQUIRED before `flt workflow fail`)
+
+When you fail a node, the engine respawns a fresh coder. By default that coder sees the original 4000-char task again — which is what they were just confused by. **You** are the only actor with full context (original task + actual diff + your reasoning), so you write their next prompt.
+
+Before running `flt workflow fail`, write a self-contained retry brief to `$FLT_RETRY_BRIEF_PATH` (env var set by engine). The engine uses this file as the **entire** bootstrap for the retry coder — they will NOT see the original task. Include in the brief:
+
+1. **What's already correct** — files/changes the coder should keep as-is (so they don't redo work).
+2. **What specifically must change** — the focused fix, with file paths and line numbers.
+3. **What NOT to touch** — explicit out-of-scope guardrails (e.g. "do NOT modify AGENTS.md, do NOT touch src/components/SiteNav.tsx").
+4. **How to verify** — the exact test/build command the retry coder must run before `flt workflow pass`.
+5. **Completion signal** — restate that they end with `flt workflow pass` or `flt workflow fail "<reason>"`.
+
+Keep it scoped. Do NOT cite regressions in unrelated files as fail reasons; if you spot one, note it in your `review.md` for the human to triage but don't block the gate on it. Two-pass max — if the brief itself isn't unsticking the loop, the human gate is the right escape.
+
 ## Comms
 
 - Parent receives `flt send parent "review pass"` or `"review fail: <count> blockers"`.

@@ -4,6 +4,7 @@ import type { InstructionProjection } from '../instructions'
 import { projectSkills } from '../skills'
 import { createWorktree, isGitRepo } from '../worktree'
 import { loadState, setAgent, hasAgent } from '../state'
+import type { AgentState } from '../state'
 import { getPreset, resolvePresetEnv } from '../presets'
 import * as tmux from '../tmux'
 import { join, resolve } from 'path'
@@ -11,6 +12,7 @@ import { homedir } from 'os'
 import { createInterface } from 'node:readline'
 import { appendEvent } from '../activity'
 import { resolveModelForCli } from '../model-resolution'
+import { deliver, deliverKeys } from '../delivery'
 
 interface SpawnArgs {
   name: string
@@ -374,7 +376,7 @@ export async function spawnDirect(args: SpawnArgs): Promise<void> {
 
   // Register in state before bootstrap — agent is live and discoverable immediately
   const displayedModel = resolveDisplayedModel(adapter.name, resolvedModel, presetModel, presetEnv)
-  setAgent(name, {
+  const agentState: AgentState = {
     cli: adapter.name,
     model: displayedModel,
     tmuxSession: sessionName,
@@ -388,7 +390,8 @@ export async function spawnDirect(args: SpawnArgs): Promise<void> {
     spawnedAt: new Date().toISOString(),
     persistent: args.persistent ?? presetPersistent,
     ephemeral: args.ephemeral,
-  })
+  }
+  setAgent(name, agentState)
 
   appendEvent({
     type: 'spawn',
@@ -399,7 +402,7 @@ export async function spawnDirect(args: SpawnArgs): Promise<void> {
 
   // Send bootstrap message if provided
   if (bootstrap) {
-    await sendBootstrap(sessionName, adapter, bootstrap, workDir)
+    await sendBootstrap(agentState, adapter, bootstrap, workDir)
   }
 
   if (!process.env.FLT_TUI_ACTIVE) {
@@ -480,7 +483,7 @@ async function waitForReady(
 }
 
 async function sendBootstrap(
-  session: string,
+  agent: AgentState,
   adapter: ReturnType<typeof resolveAdapter>,
   message: string,
   workDir: string,
@@ -505,13 +508,9 @@ async function sendBootstrap(
   } else {
     payload = message
   }
-  if (payload.length > 200) {
-    tmux.pasteBuffer(session, payload)
-  } else {
-    tmux.sendLiteral(session, payload)
-  }
+  deliver(agent, payload)
   await sleep(300) // Let tmux process the paste
-  tmux.sendKeys(session, adapter.submitKeys)
+  deliverKeys(agent, adapter.submitKeys)
 }
 
 function sleep(ms: number): Promise<void> {

@@ -36,6 +36,8 @@ import { evaluateCondition } from './condition'
 import { computeTreatment, permuteTreatmentMap } from './treatment'
 import { writeMetricsForRun } from './metrics'
 import { pendingQna } from '../qna'
+import { deliver, deliverKeys } from '../delivery'
+import { resolveAdapter } from '../adapters/registry'
 
 function hasPendingQnaFromAgent(agentName: string | undefined, runId?: string): boolean {
   if (!agentName) return false
@@ -995,7 +997,7 @@ async function spawnDagNode(def: WorkflowDef, run: WorkflowRun, step: DynamicDag
 
   const repoDir = resolveRepoDir(run)
   const spawn = await getSpawnFn()
-  const bootstrap = buildRetryPromptIfFixes(node.task, node.fixesFromReview, run)
+  const bootstrap = buildRetryPromptIfFixes(node.task, node.fixesFromReview, run, step.id, node.id)
 
   if (node.parallel > 1) {
     const presets = Array(node.parallel).fill(node.preset)
@@ -1080,6 +1082,12 @@ function reviewerHandoffPath(run: WorkflowRun, step: DynamicDagStep, node: DagNo
   return join(run.runDir, 'handoffs', `${run.id}-${step.id}-${node.id}-reviewer.attempt-${attempt}.md`)
 }
 
+function reviewerRetryBriefPath(run: WorkflowRun, stepId: string, nodeId?: string): string {
+  if (!run.runDir) throw new Error(`workflow run "${run.id}" is missing runDir`)
+  const slug = nodeId ? `${stepId}-${nodeId}` : stepId
+  return join(run.runDir, 'handoffs', `${slug}-retry-brief.md`)
+}
+
 async function scheduleReadyNodes(def: WorkflowDef, run: WorkflowRun, step: DynamicDagStep): Promise<void> {
   const state = run.dynamicDagGroups?.[step.id]
   if (!state) return
@@ -1121,9 +1129,19 @@ async function fireNodeFailGate(run: WorkflowRun, step: DynamicDagStep, node: Da
 async function maybeRunFinalReconcile(def: WorkflowDef, run: WorkflowRun, step: DynamicDagStep): Promise<void> {
   void def
   const state = run.dynamicDagGroups?.[step.id]
-  if (!state) return
+  if (!state || !run.runDir) return
   if (state.pendingGateNode) return
   if (state.reconcilerAgent) return
+
+  // Already-passed guard: if the step result file exists with verdict=pass,
+  // reconcile is done — let advanceWorkflow transition to on_complete. Without
+  // this, advance-on-tick keeps re-spawning a fresh reconciler after each
+  // restart because state.reconcilerAgent gets cleared on agent kill.
+  const stepResultPath = join(run.runDir, 'results', `${step.id}-_.json`)
+  if (existsSync(stepResultPath)) {
+    const result = readJsonFile(stepResultPath) as { verdict?: string } | null
+    if (result?.verdict === 'pass') return
+  }
 
   const nodes = Object.values(state.nodes)
   if (nodes.some(n => ['pending', 'running', 'reviewing'].includes(n.status))) return
@@ -1271,6 +1289,18 @@ async function advanceDynamicDag(def: WorkflowDef, run: WorkflowRun, step: Dynam
   const state = run.dynamicDagGroups?.[step.id]
   if (!state || !run.runDir) return
 
+  // Self-heal stale node-fail gates: when an operator hand-resolves a node
+  // (edits run.json to passed/skipped + clears pendingGateNode), the
+  // .gate-pending entry for that node sticks around. hasPendingGates() then
+  // blocks advanceWorkflow from transitioning to on_complete. Sweep any
+  // node-fail gates whose target node is no longer in failed status.
+  removePendingGate(run.runDir, g => {
+    if (g.kind !== 'node-fail') return false
+    const nid = typeof g.nodeId === 'string' ? g.nodeId : ''
+    const node = state.nodes[nid]
+    return Boolean(node) && node.status !== 'failed'
+  })
+
   // On every advance, try to schedule ready nodes. Without this, manually
   // edited node state (e.g. operator marks a node passed after a hand-fix)
   // never triggers scheduling — the per-candidate loop only fires when an
@@ -1395,6 +1425,7 @@ async function advanceDynamicDag(def: WorkflowDef, run: WorkflowRun, step: Dynam
             FLT_RUN_DIR: run.runDir,
             FLT_RUN_LABEL: `${c.node.id}-reviewer`,
             FLT_REVIEW_HANDOFF_PATH: reviewerHandoffPath(run, step, c.node, c.node.retries + 1),
+            FLT_RETRY_BRIEF_PATH: reviewerRetryBriefPath(run, step.id, c.node.id),
           },
         })
       } else {
@@ -1502,6 +1533,13 @@ async function advanceDynamicDag(def: WorkflowDef, run: WorkflowRun, step: Dynam
 
     saveWorkflowRun(run)
   }
+
+  // Idempotent reconcile probe: if all nodes are terminal (passed/skipped/
+  // failed) and no gate is open, fire the reconciler. Without this the only
+  // path that reaches reconcile is a reviewer's pass result handler — manual
+  // edits (operator marks a node passed via run.json + advance) never trigger
+  // it. maybeRunFinalReconcile guards on its own preconditions; safe to call.
+  await maybeRunFinalReconcile(def, run, step)
 
   if (idleAgentName && state.reconcilerAgent === idleAgentName) {
     const resultPath = join(run.runDir, 'results', `${step.id}-_.json`)
@@ -1863,6 +1901,7 @@ async function executeStep(def: WorkflowDef, run: WorkflowRun, step: WorkflowSte
     if (!run.runDir) {
       throw new Error(`workflow run "${run.id}" is missing runDir`)
     }
+    // Phase 1: run the shell command. Failure here = THIS step failed.
     try {
       execSync(resolveTemplateShell(step.run, run), {
         stdio: 'inherit',
@@ -1873,27 +1912,31 @@ async function executeStep(def: WorkflowDef, run: WorkflowRun, step: WorkflowSte
           FLT_RUN_LABEL: '_',
         },
       })
-      run.history.push({ step: step.id, result: 'completed', at: new Date().toISOString() })
-
-      const nextId = step.on_complete
-      if (!nextId || nextId === 'done') {
-        run.status = 'completed'
-        run.completedAt = new Date().toISOString()
-        finalizeRun(run)
-        return
-      }
-
-      const nextStep = def.steps.find(s => s.id === nextId)
-      if (nextStep) {
-        run.currentStep = nextId
-        saveWorkflowRun(run)
-        await executeStep(def, run, nextStep)
-      }
     } catch {
       run.history.push({ step: step.id, result: 'failed', at: new Date().toISOString() })
       run.status = 'failed'
       run.completedAt = new Date().toISOString()
       finalizeRun(run)
+      return
+    }
+    run.history.push({ step: step.id, result: 'completed', at: new Date().toISOString() })
+
+    const nextId = step.on_complete
+    if (!nextId || nextId === 'done') {
+      run.status = 'completed'
+      run.completedAt = new Date().toISOString()
+      finalizeRun(run)
+      return
+    }
+
+    // Phase 2: hand off to the next step. Failures here belong to that step,
+    // not the run-step we just completed — let them propagate so the next
+    // step's own error handling records the right attribution.
+    const nextStep = def.steps.find(s => s.id === nextId)
+    if (nextStep) {
+      run.currentStep = nextId
+      saveWorkflowRun(run)
+      await executeStep(def, run, nextStep)
     }
     return
   }
@@ -1905,7 +1948,7 @@ async function executeStep(def: WorkflowDef, run: WorkflowRun, step: WorkflowSte
 
   const agentName = workflowAgentName(run.id, step.id)
   const isRetry = (run.retries[step.id] ?? 0) > 0
-  const task = buildRetryPromptIfFixes(step.task, isRetry ? run.stepFixesFromReview : undefined, run)
+  const task = buildRetryPromptIfFixes(step.task, isRetry ? run.stepFixesFromReview : undefined, run, step.id)
   const dir = step.dir
     ? resolveTemplate(step.dir, run)
     : (run.vars._input?.dir || undefined)
@@ -1962,7 +2005,26 @@ async function executeStep(def: WorkflowDef, run: WorkflowRun, step: WorkflowSte
   }
 }
 
-function buildRetryPromptIfFixes(task: string, fixes: ReviewFix[] | undefined, run: WorkflowRun): string {
+function buildRetryPromptIfFixes(
+  task: string,
+  fixes: ReviewFix[] | undefined,
+  run: WorkflowRun,
+  stepId?: string,
+  nodeId?: string,
+): string {
+  // Reviewer-authored retry brief takes priority — fully replaces the prompt.
+  // The reviewer is the only actor with full context (original task + diff +
+  // their own reasoning), so they're best positioned to write a scoped,
+  // self-contained retry instruction. Falls back to legacy prompts when the
+  // reviewer didn't write a brief.
+  if (stepId && run.runDir) {
+    const briefPath = reviewerRetryBriefPath(run, stepId, nodeId)
+    if (existsSync(briefPath)) {
+      const brief = readFileSync(briefPath, 'utf-8').trim()
+      if (brief.length > 0) return brief
+    }
+  }
+
   const resolved = resolveTemplate(task, run)
 
   // Structured fixes case: list them as primary, original task as context.
@@ -2073,13 +2135,12 @@ async function notifyWorkflowParent(run: WorkflowRun, message: string): Promise<
     } else {
       const parent = getAgent(run.parentName)
       if (parent) {
-        const { sendLiteral, sendKeys, hasSession } = await import('../tmux')
-        const { resolveAdapter } = await import('../adapters/registry')
+        const { hasSession } = await import('../tmux')
         if (hasSession(parent.tmuxSession)) {
           const tagged = `[WORKFLOW]: ${message}`
-          sendLiteral(parent.tmuxSession, tagged)
+          deliver(parent, tagged)
           const adapter = resolveAdapter(parent.cli)
-          sendKeys(parent.tmuxSession, adapter.submitKeys)
+          deliverKeys(parent, adapter.submitKeys)
         }
       } else {
         appendInbox('WORKFLOW', message)

@@ -63,6 +63,14 @@ export const droidAdapter: CliAdapter = {
   },
 
   detectStatus(pane: string): AgentStatus {
+    // Catch droid's streaming/thinking indicators that the base harness regex
+    // misses. Droid uses non-braille spinner glyphs (⁝ ⋮ ⋯ ⢀⢄⡠ ⣷⣟⡿) and a
+    // literal "Streaming..." status line that the harness's regex doesn't
+    // match — without this, an actively-streaming droid drops to 'unknown'
+    // and the 5s content-stable timeout flips it to 'idle' mid-response.
+    const tail = pane.split('\n').slice(-15).join('\n')
+    if (/Streaming|Thinking|Working|Plan\s*·/i.test(tail)) return 'running'
+    if (/[⁝⋮⋯⢀⢄⡠⡂⠅⠅⢁⣷⣯⣟⡿⢿⣻⣽⣾▰▱▮▯●○⛬]/.test(tail)) return 'running'
     return (harness.detectStatus?.(pane) ?? 'unknown') as AgentStatus
   },
 }
