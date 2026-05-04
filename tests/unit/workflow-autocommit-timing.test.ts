@@ -17,7 +17,8 @@ function makeGitRepo(dir: string): void {
   execSync('git config user.email "test@test.com"', { cwd: dir })
   execSync('git config user.name "Test"', { cwd: dir })
   writeFileSync(join(dir, 'initial.txt'), 'initial')
-  execSync('git add -A && git commit -m "init"', { cwd: dir, shell: true as unknown as string })
+  execSync('git add -A', { cwd: dir })
+  execSync('git commit -m "init"', { cwd: dir })
 }
 
 function countCommits(dir: string): number {

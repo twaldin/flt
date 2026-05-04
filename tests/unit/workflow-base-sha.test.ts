@@ -33,7 +33,8 @@ function makeGitRepo(dir: string): string {
   execSync('git config user.email "test@test.com"', { cwd: dir })
   execSync('git config user.name "Test"', { cwd: dir })
   writeFileSync(join(dir, 'README.md'), 'test')
-  execSync('git add -A && git commit -m "init"', { cwd: dir, shell: true as unknown as string })
+  execSync('git add -A', { cwd: dir })
+  execSync('git commit -m "init"', { cwd: dir })
   return execSync('git rev-parse HEAD', { cwd: dir, encoding: 'utf-8' }).trim()
 }
 
