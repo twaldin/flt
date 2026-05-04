@@ -15,8 +15,8 @@ describe('compareToBaseline', () => {
     rmSync(runDir, { recursive: true, force: true })
   })
 
-  it('returns empty arrays when baseline file is missing', () => {
-    const result = compareToBaseline(runDir, 'test')
+  it('returns empty arrays when baseline file is missing and output is clean', () => {
+    const result = compareToBaseline(runDir, 'test', '3 tests passed\nall green')
     expect(result.newFailures).toEqual([])
     expect(result.preExistingFailures).toEqual([])
   })

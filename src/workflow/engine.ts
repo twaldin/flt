@@ -2382,15 +2382,13 @@ export function compareToBaseline(
 
   let current = currentOutput ?? ''
   if (!currentOutput) {
-    try {
-      const cmd = kind === 'test'
-        ? 'bun test 2>&1 | tail -50'
-        : 'bunx tsc --noEmit 2>&1 | head -50'
-      const cwd = readFileSync(join(runDir, 'run.json'), 'utf-8')
-        .match(/"dir"\s*:\s*"([^"]+)"/)?.[1] ?? process.cwd()
-      current = execSync(cmd, { cwd, encoding: 'utf-8', timeout: 120_000, shell: true as unknown as string })
-    } catch (e) {
-      current = (e as Error & { stdout?: string }).stdout ?? ''
+    const cwd = (() => {
+      try { return readFileSync(join(runDir, 'run.json'), 'utf-8').match(/"dir"\s*:\s*"([^"]+)"/)?.[1] ?? process.cwd() } catch { return process.cwd() }
+    })()
+    if (kind === 'test') {
+      current = runAndCapture(['bun', 'test'], cwd, 120_000, 'tail', 50)
+    } else {
+      current = runAndCapture(['bunx', 'tsc', '--noEmit'], cwd, 60_000, 'head', 50)
     }
   }
 
@@ -2410,23 +2408,19 @@ export function compareToBaseline(
 }
 
 async function captureBaseline(runDir: string, repoDir: string): Promise<void> {
-  try {
-    const testOut = execSync('bun test 2>&1 | tail -50', {
-      cwd: repoDir, encoding: 'utf-8', timeout: 120_000, shell: true as unknown as string,
-    })
-    writeFileSync(join(runDir, '.baseline-test.txt'), testOut)
-  } catch (e) {
-    const out = (e as Error & { stdout?: string }).stdout ?? (e as Error).message
-    writeFileSync(join(runDir, '.baseline-test.txt'), out)
-  }
+  writeFileSync(join(runDir, '.baseline-test.txt'), runAndCapture(['bun', 'test'], repoDir, 120_000, 'tail', 50))
+  const tscOut = runAndCapture(['bunx', 'tsc', '--noEmit'], repoDir, 60_000, 'head', 50)
+  writeFileSync(join(runDir, '.baseline-tsc.txt'), tscOut || 'tsc-unavailable')
+}
 
-  try {
-    const tscOut = execSync('bunx tsc --noEmit 2>&1 | head -50', {
-      cwd: repoDir, encoding: 'utf-8', timeout: 60_000, shell: true as unknown as string,
-    })
-    writeFileSync(join(runDir, '.baseline-tsc.txt'), tscOut)
-  } catch (e) {
-    const out = (e as Error & { stdout?: string }).stdout ?? ''
-    writeFileSync(join(runDir, '.baseline-tsc.txt'), out || 'tsc-unavailable')
-  }
+function runAndCapture(cmd: string[], cwd: string, timeout: number, trim: 'head' | 'tail', lines: number): string {
+  const { spawnSync } = require('child_process') as typeof import('child_process')
+  const result = spawnSync(cmd[0], cmd.slice(1), {
+    cwd, encoding: 'utf-8', timeout,
+    stdio: ['ignore', 'pipe', 'pipe'],
+  })
+  const out = (result.stdout ?? '') + (result.stderr ?? '')
+  const allLines = out.split('\n')
+  const sliced = trim === 'head' ? allLines.slice(0, lines) : allLines.slice(-lines)
+  return sliced.join('\n')
 }
