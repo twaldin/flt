@@ -3,7 +3,8 @@ import { join } from 'path'
 import { resolveAdapter, getAdapter } from '../adapters/registry'
 import type { AgentStatus } from '../adapters/types'
 import { loadState, saveState, type AgentState } from '../state'
-import { capturePane, listSessions, sendKeys } from '../tmux'
+import { capturePane, listSessions } from '../tmux'
+import { deliverKeys } from '../delivery'
 import { appendInbox } from '../commands/init'
 import { appendEvent } from '../activity'
 import { killDirect } from '../commands/kill'
@@ -226,7 +227,7 @@ export function pollOnce(): void {
         const keys = adapter.handleDialog(pane)
         if (keys) {
           for (const key of keys) {
-            sendKeys(agent.tmuxSession, [key])
+            deliverKeys(agent, [key])
           }
         }
       } catch {}

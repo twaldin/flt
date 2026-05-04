@@ -36,6 +36,8 @@ import { evaluateCondition } from './condition'
 import { computeTreatment, permuteTreatmentMap } from './treatment'
 import { writeMetricsForRun } from './metrics'
 import { pendingQna } from '../qna'
+import { deliver, deliverKeys } from '../delivery'
+import { resolveAdapter } from '../adapters/registry'
 
 function hasPendingQnaFromAgent(agentName: string | undefined, runId?: string): boolean {
   if (!agentName) return false
@@ -2133,13 +2135,12 @@ async function notifyWorkflowParent(run: WorkflowRun, message: string): Promise<
     } else {
       const parent = getAgent(run.parentName)
       if (parent) {
-        const { sendLiteral, sendKeys, hasSession } = await import('../tmux')
-        const { resolveAdapter } = await import('../adapters/registry')
+        const { hasSession } = await import('../tmux')
         if (hasSession(parent.tmuxSession)) {
           const tagged = `[WORKFLOW]: ${message}`
-          sendLiteral(parent.tmuxSession, tagged)
+          deliver(parent, tagged)
           const adapter = resolveAdapter(parent.cli)
-          sendKeys(parent.tmuxSession, adapter.submitKeys)
+          deliverKeys(parent, adapter.submitKeys)
         }
       } else {
         appendInbox('WORKFLOW', message)

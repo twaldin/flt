@@ -6,6 +6,7 @@ import { createWorktree, isGitRepo } from '../worktree'
 import { loadState, setAgent, hasAgent } from '../state'
 import { getPreset, resolvePresetEnv } from '../presets'
 import * as tmux from '../tmux'
+import { pasteBuffer, sendLiteral, sendKeys as sendKeysDirect } from '../tmux'
 import { join, resolve } from 'path'
 import { homedir } from 'os'
 import { createInterface } from 'node:readline'
@@ -506,12 +507,12 @@ async function sendBootstrap(
     payload = message
   }
   if (payload.length > 200) {
-    tmux.pasteBuffer(session, payload)
+    pasteBuffer(session, payload)
   } else {
-    tmux.sendLiteral(session, payload)
+    sendLiteral(session, payload)
   }
   await sleep(300) // Let tmux process the paste
-  tmux.sendKeys(session, adapter.submitKeys)
+  sendKeysDirect(session, adapter.submitKeys)
 }
 
 function sleep(ms: number): Promise<void> {

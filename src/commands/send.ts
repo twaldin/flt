@@ -1,6 +1,7 @@
 import { getAgent, loadState } from '../state'
 import { resolveAdapter } from '../adapters/registry'
 import * as tmux from '../tmux'
+import { deliver, deliverKeys } from '../delivery'
 import { detectCaller } from '../detect'
 import { appendInbox } from './init'
 import { userInfo } from 'os'
@@ -67,13 +68,9 @@ export async function sendDirect(args: SendArgs): Promise<void> {
           submitKeys = adapter.submitKeys
         } catch {}
         const tagged = flattenNewlines(`[${senderName.toUpperCase()}]: ${message}`)
-        if (tagged.length > 200) {
-          tmux.pasteBuffer(parentAgent.tmuxSession, tagged)
-        } else {
-          tmux.sendLiteral(parentAgent.tmuxSession, tagged)
-        }
+        deliver(parentAgent, tagged)
         await sleep(300)
-        tmux.sendKeys(parentAgent.tmuxSession, submitKeys)
+        deliverKeys(parentAgent, submitKeys)
       } else {
         // Parent agent not alive — fallback to inbox
         appendInbox(senderName, message)
@@ -96,13 +93,9 @@ export async function sendDirect(args: SendArgs): Promise<void> {
     } catch {}
 
     const tagged = flattenNewlines(`[${senderName.toUpperCase()}]: ${message}`)
-    if (tagged.length > 200) {
-      tmux.pasteBuffer(agent.tmuxSession, tagged)
-    } else {
-      tmux.sendLiteral(agent.tmuxSession, tagged)
-    }
+    deliver(agent, tagged)
     await sleep(300)
-    tmux.sendKeys(agent.tmuxSession, submitKeys)
+    deliverKeys(agent, submitKeys)
   }
 
   if (caller.mode === 'human' && !process.env.FLT_TUI_ACTIVE) {
