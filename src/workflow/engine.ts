@@ -247,6 +247,26 @@ export async function advanceWorkflow(runId: string, idleAgentName?: string): Pr
     return
   }
 
+  // Timeout check for parallel steps
+  if (currentStepDef.type === 'parallel' && currentStepDef.timeout_seconds) {
+    const group = run.parallelGroups?.[run.currentStep]
+    if (group?.startedAt) {
+      const elapsed = Date.now() - new Date(group.startedAt).getTime()
+      if (elapsed > currentStepDef.timeout_seconds * 1000) {
+        if (!run.runDir) throw new Error(`workflow run "${run.id}" is missing runDir`)
+        const timeoutSecs = Math.round(elapsed / 1000)
+        const failReason = `step timeout after ${timeoutSecs}s`
+        writeResult(run.runDir, run.currentStep, '_', 'fail', failReason)
+        appendEvent({ type: 'workflow', detail: `timeout ${run.id}/${run.currentStep}: ${failReason}`, at: new Date().toISOString() })
+        const { killDirect } = await import('../commands/kill')
+        for (const c of group.candidates) {
+          try { killDirect({ name: c.agentName, fromWorkflow: true }) } catch {}
+        }
+        // Fall through to normal advance logic which will pick up the fail result
+      }
+    }
+  }
+
   if (currentStepDef.type === 'dynamic_dag') {
     await advanceDynamicDag(def, run, currentStepDef, idleAgentName)
     if (!run.runDir || !existsSync(join(run.runDir, 'results', `${currentStepDef.id}-_.json`))) {
@@ -550,12 +570,29 @@ export async function cancelWorkflow(runId: string): Promise<void> {
   if (!run) throw new Error(`No workflow run found for "${runId}"`)
   if (run.status !== 'running') throw new Error(`Workflow "${runId}" is not running (status: ${run.status})`)
 
-  // Kill the current step's agent
-  const agentName = workflowAgentName(run.id, run.currentStep)
-  try {
-    const { killDirect } = await import('../commands/kill')
-    killDirect({ name: agentName, fromWorkflow: true })
-  } catch {}
+  // Build the full list of agents to kill: main step agent + all parallel/dag members
+  const agentsToKill = new Set<string>()
+  agentsToKill.add(workflowAgentName(run.id, run.currentStep))
+
+  const parallelGroup = run.parallelGroups?.[run.currentStep]
+  if (parallelGroup) {
+    for (const c of parallelGroup.candidates) agentsToKill.add(c.agentName)
+  }
+
+  for (const dagState of Object.values(run.dynamicDagGroups ?? {})) {
+    if (dagState.reconcilerAgent) agentsToKill.add(dagState.reconcilerAgent)
+    for (const node of Object.values(dagState.nodes)) {
+      if (node.coderAgent) agentsToKill.add(node.coderAgent)
+      if (node.reviewerAgent) agentsToKill.add(node.reviewerAgent)
+      if (node.mergeAgent) agentsToKill.add(node.mergeAgent)
+      for (const c of node.candidates ?? []) agentsToKill.add(c.agentName)
+    }
+  }
+
+  const { killDirect } = await import('../commands/kill')
+  for (const name of agentsToKill) {
+    try { killDirect({ name, fromWorkflow: true }) } catch {}
+  }
 
   run.status = 'cancelled'
   run.completedAt = new Date().toISOString()
@@ -872,11 +909,22 @@ async function executeParallelStep(def: WorkflowDef, run: WorkflowRun, parallelS
     }
   })
 
+  let baseSha: string | undefined
+  try {
+    baseSha = execSync('git rev-parse HEAD', {
+      cwd: run.vars._input?.dir || process.cwd(),
+      encoding: 'utf-8',
+      timeout: 5_000,
+    }).trim() || undefined
+  } catch {}
+
   run.parallelGroups = run.parallelGroups ?? {}
   run.parallelGroups[parallelStep.id] = {
     candidates,
     treatmentMap,
     allDone: false,
+    baseSha,
+    startedAt: new Date().toISOString(),
   }
   saveWorkflowRun(run)
 
@@ -893,6 +941,7 @@ async function executeParallelStep(def: WorkflowDef, run: WorkflowRun, parallelS
         ? resolveTemplate(parallelStep.step.dir, run)
         : (run.vars._input?.dir || undefined),
       worktree: parallelStep.step.worktree !== false,
+      worktreeBase: baseSha,
       parent: run.parentName,
       bootstrap: resolveTemplate(parallelStep.step.task ?? '', run),
       workflow: run.workflow,
@@ -970,7 +1019,11 @@ async function spawnDagNode(def: WorkflowDef, run: WorkflowRun, step: DynamicDag
   const node = state.nodes[nodeId]
   if (!node) return
 
-  let baseBranch = run.startBranch ?? ''
+  // For root nodes (no deps), use the pinned baseSha captured at step init
+  // so all nodes in this step start from the same commit, not whatever HEAD
+  // is at spawn time (which can drift when multiple nodes spawn in sequence).
+  // Existing in-flight runs without baseSha fall back to startBranch.
+  let baseBranch = state.baseSha ?? run.startBranch ?? ''
   if (node.dependsOn.length === 1) {
     baseBranch = state.nodes[node.dependsOn[0]]?.branch ?? baseBranch
   } else if (node.dependsOn.length > 1) {
@@ -1288,6 +1341,30 @@ async function handleDagCandidateGate(def: WorkflowDef, run: WorkflowRun, step: 
 async function advanceDynamicDag(def: WorkflowDef, run: WorkflowRun, step: DynamicDagStep, idleAgentName?: string): Promise<void> {
   const state = run.dynamicDagGroups?.[step.id]
   if (!state || !run.runDir) return
+
+  // Timeout check for dynamic_dag steps
+  if (step.timeout_seconds && state.startedAt) {
+    const elapsed = Date.now() - new Date(state.startedAt).getTime()
+    if (elapsed > step.timeout_seconds * 1000) {
+      const timeoutSecs = Math.round(elapsed / 1000)
+      const failReason = `step timeout after ${timeoutSecs}s`
+      writeResult(run.runDir, step.id, '_', 'fail', failReason)
+      appendEvent({ type: 'workflow', detail: `timeout ${run.id}/${step.id}: ${failReason}`, at: new Date().toISOString() })
+      const { killDirect } = await import('../commands/kill')
+      if (state.reconcilerAgent) {
+        try { killDirect({ name: state.reconcilerAgent, fromWorkflow: true }) } catch {}
+      }
+      for (const node of Object.values(state.nodes)) {
+        for (const agentName of [node.coderAgent, node.reviewerAgent, node.mergeAgent].filter(Boolean) as string[]) {
+          try { killDirect({ name: agentName, fromWorkflow: true }) } catch {}
+        }
+        for (const c of node.candidates ?? []) {
+          try { killDirect({ name: c.agentName, fromWorkflow: true }) } catch {}
+        }
+      }
+      return
+    }
+  }
 
   // Self-heal stale node-fail gates: when an operator hand-resolves a node
   // (edits run.json to passed/skipped + clears pendingGateNode), the
@@ -1611,7 +1688,17 @@ async function executeDynamicDagStep(def: WorkflowDef, run: WorkflowRun, step: D
   }))
 
   const repoDir = resolveRepoDir(run)
-  const integration = createWorktree(repoDir, `${run.id}-${step.id}-integration`, run.startBranch || 'HEAD')
+
+  let baseSha: string | undefined
+  try {
+    baseSha = execSync('git rev-parse HEAD', {
+      cwd: repoDir,
+      encoding: 'utf-8',
+      timeout: 5_000,
+    }).trim() || undefined
+  } catch {}
+
+  const integration = createWorktree(repoDir, `${run.id}-${step.id}-integration`, baseSha ?? run.startBranch ?? 'HEAD')
 
   run.dynamicDagGroups = run.dynamicDagGroups ?? {}
   run.dynamicDagGroups[step.id] = {
@@ -1620,8 +1707,15 @@ async function executeDynamicDagStep(def: WorkflowDef, run: WorkflowRun, step: D
     integrationBranch: integration.branch,
     integrationWorktree: integration.path,
     skipped: [],
+    baseSha,
+    startedAt: new Date().toISOString(),
   }
   saveWorkflowRun(run)
+
+  // Capture baseline test/tsc output at step start (best-effort, non-blocking).
+  // Agents can call `flt workflow baseline-diff` to distinguish pre-existing
+  // failures from regressions they introduced.
+  captureBaseline(run.runDir, repoDir).catch(() => {})
 
   await scheduleReadyNodes(def, run, step)
 }
@@ -2183,12 +2277,42 @@ export function signalWorkflowResult(result: 'pass' | 'fail', reason?: string, f
     if (!run.runDir) {
       throw new Error(`workflow run "${run.id}" is missing runDir`)
     }
+
+    // Commit any uncommitted work in the caller's worktree BEFORE writing the
+    // result file. This ensures the engine sees a clean final state regardless
+    // of whether it processes the result immediately or after a delay.
+    const callerAgent = getAgent(caller)
+    if (callerAgent?.worktreePath) {
+      commitFinalState(caller, callerAgent.worktreePath, callerAgent.instructionProjection)
+    }
+
     const label = dagLabel ?? candidate?.label ?? '_'
     writeResult(run.runDir, run.currentStep, label, result, reason, fixes)
     return
   }
 
   throw new Error(`No running workflow found for agent "${caller}"`)
+}
+
+function commitFinalState(
+  agentName: string,
+  worktreePath: string,
+  instructionProjection?: import('../instructions').InstructionProjection,
+): void {
+  if (instructionProjection) {
+    try {
+      const { restoreInstructions } = require('../instructions') as typeof import('../instructions')
+      restoreInstructions(instructionProjection)
+    } catch {}
+  }
+  try {
+    execSync(
+      `git add -A && git diff --cached --quiet || git commit -m "node: ${agentName} final state"`,
+      { cwd: worktreePath, encoding: 'utf-8', timeout: 10_000 },
+    )
+  } catch (e) {
+    appendEvent({ type: 'workflow', detail: `final-state commit failed ${agentName}: ${(e as Error).message}`, at: new Date().toISOString() })
+  }
 }
 
 // Map agent names to workflow run IDs for the controller poller
@@ -2225,4 +2349,78 @@ function resolveAgentNameFromTmux(): string | null {
     }
   } catch {}
   return null
+}
+
+function extractFailureLines(output: string): string[] {
+  return output
+    .split('\n')
+    .map(l => l.trimEnd())
+    .filter(l => /fail|error ts\d|✗/i.test(l))
+}
+
+/**
+ * Compare current test/tsc output against the baseline captured at step init.
+ * When `currentOutput` is omitted the live command is run.
+ * Exported for `flt workflow baseline-diff` and unit tests.
+ */
+export function compareToBaseline(
+  runDir: string,
+  kind: 'test' | 'tsc',
+  currentOutput?: string,
+): { newFailures: string[]; preExistingFailures: string[] } {
+  const baselineFile = join(runDir, kind === 'test' ? '.baseline-test.txt' : '.baseline-tsc.txt')
+
+  let baselineContent = ''
+  try {
+    baselineContent = existsSync(baselineFile) ? readFileSync(baselineFile, 'utf-8') : ''
+  } catch {}
+
+  // Treat the tsc-unavailable sentinel as no baseline — every current error is new.
+  const baselineIsSentinel = baselineContent.trim() === 'tsc-unavailable'
+  const baselineLines = baselineIsSentinel ? [] : extractFailureLines(baselineContent)
+  const baselineSet = new Set(baselineLines)
+
+  let current = currentOutput ?? ''
+  if (!currentOutput) {
+    const cwd = (() => {
+      try { return readFileSync(join(runDir, 'run.json'), 'utf-8').match(/"dir"\s*:\s*"([^"]+)"/)?.[1] ?? process.cwd() } catch { return process.cwd() }
+    })()
+    if (kind === 'test') {
+      current = runAndCapture(['bun', 'test'], cwd, 120_000, 'tail', 50)
+    } else {
+      current = runAndCapture(['bunx', 'tsc', '--noEmit'], cwd, 60_000, 'head', 50)
+    }
+  }
+
+  const currentLines = extractFailureLines(current)
+  const newFailures: string[] = []
+  const preExistingFailures: string[] = []
+
+  for (const line of currentLines) {
+    if (baselineSet.has(line)) {
+      preExistingFailures.push(line)
+    } else {
+      newFailures.push(line)
+    }
+  }
+
+  return { newFailures, preExistingFailures }
+}
+
+async function captureBaseline(runDir: string, repoDir: string): Promise<void> {
+  writeFileSync(join(runDir, '.baseline-test.txt'), runAndCapture(['bun', 'test'], repoDir, 120_000, 'tail', 50))
+  const tscOut = runAndCapture(['bunx', 'tsc', '--noEmit'], repoDir, 60_000, 'head', 50)
+  writeFileSync(join(runDir, '.baseline-tsc.txt'), tscOut || 'tsc-unavailable')
+}
+
+function runAndCapture(cmd: string[], cwd: string, timeout: number, trim: 'head' | 'tail', lines: number): string {
+  const { spawnSync } = require('child_process') as typeof import('child_process')
+  const result = spawnSync(cmd[0], cmd.slice(1), {
+    cwd, encoding: 'utf-8', timeout,
+    stdio: ['ignore', 'pipe', 'pipe'],
+  })
+  const out = (result.stdout ?? '') + (result.stderr ?? '')
+  const allLines = out.split('\n')
+  const sliced = trim === 'head' ? allLines.slice(0, lines) : allLines.slice(-lines)
+  return sliced.join('\n')
 }

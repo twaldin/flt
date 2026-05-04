@@ -21,6 +21,8 @@ interface SpawnArgs {
   preset?: string
   dir?: string
   worktree?: boolean
+  /** Pin the new worktree to this exact git ref (branch name or SHA). */
+  worktreeBase?: string
   bootstrap?: string
   parent?: string
   persistent?: boolean
@@ -273,7 +275,7 @@ export async function spawnDirect(args: SpawnArgs): Promise<void> {
     if (!isGitRepo(baseDir)) {
       throw new Error(`Cannot create worktree: "${baseDir}" is not a git repository.`)
     }
-    const wt = createWorktree(baseDir, name)
+    const wt = createWorktree(baseDir, name, args.worktreeBase)
     workDir = wt.path
     worktreePath = wt.path
     worktreeBranch = wt.branch
@@ -416,6 +418,17 @@ function stripAnsiForCompare(s: string): string {
   return s.replace(ANSI_STRIP_RE, '')
 }
 
+/**
+ * Returns true when the bootstrap payload (or its first 40 chars) appears in
+ * the ANSI-stripped pane buffer.
+ * Exported for unit testing.
+ */
+export function verifyBootstrapDelivered(paneContent: string, payload: string): boolean {
+  const stripped = stripAnsiForCompare(paneContent)
+  const needle = payload.length > 40 ? payload.slice(0, 40) : payload
+  return stripped.includes(needle)
+}
+
 async function waitForReady(
   session: string,
   adapter: ReturnType<typeof resolveAdapter>,
@@ -509,8 +522,22 @@ async function sendBootstrap(
     payload = message
   }
   deliver(agent, payload)
-  await sleep(300) // Let tmux process the paste
+  await sleep(300)
   deliverKeys(agent, adapter.submitKeys)
+
+  await sleep(500)
+  const pane = tmux.capturePane(agent.tmuxSession)
+  if (!verifyBootstrapDelivered(pane, payload)) {
+    await sleep(2000)
+    deliver(agent, payload)
+    await sleep(300)
+    deliverKeys(agent, adapter.submitKeys)
+    await sleep(500)
+    const pane2 = tmux.capturePane(agent.tmuxSession)
+    if (!verifyBootstrapDelivered(pane2, payload)) {
+      console.warn(`flt: bootstrap delivery unconfirmed for ${agent.tmuxSession} — agent may not have received its task`)
+    }
+  }
 }
 
 function sleep(ms: number): Promise<void> {

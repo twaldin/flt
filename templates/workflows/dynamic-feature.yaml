@@ -140,25 +140,47 @@ steps:
     on_fail: abort
 
   - id: pr
-    # pi/gpt-5.3-codex — mechanical task (push + gh pr create), no judgment
-    # needed. Cheaper + faster than claude-code for this step.
-    preset: pi-coder
+    # Mechanical: push integration branch + open PR. No LLM needed.
+    # Removes one agent spawn (cost) and one possible failure mode per run.
     dir: '{steps.execute.worktree}'
     worktree: false
     auto_pr_step: true
-    task: |
-      You are in the integration worktree. The branch already has all the
-      feature work merged in.
+    run: |
+      set -e
+      cd "{steps.execute.worktree}"
 
-      1. Push the integration branch to origin: `git push -u origin HEAD`.
-      2. Open a PR with `gh pr create`. Title: short feature description
-         (under 70 chars). Body: a summary of what the architect planned and
-         what each node delivered, derived from the per-node coder handoffs
-         in $FLT_RUN_DIR/handoffs/.
-      3. Print the PR URL.
+      # Build PR title from the first non-empty line of the task, capped at 70 chars.
+      TITLE=$(printf '%s' "{task}" | awk 'NF{print; exit}' | cut -c1-70)
+      if [ -z "$TITLE" ]; then TITLE="Workflow PR (run $FLT_RUN_ID)"; fi
 
-      Original task (for the PR title/body): {task}
+      # Build PR body by concatenating per-node coder.md handoffs.
+      BODY_FILE="$FLT_RUN_DIR/artifacts/pr-body.md"
+      mkdir -p "$FLT_RUN_DIR/artifacts"
+      {
+        echo "## Summary"
+        echo
+        echo "Workflow run \`$FLT_RUN_ID\` — auto-opened PR for the integration branch."
+        echo
+        echo "## Original task"
+        echo
+        echo '```'
+        printf '%s' "{task}" | head -c 2000
+        echo
+        echo '```'
+        echo
+        echo "## Per-node handoffs"
+        echo
+        for f in "$FLT_RUN_DIR"/handoffs/*-coder.md; do
+          [ -f "$f" ] || continue
+          NODE=$(basename "$f" .md)
+          echo "### $NODE"
+          echo
+          cat "$f"
+          echo
+        done
+      } > "$BODY_FILE"
 
-      flt workflow pass when the PR is open and the URL is in your output.
+      git push -u origin HEAD
+      gh pr create --base main --title "$TITLE" --body-file "$BODY_FILE" | tee "$FLT_RUN_DIR/artifacts/pr-url.txt"
     on_complete: done
     on_fail: abort

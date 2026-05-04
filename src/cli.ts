@@ -560,6 +560,23 @@ workflowCmd
     }
   })
 
+workflowCmd
+  .command('baseline-diff <kind>')
+  .description('Compare current test/tsc output against baseline captured at step init. Exits 1 if new failures. kind: test|tsc')
+  .action((kind: string) => {
+    try {
+      if (kind !== 'test' && kind !== 'tsc') {
+        console.error('kind must be "test" or "tsc"')
+        process.exit(1)
+      }
+      const { workflowBaselineDiff } = require('./commands/workflow')
+      workflowBaselineDiff(kind)
+    } catch (e) {
+      console.error(`Error: ${(e as Error).message}`)
+      process.exit(1)
+    }
+  })
+
 const evalCmd = program
   .command('eval')
   .description('Manage held-out eval suites for workflow benchmarking')

@@ -10,6 +10,7 @@ export interface BaseStep {
   on_fail?: string
   max_retries?: number
   auto_pr_step?: boolean
+  timeout_seconds?: number
 }
 
 export interface SpawnStep extends BaseStep {
@@ -112,6 +113,8 @@ export interface ParallelGroupState {
   candidates: ParallelCandidate[]
   treatmentMap: Record<string, string>
   allDone: boolean
+  baseSha?: string
+  startedAt?: string
 }
 
 export interface ReviewFix {
@@ -171,4 +174,6 @@ export interface DynamicDagState {
   pendingGateNode?: string
   reconcilerAgent?: string
   reconcilerPending?: boolean
+  baseSha?: string
+  startedAt?: string
 }
