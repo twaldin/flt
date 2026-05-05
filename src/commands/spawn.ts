@@ -23,6 +23,8 @@ interface SpawnArgs {
   worktree?: boolean
   /** Pin the new worktree to this exact git ref (branch name or SHA). */
   worktreeBase?: string
+  /** Override the 'flt/' prefix used when naming the worktree branch. */
+  worktreeBranchPrefix?: string
   bootstrap?: string
   parent?: string
   persistent?: boolean
@@ -273,7 +275,7 @@ export async function spawnDirect(args: SpawnArgs): Promise<void> {
     if (!isGitRepo(baseDir)) {
       throw new Error(`Cannot create worktree: "${baseDir}" is not a git repository.`)
     }
-    const wt = createWorktree(baseDir, name, args.worktreeBase)
+    const wt = createWorktree(baseDir, name, args.worktreeBase, args.worktreeBranchPrefix)
     workDir = wt.path
     worktreePath = wt.path
     worktreeBranch = wt.branch

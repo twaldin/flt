@@ -14,6 +14,12 @@ export interface Preset {
   skills?: string[]   // opt-in skills enabled for this preset
   allSkills?: boolean // enable all discoverable skills
   env?: Record<string, string>  // extra env vars merged into the spawn; ${VAR} expands from process.env at resolve time
+  pr_title_template?: string    // template with {task}/{run_id}/{branch}/{step}; default: first 70 chars of task
+  pr_branch_prefix?: string     // prefix before agent name in branch (e.g. 'feature/'); default 'flt/'
+  pr_base_branch?: string       // base branch for gh pr create --base; default: repo default
+  pr_reviewers?: string[]       // gh handles passed to --reviewer
+  pr_labels?: string[]          // labels passed to --label
+  pr_body_template?: string     // inline template string or path to a template file
 }
 
 export interface NamedPreset extends Preset {
@@ -104,6 +110,36 @@ function validatePresetValue(name: string, value: unknown): Preset {
     envNormalized = Object.keys(entries).length > 0 ? entries : undefined
   }
 
+  if (preset.pr_title_template !== undefined && typeof preset.pr_title_template !== 'string') {
+    throw new Error(`Invalid preset "${name}": "pr_title_template" must be a string.`)
+  }
+  if (preset.pr_branch_prefix !== undefined && typeof preset.pr_branch_prefix !== 'string') {
+    throw new Error(`Invalid preset "${name}": "pr_branch_prefix" must be a string.`)
+  }
+  if (preset.pr_base_branch !== undefined && typeof preset.pr_base_branch !== 'string') {
+    throw new Error(`Invalid preset "${name}": "pr_base_branch" must be a string.`)
+  }
+  if (preset.pr_reviewers !== undefined) {
+    if (!Array.isArray(preset.pr_reviewers) || preset.pr_reviewers.some(v => typeof v !== 'string' || !String(v).trim())) {
+      throw new Error(`Invalid preset "${name}": "pr_reviewers" must be an array of non-empty strings.`)
+    }
+  }
+  if (preset.pr_labels !== undefined) {
+    if (!Array.isArray(preset.pr_labels) || preset.pr_labels.some(v => typeof v !== 'string' || !String(v).trim())) {
+      throw new Error(`Invalid preset "${name}": "pr_labels" must be an array of non-empty strings.`)
+    }
+  }
+  if (preset.pr_body_template !== undefined && typeof preset.pr_body_template !== 'string') {
+    throw new Error(`Invalid preset "${name}": "pr_body_template" must be a string.`)
+  }
+
+  const prReviewers = Array.isArray(preset.pr_reviewers)
+    ? preset.pr_reviewers.map(v => String(v).trim()).filter(Boolean)
+    : undefined
+  const prLabels = Array.isArray(preset.pr_labels)
+    ? preset.pr_labels.map(v => String(v).trim()).filter(Boolean)
+    : undefined
+
   return {
     cli: preset.cli,
     model: preset.model,
@@ -116,6 +152,12 @@ function validatePresetValue(name: string, value: unknown): Preset {
     skills: Array.isArray(preset.skills) ? preset.skills.map(v => String(v).trim()).filter(Boolean) : undefined,
     allSkills: typeof preset.allSkills === 'boolean' ? preset.allSkills : undefined,
     env: envNormalized,
+    pr_title_template: typeof preset.pr_title_template === 'string' ? preset.pr_title_template.trim() || undefined : undefined,
+    pr_branch_prefix: typeof preset.pr_branch_prefix === 'string' ? preset.pr_branch_prefix.trim() || undefined : undefined,
+    pr_base_branch: typeof preset.pr_base_branch === 'string' ? preset.pr_base_branch.trim() || undefined : undefined,
+    pr_reviewers: prReviewers && prReviewers.length > 0 ? prReviewers : undefined,
+    pr_labels: prLabels && prLabels.length > 0 ? prLabels : undefined,
+    pr_body_template: typeof preset.pr_body_template === 'string' ? preset.pr_body_template.trim() || undefined : undefined,
   }
 }
 

@@ -101,6 +101,58 @@ function getRunPath(runId: string): string {
   return join(getRunsDir(), runId, 'run.json')
 }
 
+export function renderPrTemplate(
+  template: string,
+  vars: { task: string; run_id: string; branch: string; step: string },
+): string {
+  return template
+    .replace(/\{task\}/g, vars.task)
+    .replace(/\{run_id\}/g, vars.run_id)
+    .replace(/\{branch\}/g, vars.branch)
+    .replace(/\{step\}/g, vars.step)
+}
+
+function resolvePrBodyTemplate(
+  template: string,
+  vars: { task: string; run_id: string; branch: string; step: string },
+): string {
+  let body = template
+  const filePath = template.startsWith('~/')
+    ? join(process.env.HOME ?? require('os').homedir(), template.slice(2))
+    : template
+  if (template.startsWith('/') || template.startsWith('~/') || template.startsWith('./') || existsSync(filePath)) {
+    try { body = readFileSync(filePath, 'utf-8') } catch { /* use as inline */ }
+  }
+  return renderPrTemplate(body, vars)
+}
+
+interface PrConfig {
+  titleTemplate?: string
+  branchPrefix?: string
+  baseBranch?: string
+  reviewers?: string[]
+  labels?: string[]
+  bodyTemplate?: string
+}
+
+function resolvePrConfig(step: WorkflowStepDef | undefined, presetName: string | undefined): PrConfig {
+  const preset = presetName ? (getPreset(presetName) ?? undefined) : undefined
+  return {
+    titleTemplate: step?.pr_title_template ?? preset?.pr_title_template,
+    branchPrefix: step?.pr_branch_prefix ?? preset?.pr_branch_prefix,
+    baseBranch: step?.pr_base_branch ?? preset?.pr_base_branch,
+    reviewers: step?.pr_reviewers ?? preset?.pr_reviewers,
+    labels: step?.pr_labels ?? preset?.pr_labels,
+    bodyTemplate: step?.pr_body_template ?? preset?.pr_body_template,
+  }
+}
+
+function getStepPresetName(step: WorkflowStepDef): string | undefined {
+  if (step.type === undefined || step.type === 'spawn') return (step as SpawnStep).preset
+  if (step.type === 'parallel') return (step as ParallelStep).step.preset
+  return undefined
+}
+
 /** Slug a free-form task string into a short, filesystem-safe identifier. */
 export function slugFromTask(task: string, maxWords = 4): string {
   const words = task
@@ -659,10 +711,20 @@ function applyAutoCommit(
         }
       } else {
         const taskDesc = run.vars._input?.task ?? run.workflow
-        const prUrl = execSync(
-          `gh pr create --title "${taskDesc.slice(0, 70).replace(/"/g, '\\"')}" --body "Automated PR from flt workflow ${run.id}" --head ${agent.worktreeBranch}`,
-          { cwd: agent.worktreePath, encoding: 'utf-8', timeout: 30_000 },
-        ).trim()
+        const step = def.steps.find(s => s.id === stepId)
+        const prConfig = resolvePrConfig(step, step ? getStepPresetName(step) : undefined)
+        const templateVars = { task: taskDesc, run_id: run.id, branch: agent.worktreeBranch, step: stepId }
+        const title = prConfig.titleTemplate
+          ? renderPrTemplate(prConfig.titleTemplate, templateVars)
+          : taskDesc.slice(0, 70)
+        const body = prConfig.bodyTemplate
+          ? resolvePrBodyTemplate(prConfig.bodyTemplate, templateVars)
+          : `Automated PR from flt workflow ${run.id}`
+        let ghCmd = `gh pr create --title ${shellEscapeArg(title)} --body ${shellEscapeArg(body)} --head ${agent.worktreeBranch}`
+        if (prConfig.baseBranch) ghCmd += ` --base ${shellEscapeArg(prConfig.baseBranch)}`
+        if (prConfig.reviewers?.length) ghCmd += ` --reviewer ${shellEscapeArg(prConfig.reviewers.join(','))}`
+        if (prConfig.labels?.length) ghCmd += prConfig.labels.map(l => ` --label ${shellEscapeArg(l)}`).join('')
+        const prUrl = execSync(ghCmd, { cwd: agent.worktreePath, encoding: 'utf-8', timeout: 30_000 }).trim()
         run.vars._pr = { url: prUrl, branch: agent.worktreeBranch }
       }
     } catch (e) {
@@ -934,7 +996,9 @@ async function executeParallelStep(def: WorkflowDef, run: WorkflowRun, parallelS
   }
 
   const spawn = await getSpawnFn()
+  const parallelPrConfig = resolvePrConfig(parallelStep, parallelStep.step.preset)
   for (const candidate of candidates) {
+    const candidatePrConfig = resolvePrConfig(parallelStep, candidate.preset)
     await spawn({
       name: candidate.agentName,
       preset: candidate.preset,
@@ -943,6 +1007,7 @@ async function executeParallelStep(def: WorkflowDef, run: WorkflowRun, parallelS
         : (run.vars._input?.dir || undefined),
       worktree: parallelStep.step.worktree !== false,
       worktreeBase: baseSha,
+      worktreeBranchPrefix: candidatePrConfig.branchPrefix ?? parallelPrConfig.branchPrefix,
       parent: run.parentName,
       bootstrap: resolveTemplate(parallelStep.step.task ?? '', run),
       workflow: run.workflow,
@@ -2068,11 +2133,13 @@ async function executeStep(def: WorkflowDef, run: WorkflowRun, step: WorkflowSte
   const retryReviewPath = isRetry && run.runDir
     ? join(run.runDir, 'handoffs', `${step.id}-feedback.md`)
     : undefined
+  const stepPrConfig = resolvePrConfig(step, step.preset)
   await spawn({
     name: agentName,
     preset: step.preset,
     dir,
     worktree: step.worktree !== false,
+    worktreeBranchPrefix: stepPrConfig.branchPrefix,
     parent: run.parentName,
     bootstrap: task,
     workflow: run.workflow,
