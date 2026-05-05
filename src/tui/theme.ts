@@ -78,7 +78,7 @@ export interface ThemeColors {
   statusMode: Record<Mode, string>
 }
 
-type ThemeOverride = Partial<Omit<ThemeColors, 'statusMode'>> & {
+interface ThemeOverride extends Partial<Omit<ThemeColors, 'statusMode'>> {
   extends?: string
   statusMode?: Partial<Record<Mode, string>>
 }
@@ -937,9 +937,11 @@ export function getThemeBackground(): string {
 
   // Legacy ~/.flt/theme.json compatibility:
   // if it specified `extends`, it controls the startup base theme.
-  const legacy = legacyThemeOverride
-  if (legacy && typeof legacy.extends === 'string' && themeCatalog[legacy.extends]) {
-    initialThemeName = legacy.extends
+  // Re-state the declared type: TypeScript doesn't widen module-level `let`
+  // variables after opaque function calls in module initialization blocks.
+  const legacyExtends = (legacyThemeOverride as ThemeOverride | null)?.extends
+  if (legacyExtends && themeCatalog[legacyExtends]) {
+    initialThemeName = legacyExtends
   }
 
   currentThemeName = initialThemeName

@@ -17,7 +17,7 @@ import { calculateLayout, renderLayout } from './panels'
 import { Screen } from './screen'
 import { getWorkflowHistory, type WorkflowFilter } from '../metrics-workflows'
 import { initialWorkflowModalState, loadWorkflowRows } from './modal-workflows'
-import { initialGatesModalState, openGatesWatcher, closeGatesWatcher, handleGatesKey, type GatesActions } from './modal-gates'
+import { initialGatesModalState, openGatesWatcher, closeGatesWatcher, handleGatesKey, loadAllRows, type GatesActions } from './modal-gates'
 import { workflowApprove, workflowReject, workflowNodeDecision, workflowReconcileDecision, workflowCancel } from '../commands/workflow'
 import { scanGates, cleanStaleGates } from '../gates'
 import { getCurrentThemeName, getThemeBackground, getThemeNames, setTheme } from './theme'
@@ -1507,7 +1507,7 @@ export class App {
     const modal = this.state.gatesModal
     if (!modal) return
     cleanStaleGates()
-    modal.rows = scanGates()
+    modal.rows = loadAllRows()
     this.requestRender()
   }
 
@@ -1719,10 +1719,10 @@ export class App {
       const preset = modal.listItems[modal.selectedIndex]
       if (!preset) return
       const name = preset.label
-      this.state.modal = null
       this.openSpawnModal()
-      if (this.state.modal) {
-        const presetField = this.state.modal.fields.find(f => f.label === 'Preset')
+      const spawnModal = this.state.modal
+      if (spawnModal) {
+        const presetField = spawnModal.fields.find(f => f.label === 'Preset')
         if (presetField) {
           presetField.value = name
           presetField.cursor = name.length

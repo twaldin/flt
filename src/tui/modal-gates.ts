@@ -68,7 +68,7 @@ function qnaRowToModal(row: QnaRow): ModalRow {
   }
 }
 
-function loadAllRows(): ModalRow[] {
+export function loadAllRows(): ModalRow[] {
   const gates = scanGates().map(gateRowToModal)
   const qnaRows = pendingQna()
 

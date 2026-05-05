@@ -593,7 +593,7 @@ function renderCommandBar(screen: Screen, state: AppState, row: number, col: num
 
   const t = getTheme()
   if (state.mode === 'kill-confirm') {
-    const prompt = getKillConfirmPrompt(state.killConfirmAgent)
+    const prompt = getKillConfirmPrompt(state.killConfirmAgent ?? '')
     screen.put(row, col, prompt, t.statusMode['kill-confirm'], '', ATTR_BOLD)
     return
   }

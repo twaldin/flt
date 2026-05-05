@@ -549,7 +549,7 @@ export function buildRunsTree(
     for (const run of runs.filter(r => r.parentName === orchestratorName)) {
       const historyAgents = Array.from(new Set((run.history ?? [])
         .map(h => h.agent)
-        .filter((name): name is string => typeof name === 'string' && name)))
+        .filter((name): name is string => typeof name === 'string' && name.length > 0)))
       // dynamic_dag-spawned agents live in dynamicDagGroups, not in
       // history. Pull them in too so the tree shows dag children.
       const dagAgents: string[] = []
