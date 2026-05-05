@@ -1,13 +1,10 @@
 import { getAgent, removeAgent, loadState } from '../state'
 import { removeWorktree } from '../worktree'
-import { restoreInstructions } from '../instructions'
-import { cleanupSkills } from '../skills'
-import { resolveAdapter } from '../adapters/registry'
 import * as tmux from '../tmux'
 import { execSync, execFileSync } from 'child_process'
 import { appendEvent } from '../activity'
-import { harnessExtract, archiveRun } from '../harness'
-import { appendInbox } from './init'
+import { resolveRemote } from '../remotes'
+import { shellEscapeSingle, sshExec } from '../ssh'
 
 interface KillArgs {
   name: string
@@ -62,68 +59,95 @@ export function killDirect(args: KillArgs): void {
     throw new Error(`Agent "${name}" not found.`)
   }
 
-  // Kill the process tree
-  const panePid = tmux.getPanePid(agent.tmuxSession)
-  if (panePid) {
-    killProcessTree(panePid)
-  }
+  const isSsh = agent.location?.type === 'ssh'
+  let extracted: { cost_usd: number | null, tokens_in: number | null, tokens_out: number | null, model: string | null } | null = null
 
-  // Kill tmux session
-  tmux.killSession(agent.tmuxSession)
-
-  // Give the agent's CLI a moment to flush its trailing session-log entry
-  // before we try to parse it. claude-code receives SIGHUP when tmux dies
-  // and may have a half-written final JSONL line otherwise.
-  Bun.sleepSync(300)
-
-  // Post-exit: best-effort cost/token extraction via harness parser.
-  // Never throws; failure just means no cost data is recorded.
-  let extracted: ReturnType<typeof harnessExtract> = null
-  try {
-    extracted = harnessExtract({
-      cli: agent.cli,
-      workdir: agent.dir,
-      spawnedAt: agent.spawnedAt,
-    })
-    if (extracted === null && agent.cli === 'claude-code') {
-      appendInbox('WATCHDOG', `no session log for ${name}`)
+  if (isSsh && agent.location?.type === 'ssh') {
+    const remote = resolveRemote(agent.location.host)
+    const killResult = sshExec(remote, `tmux kill-session -t ${agent.tmuxSession}`)
+    if (killResult.status !== 0) {
+      throw new Error(killResult.stderr.trim() || `Failed to kill SSH agent "${name}".`)
     }
-  } catch {
-    // Best-effort
-  }
 
-  // Archive the run (even if extraction returned null — we still want a record).
-  try {
-    archiveRun(
-      { name, cli: agent.cli, model: agent.model, dir: agent.dir, spawnedAt: agent.spawnedAt },
-      extracted,
-    )
-  } catch {}
+    if (agent.worktreePath && agent.worktreeBranch && !args.preserveWorktree) {
+      try {
+        sshExec(
+          remote,
+          `cd ${shellEscapeSingle(agent.dir)} && git worktree remove --force ${shellEscapeSingle(agent.worktreePath)} && git branch -D ${shellEscapeSingle(agent.worktreeBranch)}`,
+        )
+      } catch {
+        // Best-effort cleanup
+      }
+    }
+  } else {
+    // Kill the process tree
+    const panePid = tmux.getPanePid(agent.tmuxSession)
+    if (panePid) {
+      killProcessTree(panePid)
+    }
 
-  // Clean up worktree (skip if preserveWorktree — workflow steps need it for next agent)
-  if (agent.worktreePath && agent.worktreeBranch && !args.preserveWorktree) {
-    // Find the base repo dir — worktree parent
+    // Kill tmux session
+    tmux.killSession(agent.tmuxSession)
+
+    // Give the agent's CLI a moment to flush its trailing session-log entry
+    // before we try to parse it. claude-code receives SIGHUP when tmux dies
+    // and may have a half-written final JSONL line otherwise.
+    Bun.sleepSync(300)
+
+    // Post-exit: best-effort cost/token extraction via harness parser.
+    // Never throws; failure just means no cost data is recorded.
     try {
-      const repoDir = execSync('git rev-parse --show-toplevel', {
-        cwd: agent.dir,
-        encoding: 'utf-8',
-        timeout: 5000,
-      }).trim()
-      removeWorktree(repoDir, agent.worktreePath, agent.worktreeBranch)
+      const { harnessExtract } = require('../harness') as typeof import('../harness')
+      const { appendInbox } = require('./init') as typeof import('./init')
+      extracted = harnessExtract({
+        cli: agent.cli,
+        workdir: agent.dir,
+        spawnedAt: agent.spawnedAt,
+      })
+      if (extracted === null && agent.cli === 'claude-code') {
+        appendInbox('WATCHDOG', `no session log for ${name}`)
+      }
     } catch {
-      // Best-effort cleanup
+      // Best-effort
     }
-  }
 
-  // Restore instruction file backup
-  try {
-    const adapter = resolveAdapter(agent.cli)
-    if (agent.instructionProjection) {
-      restoreInstructions(agent.instructionProjection)
+    // Archive the run (even if extraction returned null — we still want a record).
+    try {
+      const { archiveRun } = require('../harness') as typeof import('../harness')
+      archiveRun(
+        { name, cli: agent.cli, model: agent.model, dir: agent.dir, spawnedAt: agent.spawnedAt },
+        extracted,
+      )
+    } catch {}
+
+    // Clean up worktree (skip if preserveWorktree — workflow steps need it for next agent)
+    if (agent.worktreePath && agent.worktreeBranch && !args.preserveWorktree) {
+      // Find the base repo dir — worktree parent
+      try {
+        const repoDir = execSync('git rev-parse --show-toplevel', {
+          cwd: agent.dir,
+          encoding: 'utf-8',
+          timeout: 5000,
+        }).trim()
+        removeWorktree(repoDir, agent.worktreePath, agent.worktreeBranch)
+      } catch {
+        // Best-effort cleanup
+      }
     }
-    cleanupSkills(agent.dir, adapter)
-  } catch {
-    // Best-effort
+
+    // Restore instruction file backup
+    try {
+      const { resolveAdapter } = require('../adapters/registry') as typeof import('../adapters/registry')
+      const { restoreInstructions } = require('../instructions') as typeof import('../instructions')
+      const { cleanupSkills } = require('../skills') as typeof import('../skills')
+      const adapter = resolveAdapter(agent.cli)
+      if (agent.instructionProjection) {
+        restoreInstructions(agent.instructionProjection)
+      }
+      cleanupSkills(agent.dir, adapter)
+    } catch {
+      // Best-effort
+    }
   }
 
   // Notify workflow engine for external kills so it can apply normal

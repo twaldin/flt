@@ -18,6 +18,7 @@ import { promote } from './commands/promote'
 import { traceRecent } from './commands/trace'
 import { gates, blockers } from './commands/gates'
 import { syncWorkflows, warnIfWorkflowsStale } from './commands/sync-workflows'
+import { addRemote, listRemotes, removeRemote } from './commands/remote'
 
 const program = new Command()
   .name('flt')
@@ -87,6 +88,7 @@ program
   .option('--all-skills', 'Enable all discoverable skills for this spawn')
   .option('--no-model-resolve', 'Disable CLI-specific model alias resolution (raw passthrough)')
   .option('--git-hooks', 'Install flt safety git hooks in the agent workdir (strips flt blocks on commit)')
+  .option('--ssh <alias>', 'Spawn on this registered SSH remote instead of locally')
   .argument('[bootstrap]', 'Initial message to send after agent is ready')
   .action(async (name, bootstrap, opts) => {
     try {
@@ -103,6 +105,7 @@ program
         allSkills: opts.allSkills,
         noModelResolve: opts.modelResolve === false,
         gitHooks: opts.gitHooks === true,
+        ssh: opts.ssh,
         bootstrap,
       })
     } catch (e) {
@@ -260,6 +263,80 @@ presetsCmd
     try {
       presetsRemove({ name })
       console.log(`Removed preset "${name}".`)
+    } catch (e) {
+      console.error(`Error: ${(e as Error).message}`)
+      process.exit(1)
+    }
+  })
+
+const remoteCmd = program
+  .command('remote')
+  .description('Manage SSH remotes')
+
+remoteCmd
+  .command('list')
+  .description('List configured remotes')
+  .action(() => {
+    try {
+      listRemotes()
+    } catch (e) {
+      console.error(`Error: ${(e as Error).message}`)
+      process.exit(1)
+    }
+  })
+
+remoteCmd
+  .command('remove <alias>')
+  .description('Remove a configured remote')
+  .action((alias) => {
+    try {
+      removeRemote(alias)
+    } catch (e) {
+      console.error(`Error: ${(e as Error).message}`)
+      process.exit(1)
+    }
+  })
+
+remoteCmd
+  .command('add <alias> <host>')
+  .description('Add a configured remote')
+  .option('--user <u>', 'SSH username')
+  .option('--port <p>', 'SSH port', (value) => parseInt(value, 10))
+  .option('--identity-file <p>', 'SSH identity file path')
+  .action(async (alias, host, opts) => {
+    try {
+      await addRemote({
+        alias,
+        host,
+        user: opts.user,
+        port: opts.port,
+        identityFile: opts.identityFile,
+      })
+    } catch (e) {
+      console.error(`Error: ${(e as Error).message}`)
+      process.exit(1)
+    }
+  })
+
+const addCmd = program
+  .command('add')
+  .description('Add resources')
+
+addCmd
+  .command('remote <alias> <host>')
+  .description('Add a configured remote')
+  .option('--user <u>', 'SSH username')
+  .option('--port <p>', 'SSH port', (value) => parseInt(value, 10))
+  .option('--identity-file <p>', 'SSH identity file path')
+  .action(async (alias, host, opts) => {
+    try {
+      await addRemote({
+        alias,
+        host,
+        user: opts.user,
+        port: opts.port,
+        identityFile: opts.identityFile,
+      })
     } catch (e) {
       console.error(`Error: ${(e as Error).message}`)
       process.exit(1)

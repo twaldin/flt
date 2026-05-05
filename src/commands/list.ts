@@ -24,13 +24,20 @@ export function list(): void {
   // Build agent info with live status
   const infos: Record<string, AgentInfo> = {}
   for (const [name, agent] of Object.entries(agents)) {
+    const isSsh = agent.location?.type === 'ssh'
     let status = 'dead'
-    if (tmux.hasSession(agent.tmuxSession)) {
+    if (isSsh) {
+      status = agent.status ?? 'unknown'
+    } else if (tmux.hasSession(agent.tmuxSession)) {
       status = agent.status ?? 'unknown'
     }
 
+    const displayName = (agent.location?.type === 'ssh' || agent.location?.type === 'ssh+sandbox')
+      ? `${name} (ssh: ${agent.location.host})`
+      : name
+
     infos[name] = {
-      name,
+      name: displayName,
       cli: agent.cli,
       model: agent.model,
       status,
