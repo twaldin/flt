@@ -1,6 +1,6 @@
 {
   "name": "@twaldin/flt-cli",
-  "version": "0.2.16",
+  "version": "0.3.0",
   "type": "module",
   "description": "Orchestrate AI coding agents across any CLI harness, in tmux",
   "license": "MIT",
