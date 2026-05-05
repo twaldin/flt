@@ -4,16 +4,16 @@ import { homedir } from 'os'
 import { startWorkflow, loadWorkflowRun, listWorkflowRuns, cancelWorkflow, advanceWorkflow, saveWorkflowRun, slugFromTask, compareToBaseline } from '../workflow/engine'
 import { listWorkflowDefs, loadWorkflowDef } from '../workflow/parser'
 
-export async function workflowRun(name: string, opts?: { parent?: string; task?: string; dir?: string; n?: number; slug?: string }): Promise<void> {
+export async function workflowRun(name: string, opts?: { parent?: string; task?: string; dir?: string; n?: number; slug?: string; prAdapter?: string }): Promise<void> {
   if (opts?.n !== undefined && opts.n > 1) {
     for (let i = 0; i < opts.n; i += 1) {
-      const run = await startWorkflow(name, { parent: opts.parent, task: opts.task, dir: opts.dir, slug: opts.slug })
+      const run = await startWorkflow(name, { parent: opts.parent, task: opts.task, dir: opts.dir, slug: opts.slug, prAdapter: opts.prAdapter })
       console.log(`Started workflow "${run.id}" (step: ${run.currentStep}, parent: ${run.parentName})`)
     }
     return
   }
 
-  const run = await startWorkflow(name, { parent: opts?.parent, task: opts?.task, dir: opts?.dir, slug: opts?.slug })
+  const run = await startWorkflow(name, { parent: opts?.parent, task: opts?.task, dir: opts?.dir, slug: opts?.slug, prAdapter: opts?.prAdapter })
   console.log(`Started workflow "${run.id}" (step: ${run.currentStep}, parent: ${run.parentName})`)
 }
 
