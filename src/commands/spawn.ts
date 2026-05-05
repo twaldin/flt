@@ -6,6 +6,8 @@ import { createWorktree, isGitRepo } from '../worktree'
 import { loadState, setAgent, hasAgent } from '../state'
 import type { AgentState } from '../state'
 import { getPreset, resolvePresetEnv } from '../presets'
+import { getRemote } from '../remotes'
+import { sshExec, shellEscapeSingle } from '../ssh'
 import * as tmux from '../tmux'
 import { join, resolve } from 'path'
 import { homedir } from 'os'
@@ -39,6 +41,8 @@ interface SpawnArgs {
   projectRoot?: string
   extraEnv?: Record<string, string>
   gitHooks?: boolean
+  /** Spawn on this registered SSH remote alias instead of locally. */
+  ssh?: string
   _callerName?: string
   _callerDepth?: number
   _termWidth?: number
@@ -172,7 +176,115 @@ export async function spawn(args: SpawnArgs): Promise<void> {
   return spawnDirect(args)
 }
 
+async function spawnRemoteDirect(args: SpawnArgs, remoteAlias: string): Promise<void> {
+  const { name, cli: explicitCli, model, preset, dir: rawDir, bootstrap } = args
+
+  const remote = getRemote(remoteAlias)
+  if (!remote) {
+    throw new Error(
+      `Unknown SSH remote "${remoteAlias}". Add it with "flt add remote ${remoteAlias} <host>".`,
+    )
+  }
+
+  const effectivePreset = preset ?? (getPreset(name) ? name : undefined)
+  let cli = explicitCli
+  let resolvedModel = model
+
+  if (effectivePreset) {
+    const presetConfig = getPreset(effectivePreset)
+    if (!presetConfig) {
+      throw new Error(`Preset "${effectivePreset}" does not exist. Use "flt presets list".`)
+    }
+    cli = cli ?? presetConfig.cli
+    resolvedModel = resolvedModel ?? presetConfig.model
+  }
+
+  if (!cli) {
+    throw new Error('Missing CLI adapter. Provide "--cli <cli>" or "--preset <name>".')
+  }
+
+  try {
+    resolvedModel = resolveModelForCli(cli, resolvedModel, args.noModelResolve)
+  } catch {}
+
+  if (hasAgent(name)) {
+    throw new Error(`Agent "${name}" already exists. Use "flt kill ${name}" first.`)
+  }
+  if (!/^[a-zA-Z0-9_-]+$/.test(name)) {
+    throw new Error('Agent name must be alphanumeric with dashes/underscores only.')
+  }
+  if (name.length < 3) {
+    throw new Error(`Agent name "${name}" is too short (min 3 chars).`)
+  }
+
+  const adapter = resolveAdapter(cli)
+
+  const callerDepth = args._callerDepth ?? parseInt(process.env.FLT_DEPTH ?? '0', 10)
+  const callerName = args._callerName ?? process.env.FLT_AGENT_NAME
+  let parentName: string
+  if (args.parent) {
+    parentName = args.parent
+  } else if (callerName && callerName !== 'cron') {
+    parentName = callerName
+  } else {
+    parentName = 'human'
+  }
+
+  const remoteWorkDir = rawDir ?? null
+  const remoteDirArg = remoteWorkDir ? shellEscapeSingle(remoteWorkDir) : '$HOME'
+
+  const cliArgs = adapter.spawnArgs({ model: resolvedModel, dir: remoteWorkDir ?? '~' })
+  const command = cliArgs.map(arg =>
+    /[[\]{}()*?!$&;|<>'"\\` ~#]/.test(arg) ? `'${arg.replace(/'/g, "'\\''")}'` : arg
+  ).join(' ')
+
+  const sessionName = `flt-${name}`
+  const envPrefix = `FLT_AGENT_NAME=${name} FLT_PARENT_NAME=${parentName} FLT_DEPTH=${callerDepth + 1}`
+  const tmuxCmd = `tmux new-session -d -s ${sessionName} -c ${remoteDirArg} ${shellEscapeSingle(`${envPrefix} ${command}`)}`
+
+  const result = sshExec(remote, tmuxCmd)
+  if (result.status !== 0) {
+    throw new Error(
+      `Failed to start remote agent "${name}": ${result.stderr.trim() || `exit ${result.status}`}`,
+    )
+  }
+
+  const agentState: AgentState = {
+    cli: adapter.name,
+    model: resolvedModel ?? 'default',
+    tmuxSession: sessionName,
+    parentName,
+    dir: remoteWorkDir ?? '~',
+    spawnedAt: new Date().toISOString(),
+    location: { type: 'ssh', host: remoteAlias },
+  }
+  setAgent(name, agentState)
+
+  appendEvent({
+    type: 'spawn',
+    agent: name,
+    detail: `cli=${adapter.name} model=${resolvedModel ?? 'default'} remote=${remoteAlias}`,
+    at: new Date().toISOString(),
+  })
+
+  if (bootstrap) {
+    deliver(agentState, bootstrap)
+    await sleep(300)
+    deliverKeys(agentState, adapter.submitKeys)
+  }
+
+  if (!process.env.FLT_TUI_ACTIVE) {
+    console.log(
+      `Spawned ${name} (${adapter.name}/${resolvedModel ?? 'default'}) on remote "${remoteAlias}" in ${sessionName}`,
+    )
+  }
+}
+
 export async function spawnDirect(args: SpawnArgs): Promise<void> {
+  if (args.ssh) {
+    return spawnRemoteDirect(args, args.ssh)
+  }
+
   const {
     name,
     cli: explicitCli,

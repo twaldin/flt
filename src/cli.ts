@@ -88,6 +88,7 @@ program
   .option('--all-skills', 'Enable all discoverable skills for this spawn')
   .option('--no-model-resolve', 'Disable CLI-specific model alias resolution (raw passthrough)')
   .option('--git-hooks', 'Install flt safety git hooks in the agent workdir (strips flt blocks on commit)')
+  .option('--ssh <alias>', 'Spawn on this registered SSH remote instead of locally')
   .argument('[bootstrap]', 'Initial message to send after agent is ready')
   .action(async (name, bootstrap, opts) => {
     try {
@@ -104,6 +105,7 @@ program
         allSkills: opts.allSkills,
         noModelResolve: opts.modelResolve === false,
         gitHooks: opts.gitHooks === true,
+        ssh: opts.ssh,
         bootstrap,
       })
     } catch (e) {

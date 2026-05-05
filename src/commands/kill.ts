@@ -60,9 +60,9 @@ export function killDirect(args: KillArgs): void {
   }
 
   const isSsh = agent.location?.type === 'ssh'
-  let extracted: { cost_usd: number | null, tokens_in: number | null, tokens_out: number | null } | null = null
+  let extracted: { cost_usd: number | null, tokens_in: number | null, tokens_out: number | null, model: string | null } | null = null
 
-  if (isSsh) {
+  if (isSsh && agent.location?.type === 'ssh') {
     const remote = resolveRemote(agent.location.host)
     const killResult = sshExec(remote, `tmux kill-session -t ${agent.tmuxSession}`)
     if (killResult.status !== 0) {

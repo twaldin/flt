@@ -88,6 +88,14 @@ export async function addRemote(args: AddRemoteArgs): Promise<void> {
     throw new Error(`Failed to finalize remote binary install: ${chmodResult.stderr || chmodResult.stdout}`)
   }
 
+  for (const rc of ['~/.bashrc', '~/.zshrc']) {
+    sshExec(
+      remote,
+      `grep -qF 'export PATH=$HOME/.flt/bin:$PATH' ${rc} 2>/dev/null || echo 'export PATH=$HOME/.flt/bin:$PATH' >> ${rc}`,
+    )
+  }
+  console.log('Added ~/.flt/bin to PATH on remote (.bashrc + .zshrc). New shell sessions will pick it up.')
+
   const skillsDir = join(process.env.HOME || '', '.flt', 'skills')
   if (skillsDir && existsSync(skillsDir)) {
     rsyncTo(remote, skillsDir, '~/.flt/skills/', { isDirectory: true })

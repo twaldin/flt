@@ -94,4 +94,14 @@ describe('remotes', () => {
     expect(() => addRemote('ok', { host: '   ' })).toThrow('"host" must be a non-empty string')
     expect(() => resolveRemote('   ')).toThrow('Remote alias/host must be non-empty')
   })
+
+  it('rejects host with shell metacharacters', () => {
+    expect(() => addRemote('bad', { host: 'host;rm -rf /' })).toThrow('"host" must be alphanumeric')
+    expect(() => addRemote('bad2', { host: 'host$(evil)' })).toThrow('"host" must be alphanumeric')
+  })
+
+  it('rejects user with shell metacharacters', () => {
+    expect(() => addRemote('ok', { host: 'safe.example.com', user: 'user;evil' })).toThrow('"user" must be alphanumeric')
+    expect(() => addRemote('ok2', { host: 'safe.example.com', user: 'user name' })).toThrow('"user" must be alphanumeric')
+  })
 })

@@ -32,7 +32,9 @@ export function list(): void {
       status = agent.status ?? 'unknown'
     }
 
-    const displayName = isSsh ? `${name} (ssh: ${agent.location.host})` : name
+    const displayName = (agent.location?.type === 'ssh' || agent.location?.type === 'ssh+sandbox')
+      ? `${name} (ssh: ${agent.location.host})`
+      : name
 
     infos[name] = {
       name: displayName,

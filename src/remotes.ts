@@ -50,6 +50,9 @@ function normalizeOptionalString(value: unknown): string | undefined {
   return trimmed || undefined
 }
 
+const SAFE_HOST_RE = /^[a-zA-Z0-9._-]+$/
+const SAFE_USER_RE = /^[a-zA-Z0-9._-]+$/
+
 function validateRemoteEntry(name: string, value: unknown): RemoteEntry {
   if (typeof value !== 'object' || value === null || Array.isArray(value)) {
     throw new Error(`Invalid remote "${name}": expected an object.`)
@@ -59,8 +62,16 @@ function validateRemoteEntry(name: string, value: unknown): RemoteEntry {
   if (typeof entry.host !== 'string' || !entry.host.trim()) {
     throw new Error(`Invalid remote "${name}": "host" must be a non-empty string.`)
   }
+  const host = entry.host.trim()
+  if (!SAFE_HOST_RE.test(host)) {
+    throw new Error(`Invalid remote "${name}": "host" must be alphanumeric+._- only (got ${JSON.stringify(host)}).`)
+  }
   if (entry.user !== undefined && typeof entry.user !== 'string') {
     throw new Error(`Invalid remote "${name}": "user" must be a string.`)
+  }
+  const user = normalizeOptionalString(entry.user)
+  if (user !== undefined && !SAFE_USER_RE.test(user)) {
+    throw new Error(`Invalid remote "${name}": "user" must be alphanumeric+._- only (got ${JSON.stringify(user)}).`)
   }
   if (entry.port !== undefined && (!Number.isInteger(entry.port) || (entry.port as number) <= 0)) {
     throw new Error(`Invalid remote "${name}": "port" must be a positive integer.`)
@@ -70,8 +81,8 @@ function validateRemoteEntry(name: string, value: unknown): RemoteEntry {
   }
 
   return {
-    host: entry.host.trim(),
-    user: normalizeOptionalString(entry.user),
+    host,
+    user,
     port: typeof entry.port === 'number' ? entry.port : undefined,
     identityFile: normalizeOptionalString(entry.identityFile),
   }
