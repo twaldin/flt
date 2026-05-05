@@ -8,10 +8,7 @@
     "skipLibCheck": true,
     "outDir": "dist",
     "rootDir": "src",
-    "types": ["bun"],
-    "paths": {
-      "@twaldin/harness-ts": ["./node_modules/@twaldin/harness-ts/src/index.ts"]
-    }
+    "types": ["bun"]
   },
   "include": ["src/**/*"],
   "exclude": ["node_modules", "dist", "tests"]
