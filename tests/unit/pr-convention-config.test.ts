@@ -90,13 +90,17 @@ describe('preset PR convention fields', () => {
   })
 
   it('throws when pr_title_template is not a string', () => {
-    expect(() => addPreset('bad', { cli: 'cc', model: 's', pr_title_template: 42 as unknown as string }))
-      .toThrow('"pr_title_template" must be a string')
+    expect(() =>
+      // @ts-expect-error — testing validation rejects non-string
+      addPreset('bad', { cli: 'cc', model: 's', pr_title_template: 42 })
+    ).toThrow('"pr_title_template" must be a string')
   })
 
   it('throws when pr_reviewers contains non-string', () => {
-    expect(() => addPreset('bad', { cli: 'cc', model: 's', pr_reviewers: [123] as unknown as string[] }))
-      .toThrow('"pr_reviewers" must be an array')
+    expect(() =>
+      // @ts-expect-error — testing validation rejects non-string array element
+      addPreset('bad', { cli: 'cc', model: 's', pr_reviewers: [123] })
+    ).toThrow('"pr_reviewers" must be an array')
   })
 
   it('throws when pr_labels contains empty string', () => {
