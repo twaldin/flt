@@ -1,4 +1,5 @@
 import { execFileSync } from 'child_process'
+import { statSync } from 'fs'
 import type { RemoteEntry } from './remotes'
 
 export interface SshExecResult {
@@ -69,9 +70,23 @@ export function sshExecCheck(remote: RemoteEntry, command: string): true | { err
   }
 }
 
+function shellEscapeArg(s: string): string {
+  return `'${s.replace(/'/g, `'\\''`)}'`
+}
+
+function detectDirectory(localPath: string): boolean {
+  if (localPath.endsWith('/')) {
+    return true
+  }
+  try {
+    return statSync(localPath).isDirectory()
+  } catch {
+    return false
+  }
+}
+
 export function rsyncTo(remote: RemoteEntry, localPath: string, remotePath: string, opts?: { isDirectory?: boolean }): void {
-  const inferredDirectory = !localPath.endsWith('/') && !localPath.split('/').pop()?.includes('.')
-  const isDirectory = opts?.isDirectory ?? inferredDirectory
+  const isDirectory = opts?.isDirectory ?? detectDirectory(localPath)
   const source = isDirectory && !localPath.endsWith('/') ? `${localPath}/` : localPath
   const destinationBase = renderTarget(remote)
   const destination = isDirectory && !remotePath.endsWith('/')
@@ -79,7 +94,7 @@ export function rsyncTo(remote: RemoteEntry, localPath: string, remotePath: stri
     : `${destinationBase}:${remotePath}`
 
   const sshArgs = buildSshArgs(remote)
-  const sshCommand = ['ssh', ...sshArgs.slice(0, -1)].join(' ')
+  const sshCommand = ['ssh', ...sshArgs.slice(0, -1)].map(shellEscapeArg).join(' ')
 
   execFileSync('rsync', ['-az', '-e', sshCommand, source, destination], {
     encoding: 'utf-8',
