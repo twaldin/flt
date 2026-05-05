@@ -17,6 +17,7 @@ import { pluginAudit, pluginUninstall } from './commands/plugins'
 import { promote } from './commands/promote'
 import { traceRecent } from './commands/trace'
 import { gates, blockers } from './commands/gates'
+import { syncWorkflows, warnIfWorkflowsStale } from './commands/sync-workflows'
 
 const program = new Command()
   .name('flt')
@@ -577,6 +578,19 @@ workflowCmd
     }
   })
 
+program
+  .command('sync-workflows')
+  .description('Sync bundled workflow templates to ~/.flt/workflows/ (prompts before overwriting)')
+  .option('--force', 'Overwrite without prompting')
+  .action(async (opts) => {
+    try {
+      await syncWorkflows({ force: !!opts.force })
+    } catch (e) {
+      console.error(`Error: ${(e as Error).message}`)
+      process.exit(1)
+    }
+  })
+
 const evalCmd = program
   .command('eval')
   .description('Manage held-out eval suites for workflow benchmarking')
@@ -909,5 +923,11 @@ routeCmd
       process.exit(1)
     }
   })
+
+// Warn on stale workflows for TUI/interactive entry points only
+const INTERACTIVE_CMDS = new Set(['init', 'tui', 'spawn'])
+if (INTERACTIVE_CMDS.has(process.argv[2] ?? '')) {
+  warnIfWorkflowsStale()
+}
 
 program.parse()
