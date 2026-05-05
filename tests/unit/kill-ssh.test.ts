@@ -42,6 +42,7 @@ describe('killDirect ssh branch', () => {
     mockResolveRemote.mockReset()
     mockResolveRemote.mockImplementation((host: string) => ({ host }))
     mockSshExec.mockReset()
+    mockSshExec.mockReturnValue({ stdout: '', stderr: '', status: 0 })
     mockKillSession.mockReset()
     mockGetPanePid.mockReset()
   })
@@ -71,6 +72,23 @@ describe('killDirect ssh branch', () => {
     )
     expect(mockKillSession).not.toHaveBeenCalled()
     expect(mockRemoveAgent).toHaveBeenCalledWith('worker')
+  })
+
+  it('throws when remote tmux kill fails and keeps agent state', () => {
+    mockGetAgent.mockReturnValue({
+      cli: 'pi',
+      model: 'gpt-5',
+      tmuxSession: 'flt-worker',
+      parentName: 'human',
+      dir: '/repo/worktree',
+      spawnedAt: new Date().toISOString(),
+      location: { type: 'ssh', host: 'prod-vps' },
+    })
+    mockSshExec.mockReturnValue({ stdout: '', stderr: 'No session', status: 1 })
+
+    expect(() => killDirect({ name: 'worker' })).toThrow('No session')
+    expect(mockRemoveAgent).not.toHaveBeenCalled()
+    expect(mockKillSession).not.toHaveBeenCalled()
   })
 
   it('skips remote worktree cleanup when preserveWorktree is true', () => {

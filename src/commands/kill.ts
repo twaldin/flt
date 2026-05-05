@@ -64,7 +64,10 @@ export function killDirect(args: KillArgs): void {
 
   if (isSsh) {
     const remote = resolveRemote(agent.location.host)
-    sshExec(remote, `tmux kill-session -t ${agent.tmuxSession}`)
+    const killResult = sshExec(remote, `tmux kill-session -t ${agent.tmuxSession}`)
+    if (killResult.status !== 0) {
+      throw new Error(killResult.stderr.trim() || `Failed to kill SSH agent "${name}".`)
+    }
 
     if (agent.worktreePath && agent.worktreeBranch && !args.preserveWorktree) {
       try {

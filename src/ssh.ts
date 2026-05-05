@@ -16,7 +16,7 @@ function isTruthyString(value: string | undefined): value is string {
   return typeof value === 'string' && value.trim().length > 0
 }
 
-export function buildSshArgs(remote: RemoteEntry, extra: string[] = []): string[] {
+function buildSshOptionArgs(remote: RemoteEntry): string[] {
   const args: string[] = []
 
   if (typeof remote.port === 'number') {
@@ -26,8 +26,12 @@ export function buildSshArgs(remote: RemoteEntry, extra: string[] = []): string[
     args.push('-i', remote.identityFile)
   }
 
-  args.push('-o', 'BatchMode=yes', '-o', 'ConnectTimeout=5', renderTarget(remote), ...extra)
+  args.push('-o', 'BatchMode=yes', '-o', 'ConnectTimeout=5')
   return args
+}
+
+export function buildSshArgs(remote: RemoteEntry, extra: string[] = []): string[] {
+  return [...buildSshOptionArgs(remote), '--', renderTarget(remote), ...extra]
 }
 
 export function sshExec(remote: RemoteEntry, command: string, opts?: { input?: string }): SshExecResult {
@@ -93,8 +97,7 @@ export function rsyncTo(remote: RemoteEntry, localPath: string, remotePath: stri
     ? `${destinationBase}:${remotePath}/`
     : `${destinationBase}:${remotePath}`
 
-  const sshArgs = buildSshArgs(remote)
-  const sshCommand = ['ssh', ...sshArgs.slice(0, -1)].map(shellEscapeArg).join(' ')
+  const sshCommand = ['ssh', ...buildSshOptionArgs(remote)].map(shellEscapeArg).join(' ')
 
   execFileSync('rsync', ['-az', '-e', sshCommand, source, destination], {
     encoding: 'utf-8',

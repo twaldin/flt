@@ -56,6 +56,22 @@ describe('logs command ssh dispatch', () => {
     expect(printed[0]).toBe('remote-log')
   })
 
+  it('throws on ssh capture failure with stderr', () => {
+    mockGetAgent.mockReturnValue({
+      cli: 'pi',
+      model: 'gpt-5',
+      tmuxSession: 'flt-worker',
+      parentName: 'human',
+      dir: '/tmp/w',
+      spawnedAt: new Date().toISOString(),
+      location: { type: 'ssh', host: 'prod-vps' },
+    })
+    mockResolveRemote.mockImplementation((host: string) => ({ host }))
+    mockSshExec.mockReturnValue({ stdout: '', stderr: 'Permission denied', status: 255 })
+
+    expect(() => logs({ name: 'worker' })).toThrow('Permission denied')
+  })
+
   it('keeps local capturePane path for local agents', () => {
     mockGetAgent.mockReturnValue({
       cli: 'pi',
