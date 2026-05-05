@@ -79,6 +79,10 @@ describe('remote commands', () => {
     )
     expect(globalThis.fetch).toHaveBeenCalled()
     expect(Bun.write).toHaveBeenCalledWith('/tmp/flt-remote-test/flt', expect.any(Uint8Array))
+    expect(mockSshExec).toHaveBeenCalledWith(
+      { host: 'example.com', user: 'alice', port: 2200, identityFile: '/tmp/key' },
+      'mkdir -p ~/.flt/bin',
+    )
     expect(mockRsyncTo).toHaveBeenNthCalledWith(
       1,
       { host: 'example.com', user: 'alice', port: 2200, identityFile: '/tmp/key' },

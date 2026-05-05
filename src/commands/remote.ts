@@ -76,9 +76,14 @@ export async function addRemote(args: AddRemoteArgs): Promise<void> {
   const bytes = new Uint8Array(await response.arrayBuffer())
   await Bun.write(tempFile, bytes)
 
+  const mkdirResult = sshExec(remote, 'mkdir -p ~/.flt/bin')
+  if (mkdirResult.status !== 0) {
+    throw new Error(`Failed to prepare remote binary directory: ${mkdirResult.stderr || mkdirResult.stdout}`)
+  }
+
   rsyncTo(remote, tempFile, '~/.flt/bin/flt', { isDirectory: false })
 
-  const chmodResult = sshExec(remote, 'mkdir -p ~/.flt/bin && chmod +x ~/.flt/bin/flt')
+  const chmodResult = sshExec(remote, 'chmod +x ~/.flt/bin/flt')
   if (chmodResult.status !== 0) {
     throw new Error(`Failed to finalize remote binary install: ${chmodResult.stderr || chmodResult.stdout}`)
   }
