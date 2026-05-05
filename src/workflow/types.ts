@@ -11,6 +11,12 @@ export interface BaseStep {
   max_retries?: number
   auto_pr_step?: boolean
   timeout_seconds?: number
+  pr_title_template?: string
+  pr_branch_prefix?: string
+  pr_base_branch?: string
+  pr_reviewers?: string[]
+  pr_labels?: string[]
+  pr_body_template?: string
 }
 
 export interface SpawnStep extends BaseStep {

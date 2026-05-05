@@ -28,8 +28,9 @@ function parseCount(value: string | null): number {
   return Number(value ?? '0') || 0
 }
 
-export function createWorktree(repoDir: string, agentName: string, baseBranch?: string): WorktreeInfo {
-  const branch = `flt/${agentName}`
+export function createWorktree(repoDir: string, agentName: string, baseBranch?: string, branchPrefix?: string): WorktreeInfo {
+  const prefix = (branchPrefix ?? 'flt').replace(/\/$/, '')
+  const branch = `${prefix}/${agentName}`
   const wtPath = join(tmpdir(), `flt-wt-${agentName}`)
   let wtFreshlyCreated = false
 
