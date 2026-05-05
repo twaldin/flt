@@ -10,6 +10,7 @@ export interface BaseStep {
   on_fail?: string
   max_retries?: number
   auto_pr_step?: boolean
+  pr_adapter?: 'gh' | 'gt' | 'manual'
   timeout_seconds?: number
 }
 

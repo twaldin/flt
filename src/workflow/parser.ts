@@ -51,6 +51,14 @@ function validatePresetName(stepId: string, preset: string, field = 'preset'): v
   }
 }
 
+function parsePrAdapter(raw: Record<string, unknown>, stepId: string): 'gh' | 'gt' | 'manual' | undefined {
+  if (raw.pr_adapter === undefined) return undefined
+  if (raw.pr_adapter !== 'gh' && raw.pr_adapter !== 'gt' && raw.pr_adapter !== 'manual') {
+    throw new Error(`Step "${stepId}": "pr_adapter" must be one of: gh, gt, manual`)
+  }
+  return raw.pr_adapter
+}
+
 function parseSpawnStep(raw: Record<string, unknown>, stepId: string): SpawnStep {
   if (raw.type !== undefined && raw.type !== 'spawn') {
     throw new Error(`unknown step type: ${raw.type as string}`)
@@ -82,6 +90,7 @@ function parseSpawnStep(raw: Record<string, unknown>, stepId: string): SpawnStep
     worktree: typeof raw.worktree === 'boolean' ? raw.worktree : undefined,
     run: typeof raw.run === 'string' ? raw.run : undefined,
     auto_pr_step: typeof raw.auto_pr_step === 'boolean' ? raw.auto_pr_step : undefined,
+    pr_adapter: parsePrAdapter(raw, stepId),
   }
 }
 
@@ -123,6 +132,7 @@ function parseParallelStep(raw: Record<string, unknown>, stepId: string): Parall
     on_fail: typeof raw.on_fail === 'string' ? raw.on_fail : undefined,
     max_retries: typeof raw.max_retries === 'number' ? raw.max_retries : undefined,
     auto_pr_step: typeof raw.auto_pr_step === 'boolean' ? raw.auto_pr_step : undefined,
+    pr_adapter: parsePrAdapter(raw, stepId),
     timeout_seconds: typeof raw.timeout_seconds === 'number' ? raw.timeout_seconds : undefined,
   }
 }
@@ -167,6 +177,7 @@ function parseDynamicDagStep(raw: Record<string, unknown>, stepId: string): Dyna
     on_fail: typeof raw.on_fail === 'string' ? raw.on_fail : undefined,
     max_retries: typeof raw.max_retries === 'number' ? raw.max_retries : undefined,
     auto_pr_step: typeof raw.auto_pr_step === 'boolean' ? raw.auto_pr_step : undefined,
+    pr_adapter: parsePrAdapter(raw, stepId),
     timeout_seconds: typeof raw.timeout_seconds === 'number' ? raw.timeout_seconds : undefined,
   }
 }
@@ -216,6 +227,7 @@ function parseConditionStep(
     on_fail: typeof raw.on_fail === 'string' ? raw.on_fail : undefined,
     max_retries: typeof raw.max_retries === 'number' ? raw.max_retries : undefined,
     auto_pr_step: typeof raw.auto_pr_step === 'boolean' ? raw.auto_pr_step : undefined,
+    pr_adapter: parsePrAdapter(raw, stepId),
     timeout_seconds: typeof raw.timeout_seconds === 'number' ? raw.timeout_seconds : undefined,
   }
 }
@@ -233,6 +245,7 @@ function parseHumanGateStep(raw: Record<string, unknown>, stepId: string): Human
     on_fail: typeof raw.on_fail === 'string' ? raw.on_fail : undefined,
     max_retries: typeof raw.max_retries === 'number' ? raw.max_retries : undefined,
     auto_pr_step: typeof raw.auto_pr_step === 'boolean' ? raw.auto_pr_step : undefined,
+    pr_adapter: parsePrAdapter(raw, stepId),
     timeout_seconds: typeof raw.timeout_seconds === 'number' ? raw.timeout_seconds : undefined,
   }
 }
@@ -267,6 +280,7 @@ function parseMergeBestStep(
     on_fail: typeof raw.on_fail === 'string' ? raw.on_fail : undefined,
     max_retries: typeof raw.max_retries === 'number' ? raw.max_retries : undefined,
     auto_pr_step: typeof raw.auto_pr_step === 'boolean' ? raw.auto_pr_step : undefined,
+    pr_adapter: parsePrAdapter(raw, stepId),
     timeout_seconds: typeof raw.timeout_seconds === 'number' ? raw.timeout_seconds : undefined,
   }
 }
@@ -300,6 +314,7 @@ function parseCollectArtifactsStep(
     on_fail: typeof raw.on_fail === 'string' ? raw.on_fail : undefined,
     max_retries: typeof raw.max_retries === 'number' ? raw.max_retries : undefined,
     auto_pr_step: typeof raw.auto_pr_step === 'boolean' ? raw.auto_pr_step : undefined,
+    pr_adapter: parsePrAdapter(raw, stepId),
     timeout_seconds: typeof raw.timeout_seconds === 'number' ? raw.timeout_seconds : undefined,
   }
 }

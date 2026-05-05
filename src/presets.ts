@@ -11,6 +11,7 @@ export interface Preset {
   parent?: string     // parent agent name
   worktree?: boolean  // false = --no-worktree
   persistent?: boolean
+  pr_adapter?: 'gh' | 'gt' | 'manual'
   skills?: string[]   // opt-in skills enabled for this preset
   allSkills?: boolean // enable all discoverable skills
   env?: Record<string, string>  // extra env vars merged into the spawn; ${VAR} expands from process.env at resolve time
@@ -80,6 +81,9 @@ function validatePresetValue(name: string, value: unknown): Preset {
   if (preset.persistent !== undefined && typeof preset.persistent !== 'boolean') {
     throw new Error(`Invalid preset "${name}": "persistent" must be a boolean.`)
   }
+  if (preset.pr_adapter !== undefined && preset.pr_adapter !== 'gh' && preset.pr_adapter !== 'gt' && preset.pr_adapter !== 'manual') {
+    throw new Error(`Invalid preset "${name}": "pr_adapter" must be one of: gh, gt, manual`)
+  }
   let envNormalized: Record<string, string> | undefined
   if (preset.skills !== undefined) {
     if (!Array.isArray(preset.skills) || preset.skills.some(v => typeof v !== 'string' || !v.trim())) {
@@ -113,6 +117,7 @@ function validatePresetValue(name: string, value: unknown): Preset {
     parent: typeof preset.parent === 'string' ? preset.parent.trim() || undefined : undefined,
     worktree: typeof preset.worktree === 'boolean' ? preset.worktree : undefined,
     persistent: typeof preset.persistent === 'boolean' ? preset.persistent : undefined,
+    pr_adapter: preset.pr_adapter === 'gh' || preset.pr_adapter === 'gt' || preset.pr_adapter === 'manual' ? preset.pr_adapter : undefined,
     skills: Array.isArray(preset.skills) ? preset.skills.map(v => String(v).trim()).filter(Boolean) : undefined,
     allSkills: typeof preset.allSkills === 'boolean' ? preset.allSkills : undefined,
     env: envNormalized,
