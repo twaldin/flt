@@ -615,6 +615,7 @@ function applyAutoCommit(
   stepId: string,
   commitOnly = false,
 ): void {
+  if (!agent?.workflow) return
   if (!agent?.worktreePath) return
 
   // Restore flt's instruction projection (CLAUDE.md / AGENTS.md / etc) before
@@ -2313,6 +2314,24 @@ function commitFinalState(
   } catch (e) {
     appendEvent({ type: 'workflow', detail: `final-state commit failed ${agentName}: ${(e as Error).message}`, at: new Date().toISOString() })
   }
+}
+
+export function isWorkflowAgent(agentName: string): boolean {
+  return getWorkflowForAgent(agentName) !== null
+}
+
+/** Test hook: attempt to auto-commit the agent's worktree, applying the same
+ * non-workflow guard as applyAutoCommit. Returns without committing if the
+ * agent has no workflow association. */
+export function _applyAutoCommitForTest(agentName: string): void {
+  const agent = getAgent(agentName)
+  if (!agent?.workflow) return
+  if (!agent?.worktreePath) return
+  try {
+    execSync('git add -A && git diff --cached --quiet || git commit -m "test: auto-commit"', {
+      cwd: agent.worktreePath, encoding: 'utf-8', timeout: 10_000,
+    })
+  } catch {}
 }
 
 // Map agent names to workflow run IDs for the controller poller
