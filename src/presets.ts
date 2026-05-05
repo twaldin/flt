@@ -21,6 +21,7 @@ export interface Preset {
   pr_reviewers?: string[]       // gh handles passed to --reviewer
   pr_labels?: string[]          // labels passed to --label
   pr_body_template?: string     // inline template string or path to a template file
+  git_hooks?: boolean           // install flt safety hooks in the agent's workdir
 }
 
 export interface NamedPreset extends Preset {
@@ -136,6 +137,9 @@ function validatePresetValue(name: string, value: unknown): Preset {
   if (preset.pr_body_template !== undefined && typeof preset.pr_body_template !== 'string') {
     throw new Error(`Invalid preset "${name}": "pr_body_template" must be a string.`)
   }
+  if (preset.git_hooks !== undefined && typeof preset.git_hooks !== 'boolean') {
+    throw new Error(`Invalid preset "${name}": "git_hooks" must be a boolean.`)
+  }
 
   const prReviewers = Array.isArray(preset.pr_reviewers)
     ? preset.pr_reviewers.map(v => String(v).trim()).filter(Boolean)
@@ -163,6 +167,7 @@ function validatePresetValue(name: string, value: unknown): Preset {
     pr_reviewers: prReviewers && prReviewers.length > 0 ? prReviewers : undefined,
     pr_labels: prLabels && prLabels.length > 0 ? prLabels : undefined,
     pr_body_template: typeof preset.pr_body_template === 'string' ? preset.pr_body_template.trim() || undefined : undefined,
+    git_hooks: typeof preset.git_hooks === 'boolean' ? preset.git_hooks : undefined,
   }
 }
 

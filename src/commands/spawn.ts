@@ -38,6 +38,7 @@ interface SpawnArgs {
    * run.vars._input.dir; manual spawns inherit baseDir. */
   projectRoot?: string
   extraEnv?: Record<string, string>
+  gitHooks?: boolean
   _callerName?: string
   _callerDepth?: number
   _termWidth?: number
@@ -198,6 +199,7 @@ export async function spawnDirect(args: SpawnArgs): Promise<void> {
   let presetEnv: Record<string, string> = {}
   let presetSkills: string[] | undefined
   let presetAllSkills: boolean | undefined
+  let presetGitHooks: boolean | undefined
   if (effectivePreset) {
     const presetConfig = getPreset(effectivePreset)
     if (!presetConfig) {
@@ -214,6 +216,7 @@ export async function spawnDirect(args: SpawnArgs): Promise<void> {
     presetEnv = resolvePresetEnv(presetConfig.env)
     presetSkills = presetConfig.skills
     presetAllSkills = presetConfig.allSkills
+    presetGitHooks = presetConfig.git_hooks
   }
 
   if (!cli) {
@@ -338,6 +341,36 @@ export async function spawnDirect(args: SpawnArgs): Promise<void> {
       presetSoul,
       skillNames: projectedSkills.names,
     })
+  }
+
+  // Install git hooks and write flt manifest (opt-in via --git-hooks or preset git_hooks: true)
+  const useGitHooks = args.gitHooks ?? presetGitHooks ?? false
+  if (useGitHooks && isGitRepo(workDir)) {
+    const { installHooks, writeFltManifest } = await import('../hooks/git-hooks')
+    const { existsSync: fsExists, readFileSync: fsRead } = await import('fs')
+    const { join: pathJoin } = await import('path')
+
+    const managedPath = pathJoin(workDir, '.flt', '.managed-skills.json')
+    let skillManifestFiles: string[] = []
+    if (fsExists(managedPath)) {
+      try {
+        const parsed = JSON.parse(fsRead(managedPath, 'utf-8')) as unknown
+        if (typeof parsed === 'object' && parsed !== null) {
+          const files = (parsed as Record<string, unknown>).files
+          if (Array.isArray(files)) {
+            skillManifestFiles = files.filter((v): v is string => typeof v === 'string')
+          }
+        }
+      } catch {}
+    }
+
+    const fltOnlyFiles: string[] = ['.flt/.managed-skills.json', ...skillManifestFiles]
+    const fltModifiedFiles: string[] = instructionProjection
+      ? [instructionProjection.originalPath]
+      : []
+
+    writeFltManifest(workDir, { fltOnlyFiles, fltModifiedFiles })
+    installHooks(workDir)
   }
 
   // Build spawn command — shell-quote args that contain special chars
