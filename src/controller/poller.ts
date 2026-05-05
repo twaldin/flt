@@ -247,7 +247,7 @@ export function pollOnce(): void {
       // Hard timeout: 60 min for workflow agents — force-kill so engine can
       // fail the node and either retry or open a gate. Non-workflow agents
       // get the warning but no auto-kill (user may have legit long tasks).
-      if (runningFor >= STUCK_KILL_MS && (agent.workflow || agent.workflowStep)) {
+      if (runningFor >= STUCK_KILL_MS && agent.workflow) {
         appendInbox('WATCHDOG', `Agent ${name} stuck running ${Math.round(runningFor / 60000)}m — force-killing for engine retry`)
         toCleanup.push({ name, reason: 'stuck-timeout' })
         delete runningSince[name]

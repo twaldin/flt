@@ -5,7 +5,6 @@ import { deliver, deliverKeys } from '../delivery'
 import { detectCaller } from '../detect'
 import { appendInbox } from './init'
 import { userInfo } from 'os'
-import { deliver, deliverKeys } from '../delivery'
 
 interface SendArgs {
   target: string
