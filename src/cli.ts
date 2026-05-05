@@ -86,6 +86,7 @@ program
   .option('--skill <name>', 'Enable a skill for this spawn (repeatable)', (value, prev: string[]) => [...prev, value], [])
   .option('--all-skills', 'Enable all discoverable skills for this spawn')
   .option('--no-model-resolve', 'Disable CLI-specific model alias resolution (raw passthrough)')
+  .option('--git-hooks', 'Install flt safety git hooks in the agent workdir (strips flt blocks on commit)')
   .argument('[bootstrap]', 'Initial message to send after agent is ready')
   .action(async (name, bootstrap, opts) => {
     try {
@@ -101,6 +102,7 @@ program
         skills: opts.skill,
         allSkills: opts.allSkills,
         noModelResolve: opts.modelResolve === false,
+        gitHooks: opts.gitHooks === true,
         bootstrap,
       })
     } catch (e) {
