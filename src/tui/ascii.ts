@@ -24,9 +24,9 @@ function renderLines(word: string, fontPath: string | null): string[] {
     if (fontPath) {
       const fontData = readFileSync(fontPath, 'utf-8')
       figlet.parseFont('_ascii_custom', fontData)
-      text = figlet.textSync(word, { font: '_ascii_custom' as figlet.Fonts })
+      text = figlet.textSync(word, { font: '_ascii_custom' })
     } else {
-      text = figlet.textSync(word, { font: DEFAULT_FONT as figlet.Fonts })
+      text = figlet.textSync(word, { font: DEFAULT_FONT })
     }
     const lines = text.split('\n')
     while (lines.length > 0 && !lines[lines.length - 1].trim()) {

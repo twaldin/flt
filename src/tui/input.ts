@@ -5,6 +5,7 @@ import type { AgentView, AppState, CompletionItem, InboxMessage, Mode, ModalStat
 
 export type TmuxInsertKey =
   | 'Enter'
+  | 'Escape'
   | 'BSpace'
   | 'Tab'
   | 'Up'

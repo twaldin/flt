@@ -90,7 +90,7 @@ export interface WorkflowRun {
   vars: Record<string, Record<string, string>>
   startedAt: string
   completedAt?: string
-  runDir?: string
+  runDir: string
   startBranch?: string
   parallelGroups?: Record<string, ParallelGroupState>
   dynamicDagGroups?: Record<string, DynamicDagState>

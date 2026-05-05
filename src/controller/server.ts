@@ -40,9 +40,11 @@ setStatusChangeCallback((name, prev, next) => {
         if (agent?.ephemeral) {
           console.log(`[ephemeral] Agent "${name}" went idle — auto-killing`)
           const { killDirect } = await import('../commands/kill')
-          await killDirect({ name, fromWorkflow: false }).catch(e => {
-            console.error(`[ephemeral] Failed to kill "${name}": ${e.message}`)
-          })
+          try {
+            killDirect({ name, fromWorkflow: false })
+          } catch (e) {
+            console.error(`[ephemeral] Failed to kill "${name}": ${(e as Error).message}`)
+          }
           return
         }
       } catch {}
@@ -155,7 +157,7 @@ async function handleAction(req: ControllerRequest): Promise<ControllerResponse>
       }
 
     default:
-      return { ok: false, error: `Unknown action: ${req.action}` }
+      return { ok: false, error: 'Unknown action' }
   }
 }
 

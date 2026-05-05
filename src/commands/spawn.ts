@@ -153,17 +153,15 @@ export async function spawn(args: SpawnArgs): Promise<void> {
     const { ensureController } = await import('./controller')
     const { sendToController } = await import('../controller/client')
     await ensureController()
-    // Capture caller context here and pass through RPC
-    const result = await sendToController({
-      action: 'spawn',
-      args: {
-        ...args,
-        _callerName: process.env.FLT_AGENT_NAME,
-        _callerDepth: parseInt(process.env.FLT_DEPTH ?? '0', 10),
-        _termWidth: process.stdout.columns,
-        _termHeight: process.stdout.rows,
-      },
-    })
+    // Capture caller context here and pass through RPC.
+    // Build enriched args as a mutable copy to avoid TypeScript's spread-override
+    // type narrowing (which computes `never` for explicitly overridden spread props).
+    const enriched: SpawnArgs = { ...args }
+    enriched._callerName = process.env.FLT_AGENT_NAME
+    enriched._callerDepth = parseInt(process.env.FLT_DEPTH ?? '0', 10)
+    enriched._termWidth = process.stdout.columns
+    enriched._termHeight = process.stdout.rows
+    const result = await sendToController({ action: 'spawn', args: enriched })
     if (!result.ok) throw new Error(result.error ?? 'Spawn failed')
     if (!process.env.FLT_TUI_ACTIVE) console.log(result.data)
     return

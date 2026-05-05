@@ -33,7 +33,7 @@ export interface ModalState {
   rawCommand?: string
 }
 
-export interface AgentView extends AgentState {
+export interface AgentView extends Omit<AgentState, 'status'> {
   name: string
   status: 'spawning' | 'ready' | 'running' | 'idle' | 'exited' | 'error' | 'rate-limited' | 'unknown'
   lastSeen: number

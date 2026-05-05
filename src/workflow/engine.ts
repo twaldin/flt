@@ -894,7 +894,7 @@ async function executeParallelStep(def: WorkflowDef, run: WorkflowRun, parallelS
   const treatmentMap = permuteTreatmentMap(parallelStep.n, presets, hashRunStepSeed(run.id, parallelStep.id))
   const workflowYamlPath = resolveWorkflowYamlPath(run.workflow)
   const baseName = workflowAgentName(run.id, parallelStep.id)
-  const candidates = Array.from({ length: parallelStep.n }, (_, i) => {
+  const candidates: ParallelCandidate[] = Array.from({ length: parallelStep.n }, (_, i) => {
     const label = String.fromCharCode(97 + i)
     const presetName = treatmentMap[label]
     const presetConfig = getPreset(presetName)
