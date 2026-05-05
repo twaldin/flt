@@ -120,6 +120,19 @@ describe('delivery', () => {
     expect((mockSshExec.mock.calls[0] as [{ host: string }])[0]).toEqual({ host: 'devbox.resolved', user: 'me', port: 2222 })
   })
 
+  it('throws when ssh delivery fails', () => {
+    mockSshExec.mockImplementation(() => ({ stdout: '', stderr: 'boom', status: 255 }))
+
+    expect(() => deliver({ ...baseAgent, location: { type: 'ssh', host: 'h' } }, 'hello')).toThrow(/SSH delivery failed/)
+  })
+
+  it('rejects unsafe ssh host targets', () => {
+    mockResolveRemote.mockImplementation(() => ({ host: '-oProxyCommand=evil' }))
+
+    expect(() => deliver({ ...baseAgent, location: { type: 'ssh', host: 'bad' } }, 'hello')).toThrow(/unsafe ssh host/)
+    expect(mockSshExec).toHaveBeenCalledTimes(0)
+  })
+
   it('throws for sandbox branch', () => {
     expect(() => deliver({ ...baseAgent, location: { type: 'sandbox', runtime: 'docker', container: 'c' } }, 'hello')).toThrow(/not yet implemented/)
     expect(() => deliver({ ...baseAgent, location: { type: 'sandbox', runtime: 'docker', container: 'c' } }, 'hello')).toThrow(/docs\/ssh-sandbox-design\.md/)
