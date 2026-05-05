@@ -5,7 +5,7 @@
     "": {
       "name": "flt",
       "dependencies": {
-        "@twaldin/harness-ts": "^0.2.3",
+        "@twaldin/harness-ts": "^0.2.4",
         "commander": "^13.1.0",
         "figlet": "^1.11.0",
         "yaml": "^2.8.3",
@@ -18,7 +18,7 @@
     },
   },
   "packages": {
-    "@twaldin/harness-ts": ["@twaldin/harness-ts@0.2.3", "", { "dependencies": { "better-sqlite3": "^11.0.0" } }, "sha512-zRtNZNFP7vHUL6hF76iEgF0v/SKaQOmEBxfQa1hV5Fo0lq2xo87XnjmABmWmbDRdPiGa+ZHR/2W6uTeyVsd1aQ=="],
+    "@twaldin/harness-ts": ["@twaldin/harness-ts@0.2.4", "", { "dependencies": { "better-sqlite3": "^12.0.0" } }, "sha512-/yybhegXbDDwlhre2rQ9hbVqsVnAPSA584qqMSbuHxef7EoZoS1aD/KDzfFBPyLBAz6ZMvsyvmznsgysa9cung=="],
 
     "@types/bun": ["@types/bun@1.3.12", "", { "dependencies": { "bun-types": "1.3.12" } }, "sha512-DBv81elK+/VSwXHDlnH3Qduw+KxkTIWi7TXkAeh24zpi5l0B2kUg9Ga3tb4nJaPcOFswflgi/yAvMVBPrxMB+A=="],
 
@@ -28,7 +28,7 @@
 
     "base64-js": ["base64-js@1.5.1", "", {}, "sha512-AKpaYlHn8t4SVbOHCy+b5+KKgvR4vrsD8vbvrbiQJps7fKDTkjkDry6ji0rUJjC0kzbNePLwzxq8iypo41qeWA=="],
 
-    "better-sqlite3": ["better-sqlite3@11.10.0", "", { "dependencies": { "bindings": "^1.5.0", "prebuild-install": "^7.1.1" } }, "sha512-EwhOpyXiOEL/lKzHz9AW1msWFNzGc/z+LzeB3/jnFJpxu+th2yqvzsSWas1v9jgs9+xiXJcD5A8CJxAG2TaghQ=="],
+    "better-sqlite3": ["better-sqlite3@12.9.0", "", { "dependencies": { "bindings": "^1.5.0", "prebuild-install": "^7.1.1" } }, "sha512-wqUv4Gm3toFpHDQmaKD4QhZm3g1DjUBI0yzS4UBl6lElUmXFYdTQmmEDpAFa5o8FiFiymURypEnfVHzILKaxqQ=="],
 
     "bindings": ["bindings@1.5.0", "", { "dependencies": { "file-uri-to-path": "1.0.0" } }, "sha512-p2q/t/mhvuOj/UeLlV6566GD/guowlr0hHxClI0W9m7MWYkL1F0hLo+0Aexs9HSPCtR1SXQ0TD3MMKrXZajbiQ=="],
 

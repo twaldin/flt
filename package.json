@@ -1,6 +1,6 @@
 {
   "name": "@twaldin/flt-cli",
-  "version": "0.2.15",
+  "version": "0.2.16",
   "type": "module",
   "description": "Orchestrate AI coding agents across any CLI harness, in tmux",
   "license": "MIT",
@@ -51,7 +51,7 @@
     "test:targeted": "bun test"
   },
   "dependencies": {
-    "@twaldin/harness-ts": "^0.2.3",
+    "@twaldin/harness-ts": "^0.2.4",
     "commander": "^13.1.0",
     "figlet": "^1.11.0",
     "yaml": "^2.8.3"
