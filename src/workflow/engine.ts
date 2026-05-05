@@ -38,6 +38,7 @@ import { writeMetricsForRun } from './metrics'
 import { pendingQna } from '../qna'
 import { deliver, deliverKeys } from '../delivery'
 import { resolveAdapter } from '../adapters/registry'
+import { getPrAdapter, type PrAdapterName } from '../pr-adapters'
 
 function hasPendingQnaFromAgent(agentName: string | undefined, runId?: string): boolean {
   if (!agentName) return false
@@ -153,6 +154,21 @@ function getStepPresetName(step: WorkflowStepDef): string | undefined {
   return undefined
 }
 
+export function resolvePrAdapter(
+  run: WorkflowRun,
+  step: WorkflowStepDef | undefined,
+  presetName: string | undefined,
+): PrAdapterName {
+  const raw = run.vars._prAdapter?.name
+  if (raw === 'gh' || raw === 'gt' || raw === 'manual') return raw
+  const fromStep = step?.pr_adapter
+  if (fromStep) return fromStep
+  const preset = presetName ? (getPreset(presetName) ?? undefined) : undefined
+  const fromPreset = preset?.pr_adapter
+  if (fromPreset) return fromPreset
+  return 'gh'
+}
+
 /** Slug a free-form task string into a short, filesystem-safe identifier. */
 export function slugFromTask(task: string, maxWords = 4): string {
   const words = task
@@ -230,7 +246,7 @@ export function listWorkflowRuns(): WorkflowRun[] {
   return runs
 }
 
-export async function startWorkflow(name: string, opts?: { parent?: string; task?: string; dir?: string; slug?: string }): Promise<WorkflowRun> {
+export async function startWorkflow(name: string, opts?: { parent?: string; task?: string; dir?: string; slug?: string; prAdapter?: string }): Promise<WorkflowRun> {
   const def = loadWorkflowDef(name)
 
   // Derive parent from caller if not provided
@@ -267,6 +283,7 @@ export async function startWorkflow(name: string, opts?: { parent?: string; task
         task: opts?.task ?? '',
         dir: opts?.dir ?? process.cwd(),
       },
+      ...(opts?.prAdapter ? { _prAdapter: { name: opts.prAdapter } } : {}),
     },
     startedAt: new Date().toISOString(),
     runDir,
@@ -443,14 +460,14 @@ export async function advanceWorkflow(runId: string, idleAgentName?: string): Pr
   if (group) {
     for (const candidate of group.candidates) {
       const candidateAgent = getAgent(candidate.agentName)
-      applyAutoCommit(candidateAgent, run, def, currentStepDef.id, true)
+      await applyAutoCommit(candidateAgent, run, def, currentStepDef.id, true)
       try {
         const { killDirect } = await import('../commands/kill')
         killDirect({ name: candidate.agentName, preserveWorktree: true, fromWorkflow: true })
       } catch {}
     }
   } else {
-    applyAutoCommit(agent, run, def, currentStepDef.id)
+    await applyAutoCommit(agent, run, def, currentStepDef.id)
 
     // Kill the completed agent but preserve its worktree (next step may need it)
     try {
@@ -660,13 +677,13 @@ export function shouldCreatePr(def: WorkflowDef, stepId: string): boolean {
   return true
 }
 
-function applyAutoCommit(
+async function applyAutoCommit(
   agent: ReturnType<typeof getAgent> | undefined,
   run: WorkflowRun,
   def: WorkflowDef,
   stepId: string,
   commitOnly = false,
-): void {
+): Promise<void> {
   if (!agent?.workflow) return
   if (!agent?.worktreePath) return
 
@@ -693,46 +710,40 @@ function applyAutoCommit(
   }
 
   if (commitOnly || !shouldCreatePr(def, stepId)) return
+  if (!agent.worktreeBranch || !agent.worktreePath) return
 
-  if (agent.worktreeBranch && !run.vars._pr) {
+  const step = def.steps.find(s => s.id === stepId)
+  const presetName = step ? getStepPresetName(step) : undefined
+  const adapterName = resolvePrAdapter(run, step, presetName)
+  const adapter = getPrAdapter(adapterName)
+
+  if (!run.vars._pr) {
     try {
-      execSync(`git push -u origin ${agent.worktreeBranch}`, {
-        cwd: agent.worktreePath, encoding: 'utf-8', timeout: 30_000,
+      const prConfig = resolvePrConfig(step, presetName)
+      const taskDesc = run.vars._input?.task ?? run.workflow
+      const templateVars = { task: taskDesc, run_id: run.id, branch: agent.worktreeBranch, step: stepId }
+      const title = prConfig.titleTemplate
+        ? renderPrTemplate(prConfig.titleTemplate, templateVars)
+        : taskDesc.slice(0, 70)
+      const body = prConfig.bodyTemplate
+        ? resolvePrBodyTemplate(prConfig.bodyTemplate, templateVars)
+        : `Automated PR from flt workflow ${run.id}`
+      const result = await adapter.createPr({
+        worktree: agent.worktreePath,
+        branch: agent.worktreeBranch,
+        title,
+        body,
+        baseBranch: prConfig.baseBranch ?? '',
+        reviewers: prConfig.reviewers,
+        labels: prConfig.labels,
       })
-      const existing = execSync(`gh pr view ${agent.worktreeBranch} --json url 2>/dev/null || echo ""`, {
-        cwd: agent.worktreePath, encoding: 'utf-8', timeout: 15_000,
-      }).trim()
-      if (existing) {
-        try {
-          const pr = JSON.parse(existing)
-          run.vars._pr = { url: pr.url, branch: agent.worktreeBranch }
-        } catch (e) {
-          appendEvent({ type: 'workflow', detail: `gh pr view parse failed ${run.id}/${stepId}: ${(e as Error).message}`, at: new Date().toISOString() })
-        }
-      } else {
-        const taskDesc = run.vars._input?.task ?? run.workflow
-        const step = def.steps.find(s => s.id === stepId)
-        const prConfig = resolvePrConfig(step, step ? getStepPresetName(step) : undefined)
-        const templateVars = { task: taskDesc, run_id: run.id, branch: agent.worktreeBranch, step: stepId }
-        const title = prConfig.titleTemplate
-          ? renderPrTemplate(prConfig.titleTemplate, templateVars)
-          : taskDesc.slice(0, 70)
-        const body = prConfig.bodyTemplate
-          ? resolvePrBodyTemplate(prConfig.bodyTemplate, templateVars)
-          : `Automated PR from flt workflow ${run.id}`
-        let ghCmd = `gh pr create --title ${shellEscapeArg(title)} --body ${shellEscapeArg(body)} --head ${agent.worktreeBranch}`
-        if (prConfig.baseBranch) ghCmd += ` --base ${shellEscapeArg(prConfig.baseBranch)}`
-        if (prConfig.reviewers?.length) ghCmd += ` --reviewer ${shellEscapeArg(prConfig.reviewers.join(','))}`
-        if (prConfig.labels?.length) ghCmd += prConfig.labels.map(l => ` --label ${shellEscapeArg(l)}`).join('')
-        const prUrl = execSync(ghCmd, { cwd: agent.worktreePath, encoding: 'utf-8', timeout: 30_000 }).trim()
-        run.vars._pr = { url: prUrl, branch: agent.worktreeBranch }
-      }
+      run.vars._pr = { url: result.url, branch: agent.worktreeBranch }
     } catch (e) {
       appendEvent({ type: 'workflow', detail: `auto-pr push/create failed ${run.id}/${stepId}: ${(e as Error).message}`, at: new Date().toISOString() })
     }
-  } else if (agent.worktreeBranch && run.vars._pr) {
+  } else {
     try {
-      execSync('git push', { cwd: agent.worktreePath, encoding: 'utf-8', timeout: 30_000 })
+      await adapter.pushBranch({ worktree: agent.worktreePath, branch: agent.worktreeBranch })
     } catch (e) {
       appendEvent({ type: 'workflow', detail: `auto-commit push failed ${run.id}/${stepId}: ${(e as Error).message}`, at: new Date().toISOString() })
     }
@@ -1540,7 +1551,7 @@ async function advanceDynamicDag(def: WorkflowDef, run: WorkflowRun, step: Dynam
         if (c.node.coderAgent) {
           const coderAgent = getAgent(c.node.coderAgent)
           if (coderAgent) {
-            applyAutoCommit(coderAgent, run, def, step.id)
+            await applyAutoCommit(coderAgent, run, def, step.id)
           }
           try {
             const { killDirect } = await import('../commands/kill')
@@ -2399,6 +2410,15 @@ export function _applyAutoCommitForTest(agentName: string): void {
       cwd: agent.worktreePath, encoding: 'utf-8', timeout: 10_000,
     })
   } catch {}
+}
+
+/** Test hook: exercise applyAutoCommit's PR-creation path without going through advanceWorkflow. */
+export async function _applyPrForTest(agentName: string, runId: string, stepId: string): Promise<void> {
+  const agent = getAgent(agentName)
+  const run = loadWorkflowRun(runId)
+  if (!run || !agent?.workflow) return
+  const def = loadWorkflowDef(run.workflow)
+  await applyAutoCommit(agent, run, def, stepId)
 }
 
 // Map agent names to workflow run IDs for the controller poller
