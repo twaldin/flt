@@ -26,6 +26,7 @@ describe('ssh helpers', () => {
     expect(buildSshArgs({ host: 'example.com' })).toEqual([
       '-o', 'BatchMode=yes',
       '-o', 'ConnectTimeout=5',
+      '--',
       'example.com',
     ])
   })
@@ -34,6 +35,7 @@ describe('ssh helpers', () => {
     expect(buildSshArgs({ host: 'example.com', user: 'alice' })).toEqual([
       '-o', 'BatchMode=yes',
       '-o', 'ConnectTimeout=5',
+      '--',
       'alice@example.com',
     ])
   })
@@ -44,6 +46,7 @@ describe('ssh helpers', () => {
       '-i', '~/.ssh/id',
       '-o', 'BatchMode=yes',
       '-o', 'ConnectTimeout=5',
+      '--',
       'alice@example.com',
     ])
   })
@@ -53,6 +56,7 @@ describe('ssh helpers', () => {
     expect(buildSshArgs(rawHostRemote, ['uname -a'])).toEqual([
       '-o', 'BatchMode=yes',
       '-o', 'ConnectTimeout=5',
+      '--',
       'raw.example.com',
       'uname -a',
     ])
@@ -64,7 +68,7 @@ describe('ssh helpers', () => {
 
     expect(mockExecFileSync).toHaveBeenCalledWith(
       'ssh',
-      ['-o', 'BatchMode=yes', '-o', 'ConnectTimeout=5', 'alice@example.com', 'echo hello'],
+      ['-o', 'BatchMode=yes', '-o', 'ConnectTimeout=5', '--', 'alice@example.com', 'echo hello'],
       { encoding: 'utf-8', input: 'stdin-body', stdio: ['pipe', 'pipe', 'pipe'] },
     )
     expect(result).toEqual({ stdout: 'hello', stderr: '', status: 0 })
@@ -75,7 +79,7 @@ describe('ssh helpers', () => {
     expect(sshExecCheck({ host: 'example.com' }, 'true')).toBe(true)
     expect(mockExecFileSync).toHaveBeenCalledWith(
       'ssh',
-      ['-o', 'BatchMode=yes', '-o', 'ConnectTimeout=5', 'example.com', 'true'],
+      ['-o', 'BatchMode=yes', '-o', 'ConnectTimeout=5', '--', 'example.com', 'true'],
       { encoding: 'utf-8', stdio: ['ignore', 'pipe', 'pipe'] },
     )
   })
