@@ -136,8 +136,33 @@ function dispatchAnswer(runId: string, questionId: string, selected: string[], t
   void writeAnswer(questionId, selected, text, { runId, notify: true }).catch(() => {})
 }
 
+// Optimistically remove rows matching predicate so the modal reflects the
+// resolved state immediately. The file watcher's debounced refresh (≤150ms)
+// reconciles against disk after — if the action failed for some reason the
+// row reappears, and if it succeeded the row stays gone. Without this drop,
+// a row sits visible for hundreds of ms while the engine processes the
+// async action, looking like the click did nothing (issue: gates modal
+// rows stay after retry/skip/answer).
+function dropRowsBy(state: GatesModalState, predicate: (r: ModalRow) => boolean): void {
+  const before = state.rows.length
+  state.rows = state.rows.filter(r => !predicate(r))
+  if (state.rows.length !== before && state.selectedIndex >= state.rows.length) {
+    state.selectedIndex = Math.max(0, state.rows.length - 1)
+  }
+}
+
+function rowQuestionId(row: ModalRow): string | null {
+  if (row.kind !== 'question') return null
+  if (row.batchQuestions && row.batchQuestions.length > 0) {
+    return row.batchQuestions[0]!.id
+  }
+  return row.question?.id ?? null
+}
+
 // After answering the current question in the picker, advance to the next
-// question in the batch (if any). Otherwise close the picker.
+// question in the batch (if any). Otherwise close the picker AND drop the
+// parent row from the modal so it doesn't sit visible while the qna file
+// watcher catches up.
 function advancePickerOrClose(state: GatesModalState): void {
   const picker = state.questionPicker
   if (!picker) return
@@ -151,6 +176,15 @@ function advancePickerOrClose(state: GatesModalState): void {
     picker.selected = new Set<string>()
     picker.typing = null
   } else {
+    // Last (or only) question of the batch is answered — drop the parent
+    // question row optimistically. Match by runId + first question id.
+    const finishedRunId = picker.runId || '_unrouted'
+    const firstQid = batch ? batch.questions[0]!.id : picker.question.id
+    dropRowsBy(state, r => {
+      if (r.kind !== 'question' || r.runId !== finishedRunId) return false
+      const rid = rowQuestionId(r)
+      return rid === firstQid
+    })
     state.questionPicker = null
   }
 }
@@ -844,19 +878,49 @@ export function handleGatesKey(state: GatesModalState, key: string, actions: Gat
     const dispatch = (k: string): boolean => {
       switch (row.kind) {
         case 'human_gate':
-          if (k === 'a') { actions.approve(row.runId); state.detailOverlay = null; return true }
+          if (k === 'a') {
+            actions.approve(row.runId)
+            dropRowsBy(state, r => r.runId === row.runId && r.kind === 'human_gate')
+            state.detailOverlay = null
+            return true
+          }
           if (k === 'x') { state.detailOverlay = null; state.rejectPrompt = { reason: '' }; return true }
           break
         case 'node-fail': {
           const nodeId = typeof row.payload.nodeId === 'string' ? row.payload.nodeId : undefined
-          if (k === 'r') { actions.nodeRetry(row.runId, nodeId); state.detailOverlay = null; return true }
-          if (k === 's') { actions.nodeSkip(row.runId, nodeId); state.detailOverlay = null; return true }
-          if (k === 'a') { actions.nodeAbort(row.runId); state.detailOverlay = null; return true }
+          if (k === 'r') {
+            actions.nodeRetry(row.runId, nodeId)
+            dropRowsBy(state, r => r.runId === row.runId && r.kind === 'node-fail' && (typeof r.payload.nodeId === 'string' ? r.payload.nodeId : undefined) === nodeId)
+            state.detailOverlay = null
+            return true
+          }
+          if (k === 's') {
+            actions.nodeSkip(row.runId, nodeId)
+            dropRowsBy(state, r => r.runId === row.runId && r.kind === 'node-fail' && (typeof r.payload.nodeId === 'string' ? r.payload.nodeId : undefined) === nodeId)
+            state.detailOverlay = null
+            return true
+          }
+          if (k === 'a') {
+            actions.nodeAbort(row.runId)
+            dropRowsBy(state, r => r.runId === row.runId && (r.kind === 'node-fail' || r.kind === 'node-candidate'))
+            state.detailOverlay = null
+            return true
+          }
           break
         }
         case 'reconcile-fail':
-          if (k === 'r') { actions.reconcileRetry(row.runId); state.detailOverlay = null; return true }
-          if (k === 'a') { actions.reconcileAbort(row.runId); state.detailOverlay = null; return true }
+          if (k === 'r') {
+            actions.reconcileRetry(row.runId)
+            dropRowsBy(state, r => r.runId === row.runId && r.kind === 'reconcile-fail')
+            state.detailOverlay = null
+            return true
+          }
+          if (k === 'a') {
+            actions.reconcileAbort(row.runId)
+            dropRowsBy(state, r => r.runId === row.runId)
+            state.detailOverlay = null
+            return true
+          }
           break
         case 'mutation-candidate':
           if (k === 'a') { approveMutationCandidate(row); actions.refresh(); state.detailOverlay = null; return true }
@@ -907,7 +971,11 @@ export function handleGatesKey(state: GatesModalState, key: string, actions: Gat
       if (reason) {
         const row = state.rows[state.selectedIndex]
         state.rejectPrompt = null
-        if (row) actions.reject(row.runId, reason)
+        if (row) {
+          actions.reject(row.runId, reason)
+          // Reject closes the human_gate (or mutation-candidate) row
+          dropRowsBy(state, r => r.runId === row.runId && (r.kind === 'human_gate' || r.kind === 'mutation-candidate'))
+        }
       }
     } else if (key === 'backspace') {
       state.rejectPrompt.reason = state.rejectPrompt.reason.slice(0, -1)
@@ -1048,21 +1116,48 @@ export function handleGatesKey(state: GatesModalState, key: string, actions: Gat
 
   switch (row.kind) {
     case 'human_gate':
-      if (key === 'a') { actions.approve(row.runId); return true }
+      if (key === 'a') {
+        actions.approve(row.runId)
+        dropRowsBy(state, r => r.runId === row.runId && r.kind === 'human_gate')
+        return true
+      }
       if (key === 'x') { state.rejectPrompt = { reason: '' }; return true }
       break
 
     case 'node-fail': {
       const nodeId = typeof row.payload.nodeId === 'string' ? row.payload.nodeId : undefined
-      if (key === 'r') { actions.nodeRetry(row.runId, nodeId); return true }
-      if (key === 's') { actions.nodeSkip(row.runId, nodeId); return true }
-      if (key === 'a') { actions.nodeAbort(row.runId); return true }
+      if (key === 'r') {
+        actions.nodeRetry(row.runId, nodeId)
+        dropRowsBy(state, r => r.runId === row.runId && r.kind === 'node-fail' && (typeof r.payload.nodeId === 'string' ? r.payload.nodeId : undefined) === nodeId)
+        return true
+      }
+      if (key === 's') {
+        actions.nodeSkip(row.runId, nodeId)
+        dropRowsBy(state, r => r.runId === row.runId && r.kind === 'node-fail' && (typeof r.payload.nodeId === 'string' ? r.payload.nodeId : undefined) === nodeId)
+        return true
+      }
+      if (key === 'a') {
+        actions.nodeAbort(row.runId)
+        // Abort terminates the dynamic_dag step entirely — drop ALL its node-fail
+        // and node-candidate rows for this run.
+        dropRowsBy(state, r => r.runId === row.runId && (r.kind === 'node-fail' || r.kind === 'node-candidate'))
+        return true
+      }
       break
     }
 
     case 'reconcile-fail':
-      if (key === 'r') { actions.reconcileRetry(row.runId); return true }
-      if (key === 'a') { actions.reconcileAbort(row.runId); return true }
+      if (key === 'r') {
+        actions.reconcileRetry(row.runId)
+        dropRowsBy(state, r => r.runId === row.runId && r.kind === 'reconcile-fail')
+        return true
+      }
+      if (key === 'a') {
+        actions.reconcileAbort(row.runId)
+        // Abort terminates the run — drop everything tied to it.
+        dropRowsBy(state, r => r.runId === row.runId)
+        return true
+      }
       break
 
     case 'node-candidate':
@@ -1100,8 +1195,15 @@ export function handleGatesKey(state: GatesModalState, key: string, actions: Gat
       if (key === 's' && row.question) {
         const r = row.runId === '_unrouted' ? '' : row.runId
         // Skip applies to whichever question is currently selected. For a
-        // batch row this skips only the first question; the rest stay pending.
+        // batch row this skips only the first question; the rest stay
+        // pending and the watcher refresh will rebuild the row pointing
+        // at the next pending question. For a non-batch row, drop it
+        // optimistically — there's nothing left to ask.
+        const isBatch = !!row.batchQuestions && row.batchQuestions.length > 1
         dispatchAnswer(r, row.question.id, [], undefined)
+        if (!isBatch) {
+          dropRowsBy(state, x => x.kind === 'question' && x.runId === row.runId && rowQuestionId(x) === row.question?.id)
+        }
         actions.refresh()
         return true
       }
