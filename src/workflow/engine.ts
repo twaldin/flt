@@ -1260,7 +1260,19 @@ async function maybeRunFinalReconcile(def: WorkflowDef, run: WorkflowRun, step: 
   void def
   const state = run.dynamicDagGroups?.[step.id]
   if (!state || !run.runDir) return
-  if (state.pendingGateNode) return
+  // Self-heal stale pendingGateNode: when an operator hand-resolves a node
+  // (edits run.json status to passed/skipped + clears .gate-pending), the
+  // pendingGateNode field can stick around and block reconcile forever.
+  // Mirrors the parallel sweep advanceDynamicDag does on .gate-pending entries.
+  if (state.pendingGateNode) {
+    const stale = state.nodes[state.pendingGateNode]
+    if (!stale || stale.status !== 'failed') {
+      state.pendingGateNode = undefined
+      saveWorkflowRun(run)
+    } else {
+      return
+    }
+  }
   if (state.reconcilerAgent) return
 
   // Already-passed guard: if the step result file exists with verdict=pass,
