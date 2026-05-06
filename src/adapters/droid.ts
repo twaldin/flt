@@ -6,14 +6,13 @@ import { getAdapter as getHarnessAdapter } from '@twaldin/harness-ts'
 const harness = getHarnessAdapter('factory-droid')
 const OAUTH_PROXY = 'http://127.0.0.1:10531/v1'
 
-// droid stores per-session settings JSON. Default model is the user's
-// factory.ai-billed Opus 4.7 (hits credit limit fast). To BYO model in
-// interactive mode, write a settings file with the existing custom model
-// id from ~/.factory/settings.json's `customModels` array — this routes
-// through the local OAuth proxy and bypasses factory.ai billing.
+// droid stores per-session settings JSON. The `model` field is a direct
+// model slug (e.g. "gpt-5.4") — NOT a customModels ID. Droid routes
+// requests through OPENAI_BASE_URL (the local OAuth proxy) when that env
+// var is set, so no customModels entry is needed for flt-spawned agents.
 //
 // Schema fields verified empirically from past session settings:
-//   model: id of the custom model (matches customModels[i].id)
+//   model: model slug (e.g. "gpt-5.5", "gpt-5.4", "gpt-5.4-mini")
 //   autonomyLevel: 'off' | 'medium' | 'high'
 //   autonomyMode: 'normal' | 'auto-medium' | 'auto-high' | 'spec'
 //   reasoningEffort: 'low' | 'medium' | 'high' | 'none'
@@ -39,10 +38,7 @@ export const droidAdapter: CliAdapter = {
   submitKeys: harness.submitKeys ?? ['Enter'],
 
   spawnArgs(opts: SpawnOpts): string[] {
-    // BYO model: use the existing customModels[0].id from ~/.factory/settings.json.
-    // Default custom id created by `droid` when adding the OAuth proxy is
-    // "custom:gpt-5.4-(codex-oauth-proxy)-0". User can override via opts.model.
-    const modelId = opts.model ?? 'custom:gpt-5.4-(codex-oauth-proxy)-0'
+    const modelId = opts.model ?? 'gpt-5.4'
     const settings = writeDroidSettings(opts.dir, modelId)
     return ['droid', '--settings', settings]
   },
