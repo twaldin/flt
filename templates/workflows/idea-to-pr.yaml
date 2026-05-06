@@ -83,6 +83,28 @@ steps:
       - Spec: {steps.spec.worktree}/spec.md
       - Design: {steps.architect.worktree}/design.md
 
+      Previous reviewer feedback (only set on retry): {prior_review}
+
+      ## Anchoring on retry — READ THIS FIRST
+
+      If {prior_review} is non-empty, you are NOT a fresh reviewer. The
+      coder JUST fixed (or attempted to fix) those exact blockers. Your
+      job is narrow:
+
+      1) Verify the prior_review blockers were actually addressed. If any
+         specific blocker is still present, fail with that same blocker —
+         do NOT find a new way to phrase it, do NOT add other concerns.
+      2) ONLY raise NEW blockers if they are critical: data corruption,
+         security regression, or a build/typecheck failure that did not
+         exist on the prior pass. Aesthetic, naming, style, "could be
+         cleaner" issues that you missed in pass 1 are NOT blockers in
+         pass 2+ — note them in review.md and pass.
+
+      Reviewers who carousel through new blockers each retry are the
+      single biggest cause of workflow exhaustion. Do not be that.
+
+      ## Reviewing fresh (no prior_review)
+
       To inspect the diff:
       - git log --oneline {steps.coder.branch} -20
       - git diff $(git merge-base HEAD origin/HEAD)...HEAD     # or replace base manually if origin/HEAD is unset
@@ -91,6 +113,8 @@ steps:
       Read spec.md + design.md FIRST, then look at the diff with the spec in mind.
 
       Check for: deviations from the spec, missing acceptance-criteria coverage, bugs, security issues, unrelated drive-by edits, missing tests.
+
+      ## Outcome
 
       If acceptable: flt workflow pass
       If problems: flt workflow fail "<concrete actionable feedback>"
