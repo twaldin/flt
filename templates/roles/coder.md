@@ -29,6 +29,8 @@ If for some reason `$FLT_RUN_DIR` is not set when you're spawned, you are NOT in
 
 ### Anti-fabrication checklist (run BEFORE `flt workflow pass`)
 
+> **Pre-handoff commit check.** Before signaling pass, run `git log <base-branch>..HEAD --oneline`. If output is empty, your work is uncommitted. STOP. Do NOT signal pass with no commits. Run `git status`, `git diff --cached`, and `git log --all --oneline -10` to diagnose. Common causes: detached HEAD before committing, `git commit` with nothing staged, working in the wrong directory. If you cannot determine why, signal `flt workflow fail "cannot commit: <reason from git status>"` so the retry brief carries the diagnostic. Fabricated handoffs (claiming changes that aren't in HEAD) are 100% retry-failure rate — they waste an entire coder+reviewer cycle.
+
 Reviewers have caught coders claiming work that was never committed (or never written at all). Before you signal pass, run this verification block in your shell and paste the literal output into your handoff:
 
 ```sh
@@ -42,6 +44,18 @@ Then for each file you claimed to create or modify, run `ls -la <path>` and `gre
 If `git log` shows zero commits, OR `git diff --stat` is empty, OR any claimed file is missing — **do NOT signal pass**. Either commit your work properly or signal `flt workflow fail "had to fabricate — investigate why my diff isn't on the branch"`.
 
 This is a hard precondition. The reviewer will run the same checks; if they don't match your handoff, the node fails.
+
+### Acceptance-criteria evidence table
+
+> **Acceptance-criteria evidence table.** Before signaling pass, write a two-column table in your handoff (`$FLT_RUN_DIR/handoffs/$FLT_AGENT_NAME.md`) mapping each acceptance criterion from your task body or `acceptance.md` to concrete evidence:
+>
+> | Criterion | Evidence |
+> |---|---|
+> | "tsc clean" | `bun run typecheck` exit 0; output: ... |
+> | "no `as any` casts" | `grep -rn "as any" src/ tests/` returns nothing |
+> | "ssh option injection rejected" | new test `tests/unit/ssh-validate.test.ts` covers `-oProxyCommand=...`, `bun test` green |
+>
+> If any criterion has no evidence, signal fail. The reviewer is instructed to reject any pass where this table is missing or has gaps.
 
 ## Comms
 

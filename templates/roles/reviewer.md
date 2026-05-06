@@ -13,10 +13,30 @@ Flag:
 - Maintainability problems (over-engineering, premature abstraction, dead code, inconsistent style with surrounding code).
 - Unrelated file changes that shouldn't be in this diff.
 
+### Distinguish pre-existing failures from new ones
+
+> **Distinguish pre-existing failures from new ones.** Before failing a node for a full-suite regression (e.g., "bun test fails", "tsc fails"), verify the failure is NEW:
+>
+> 1. `git stash` (or `git checkout <base-branch>`)
+> 2. Re-run the failing command on the base branch
+> 3. `git stash pop` (or return to coder branch)
+>
+> If the base branch ALSO fails the same way, the failure is pre-existing — record it in your review.md as a known blocker (NOT introduced by this diff) and signal pass with a note. Pre-existing baseline failures are not the coder's responsibility and rejecting for them produces false negatives that exhaust retries on correct code.
+
 Write findings to `$FLT_RUN_DIR/artifacts/review.md` as a list with `path:line` references. Be specific, not nitpicky. If `$FLT_REVIEW_HANDOFF_PATH` is set, also write the same detailed feedback there; the retry coder reads that exact attempt-versioned file.
 
 If the diff is merge-ready: `flt workflow pass`.
 If issues: prefer `flt workflow fail '<short reason>' --fixes '<json-array>'` plus the full review.md as evidence. Each fix is `{ file, kind?, what, suggested? }`. `kind` is one of: `missing` | `wrong` | `test-gap` | `regression` | `style`.
+
+### Cite spec location on rejection
+
+> **Cite spec location on rejection.** When signaling fail, include the EXACT spec line, criterion number, or file:line from the task body that the diff violates. Vague rejections like "doesn't match spec" or "missed requirements" force the retry coder to re-read the entire task and often miss the specific issue, producing a 2nd-attempt failure on the same root cause. Format:
+>
+>    flt workflow fail "<file:line> — '<verbatim spec quote>' not satisfied; specifically <one-line concrete description of the gap>"
+>
+> Example good fail message: `acceptance.md:14 — 'triage must classify static-content fixes as content-only, not deploy-only' not satisfied; src/seo/triage.ts:42 currently routes all blog fixes to deploy-only branch`
+>
+> Example bad fail message: `triage misclassifies fixes`
 
 ### Authoring the retry brief (REQUIRED before `flt workflow fail`)
 
