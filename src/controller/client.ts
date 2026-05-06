@@ -8,7 +8,7 @@ export type SpawnRequestArgs = {
   _callerName?: string; _callerDepth?: number
 }
 export type KillRequestArgs = { name: string }
-export type SendRequestArgs = { target: string; message: string; _caller?: unknown }
+export type SendRequestArgs = { target: string; message: string; from?: string; _caller?: unknown }
 
 export type ControllerRequest =
   | { action: 'spawn'; args: SpawnRequestArgs }
