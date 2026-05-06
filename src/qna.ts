@@ -174,18 +174,57 @@ export async function writeAnswer(
     try {
       const q = JSON.parse(readFileSync(qPath, 'utf-8')) as Question
       if (q.askedBy && q.askedBy.length > 0) {
-        const { sendDirect } = await import('./commands/send')
-        const summary = summarizeAnswer(answer)
-        const message = `human answered ${questionId}: ${summary}`
-        try {
-          await sendDirect({
-            target: q.askedBy,
-            message,
-            _caller: { mode: 'agent', agentName: 'flt-qna', depth: 0 } as Parameters<typeof sendDirect>[0]['_caller'],
-          })
-          notified = q.askedBy
-        } catch {
-          // best-effort
+        // Batch-aware notification: if this question is part of a multi-
+        // question askHuman batch, suppress the per-answer ping and only
+        // notify once when the LAST sibling in the batch is answered.
+        // Single-question (no batchId) keeps the per-answer behavior.
+        const batchId = (q as Question & { batchId?: string }).batchId
+        let shouldNotify = true
+        let bundledMessage = `human answered ${questionId}: ${summarizeAnswer(answer)}`
+
+        if (batchId && typeof batchId === 'string' && batchId.length > 0) {
+          const siblings = readdirSync(runDir)
+            .filter(f => f.endsWith('.question.json'))
+            .map(f => f.replace(/\.question\.json$/, ''))
+            .map(qid => {
+              const qp = join(runDir, `${qid}.question.json`)
+              try {
+                const sq = JSON.parse(readFileSync(qp, 'utf-8')) as Question & { batchId?: string }
+                if (sq.batchId !== batchId) return null
+                const ap = join(runDir, `${qid}.answer.json`)
+                const sa = existsSync(ap)
+                  ? JSON.parse(readFileSync(ap, 'utf-8')) as Answer
+                  : null
+                return { id: qid, answer: sa }
+              } catch { return null }
+            })
+            .filter((row): row is { id: string; answer: Answer | null } => row !== null)
+
+          const allAnswered = siblings.length > 0 && siblings.every(s => s.answer !== null)
+          if (!allAnswered) {
+            shouldNotify = false
+          } else {
+            const lines = siblings.map(s => `  ${s.id}: ${s.answer ? summarizeAnswer(s.answer) : ''}`)
+            bundledMessage = [
+              `human answered batch ${batchId} (${siblings.length} questions):`,
+              ...lines,
+              `  answers: ${runDir}/`,
+            ].join('\n')
+          }
+        }
+
+        if (shouldNotify) {
+          const { sendDirect } = await import('./commands/send')
+          try {
+            await sendDirect({
+              target: q.askedBy,
+              message: bundledMessage,
+              _caller: { mode: 'agent', agentName: 'flt-qna', depth: 0 } as Parameters<typeof sendDirect>[0]['_caller'],
+            })
+            notified = q.askedBy
+          } catch {
+            // best-effort
+          }
         }
       }
     } catch {
