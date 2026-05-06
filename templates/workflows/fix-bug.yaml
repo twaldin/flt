@@ -42,7 +42,9 @@ steps:
       flt workflow fail "<reason>" if the test is wrong or you hit a real blocker.
     on_complete: rerun
     on_fail: fix
-    max_retries: 2
+    # Bounds BOTH self-loop AND cross-step retries (rerun/review -> fix
+    # bounces count against this counter post-engine-fix).
+    max_retries: 4
 
   - id: rerun
     preset: pi-coder

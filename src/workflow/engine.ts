@@ -517,9 +517,42 @@ export async function advanceWorkflow(runId: string, idleAgentName?: string): Pr
     }
     const failStep = def.steps.find(s => s.id === failStepId)
     if (failStep) {
+      // Cross-step on_fail: count this as a retry of the TARGET step. Before
+      // this fix the engine never incremented any counter on cross-step
+      // bouncing (reviewer fails -> coder, coder fixes, reviewer fails on a
+      // different topic, coder fixes, ...) — every run ever recorded had
+      // `retries: {}`. Carousels ran until human cancelled or reviewer
+      // eventually conceded.
+      //
+      // Behavior is opt-in: if the target step doesn't declare max_retries
+      // (or sets it to 0), the cross-step branch stays unbounded as before
+      // — no behavior change for existing workflows that don't opt in.
+      // Workflows that DO want a bound set max_retries on the target step
+      // (typically `coder`) and the engine will trip when crossings exceed.
+      const maxRetries = failStep.max_retries ?? 0
+      const retryCount = run.retries[failStepId] ?? 0
+      if (maxRetries > 0 && retryCount >= maxRetries) {
+        run.status = 'failed'
+        run.stepFailReason = failReason
+        run.completedAt = new Date().toISOString()
+        finalizeRun(run)
+        appendEvent({ type: 'workflow', detail: `failed ${run.id}: cross-step retries to ${failStepId} exhausted (${maxRetries}) — ${failReason ?? 'agent signaled fail'}`, at: run.completedAt })
+        cleanupWorkflowWorktrees(run)
+        await notifyWorkflowParent(run, `Workflow "${run.workflow}" failed: cross-step retries to "${failStepId}" exhausted (${maxRetries}) — last failure from "${currentStepDef.id}": ${failReason ?? 'agent signaled fail'}`)
+        return
+      }
+      if (maxRetries > 0) {
+        run.retries[failStepId] = retryCount + 1
+      }
+      // Always plumb the latest failure into stepFailReason so the target
+      // step's task body sees {fail_reason} / {prior_review}. Prior to this
+      // fix, only self-loop retries set stepFailReason — cross-step
+      // retried agents got a stale (or empty) reason.
+      run.stepFailReason = failReason
       run.currentStep = failStepId
       saveWorkflowRun(run)
-      appendEvent({ type: 'workflow', detail: `advanced ${run.id} step ${failStepId} (on_fail from ${currentStepDef.id})`, at: new Date().toISOString() })
+      const counterLabel = maxRetries > 0 ? `${retryCount + 1}/${maxRetries}` : '∞'
+      appendEvent({ type: 'workflow', detail: `advanced ${run.id} step ${failStepId} (on_fail from ${currentStepDef.id}, cross-step retry ${counterLabel})`, at: new Date().toISOString() })
       await executeStep(def, run, failStep)
       return
     }

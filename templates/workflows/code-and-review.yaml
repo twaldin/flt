@@ -3,6 +3,8 @@ steps:
   - id: coder
     preset: pi-coder
     task: '{task} {fail_reason}'
+    # Bounds the cross-step carousel: reviewer/gate -> coder retries cap here.
+    max_retries: 4
     on_complete: reviewer
   - id: reviewer
     preset: cc-sonnet
