@@ -117,9 +117,10 @@ program
 program
   .command('send <target> <message>')
   .description('Send a message to an agent or parent')
-  .action(async (target, message) => {
+  .option('--from <name>', 'Override sender label (overrides FLT_AGENT_NAME, FLT_AGENT, and cron auto-detect)')
+  .action(async (target, message, opts) => {
     try {
-      await send({ target, message })
+      await send({ target, message, from: opts.from })
     } catch (e) {
       console.error(`Error: ${(e as Error).message}`)
       process.exit(1)

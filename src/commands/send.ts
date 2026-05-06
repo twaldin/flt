@@ -9,21 +9,63 @@ import { userInfo } from 'os'
 interface SendArgs {
   target: string
   message: string
+  /** Explicit sender label override (--from flag). Highest precedence. */
+  from?: string
   _caller?: CallerContext
 }
 
 type CallerContext = ReturnType<typeof detectCaller>
+
+/**
+ * Resolve the sender label shown in inbox messages.
+ *
+ * Precedence:
+ *   1. Explicit --from flag (args.from)
+ *   2. FLT_AGENT env var (script-level override; cron entries can set this)
+ *   3. caller.agentName (workflow agents have FLT_AGENT_NAME plumbed)
+ *   4. Cron auto-detect: when stdin is not a TTY and TMUX is unset, the
+ *      caller is almost certainly a cron / launchd / systemd-timer script.
+ *      Default sender to "cron" so cron messages don't masquerade as the
+ *      unix user (issue #70).
+ *   5. detectUsername() (interactive human at a terminal)
+ *   6. "unknown" (agent context with no name — shouldn't happen)
+ */
+function resolveSender(args: SendArgs, caller: CallerContext): string {
+  if (args.from && args.from.length > 0) return args.from
+  const envFrom = process.env.FLT_AGENT
+  if (envFrom && envFrom.length > 0) return envFrom
+  if (caller.agentName) return caller.agentName
+  if (caller.mode === 'human') {
+    if (isCronContext()) return 'cron'
+    return detectUsername()
+  }
+  return 'unknown'
+}
+
+function isCronContext(): boolean {
+  // cron / launchd / systemd-timer scripts run without a controlling
+  // terminal and outside any tmux session. If both signals say "no
+  // interactive terminal," treat as cron.
+  if (process.stdin.isTTY) return false
+  if (process.env.TMUX) return false
+  if (process.env.SSH_TTY) return false
+  return true
+}
 
 export async function send(args: SendArgs): Promise<void> {
   if (process.env.FLT_CONTROLLER !== '1') {
     const { ensureController } = await import('./controller')
     const { sendToController } = await import('../controller/client')
     await ensureController()
-    // Capture caller context here (where FLT_AGENT_NAME is set) and pass it through
+    // Capture caller context here (where FLT_AGENT_NAME is set) and pass it through.
+    // ALSO pre-resolve the sender label here — TTY / TMUX / SSH_TTY signals
+    // for cron auto-detect must be sampled in the caller's process, not the
+    // controller daemon's (which has its own, unrelated TTY state).
     const caller = detectCaller()
+    const resolvedFrom = args.from ?? resolveSender(args, caller)
     const result = await sendToController({
       action: 'send',
-      args: { ...args, _caller: caller },
+      args: { ...args, from: resolvedFrom, _caller: caller },
     })
     if (!result.ok) throw new Error(result.error ?? 'Send failed')
     return
@@ -34,7 +76,7 @@ export async function send(args: SendArgs): Promise<void> {
 export async function sendDirect(args: SendArgs): Promise<void> {
   const { target, message, _caller } = args
   const caller = _caller ?? detectCaller()
-  const senderName = caller.agentName ?? (caller.mode === 'human' ? detectUsername() : 'unknown')
+  const senderName = resolveSender(args, caller)
 
   let effectiveTarget = target
 
