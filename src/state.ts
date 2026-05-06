@@ -30,7 +30,14 @@ export interface AgentState {
    * a sibling step's worktree, or directly in the repo). Used by sidebar to
    * show `wt:~/flt` instead of the worktree path. */
   projectRoot?: string
+  /** Workflow definition name (e.g. "dynamic-feature") if this agent was
+   * spawned by a workflow run. Empty/undefined for ad-hoc `flt spawn` agents. */
   workflow?: string
+  /** Workflow run id (e.g. "find-one-role-skill-10") if this agent was
+   * spawned by a workflow run. Used by getWorkflowForAgent to map an agent
+   * back to its run without guessing from name patterns. Empty/undefined
+   * for ad-hoc agents — those must NEVER cascade into a workflow failure. */
+  workflowRunId?: string
   spawnedAt: string
   status?: AgentStatus
   statusAt?: string
