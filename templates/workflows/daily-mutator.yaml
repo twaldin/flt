@@ -92,32 +92,117 @@ steps:
 
         flt workflow pass when eval output is written.
         flt workflow fail "eval did not run" only if neither command can execute.
-    on_complete: open-gate
+    on_complete: review
     on_fail: abort
 
-  - id: gate
-    type: human_gate
-    notify: |
-      Daily mutator candidate ready for review.
-
-      Hypothesis: $FLT_RUN_DIR/artifacts/hypothesis.json
-      Eval results:
-        a (stable): $FLT_RUN_DIR/results/eval-a.json
-        b (candidate): $FLT_RUN_DIR/results/eval-b.json
-
-      Promotion is manual only:
-      flt promote $FLT_RUN_DIR/artifacts/<artifact>.vNext.md --evidence <run-id-1>,<run-id-2>
-    on_complete: done
-    on_fail: abort
-
-  - id: open-gate
+  # Per-candidate review via flt ask human. One chained TUI flow with one
+  # question per *.vNext.md, each carrying the inline diff vs stable + the
+  # mutator's hypothesis + 3 options: approve / reject / modify. modify
+  # opens $EDITOR on the vNext and re-asks for approve/reject. Approved
+  # candidates are auto-promoted via flt promote.
+  - id: review
     run: |
-      # Build options array from artifacts/*.vNext.md files
-      OPTIONS=$(ls "$FLT_RUN_DIR/artifacts/"*.vNext.md 2>/dev/null | xargs -I{} basename {} .vNext.md | jq -R . | jq -s .)
-      flt gate open \
-        --kind mutation-candidate \
-        --options "$OPTIONS" \
-        --reason "Daily mutator: review proposed role-prompt mutations" \
-        --run-dir "$FLT_RUN_DIR"
+      set -euo pipefail
+      RUN_ID=$(basename "$FLT_RUN_DIR")
+      export ART="$FLT_RUN_DIR/artifacts"
+      export RUN_ID
+      export FLT_TEMPLATES_DIR="${FLT_TEMPLATES_DIR:-$HOME/flt/templates}"
+
+      # First pass: ask the user about each candidate
+      JSON=$(node -e '
+        const fs = require("fs"), child = require("child_process");
+        const art = process.env.ART;
+        const tplDir = process.env.FLT_TEMPLATES_DIR;
+        const cands = fs.readdirSync(art).filter(f => f.endsWith(".vNext.md")).sort();
+        if (cands.length === 0) { process.stderr.write("no candidates in " + art + "\n"); process.exit(2); }
+        const questions = cands.map(f => {
+          const slug = f.replace(/\.vNext\.md$/, "");
+          const role = slug.split("-")[0];
+          const stable = `${tplDir}/roles/${role}.md`;
+          const candPath = `${art}/${f}`;
+          let diff = "";
+          try { diff = child.execSync(`diff -u "${stable}" "${candPath}" 2>/dev/null || true`).toString(); }
+          catch (e) { diff = "(diff failed: " + e.message + ")"; }
+          let hyp = "";
+          try {
+            const h = JSON.parse(fs.readFileSync(`${art}/${slug}.hypothesis.json`, "utf8"));
+            hyp = `Hypothesis: ${h.hypothesis}\n\nExpected delta: ${JSON.stringify(h.expected_delta, null, 2)}\n\n`;
+          } catch {}
+          return {
+            id: `mutate-${slug}`,
+            header: `${slug} — approve / reject / modify?`,
+            question: `${hyp}Diff vs stable (${stable}):\n\n${diff}`,
+            multiSelect: false,
+            options: [
+              { label: "approve", description: "promote this vNext as the new stable role" },
+              { label: "reject",  description: "discard this candidate, do not promote" },
+              { label: "modify",  description: "open vNext.md in $EDITOR, then re-ask approve/reject" },
+            ],
+          };
+        });
+        console.log(JSON.stringify({ questions }));
+      ')
+
+      echo "$JSON" | flt ask human --run-id "$RUN_ID" > "$ART/review-answers-1.json"
+
+      # Process answers; for modify, open editor + re-ask single approve/reject
+      APPROVED=$(node -e '
+        const fs = require("fs"), child = require("child_process");
+        const art = process.env.ART;
+        const tplDir = process.env.FLT_TEMPLATES_DIR;
+        const RUN_ID = process.env.RUN_ID;
+        const editor = process.env.EDITOR || "vim";
+        const a1 = JSON.parse(fs.readFileSync(`${art}/review-answers-1.json`, "utf8"));
+        const approved = [];
+        const reAskQs = [];
+        const slugByQid = {};
+        for (const ans of a1.answers || []) {
+          const slug = ans.questionId.replace(/^mutate-/, "");
+          const choice = (ans.selected || [])[0];
+          if (choice === "approve") {
+            approved.push(slug);
+          } else if (choice === "modify") {
+            const file = `${art}/${slug}.vNext.md`;
+            child.execSync(`${editor} "${file}"`, { stdio: "inherit" });
+            const role = slug.split("-")[0];
+            const stable = `${tplDir}/roles/${role}.md`;
+            let diff = "";
+            try { diff = child.execSync(`diff -u "${stable}" "${file}" 2>/dev/null || true`).toString(); }
+            catch (e) { diff = "(diff failed)"; }
+            const qid = `mutate-${slug}-modified`;
+            slugByQid[qid] = slug;
+            reAskQs.push({
+              id: qid,
+              header: `${slug} (modified) — approve?`,
+              question: `Modified diff vs stable (${stable}):\n\n${diff}`,
+              multiSelect: false,
+              options: [
+                { label: "approve", description: "promote modified version" },
+                { label: "reject",  description: "discard modified version" },
+              ],
+            });
+          }
+        }
+        if (reAskQs.length > 0) {
+          const payload = JSON.stringify({ questions: reAskQs });
+          const out = child.execSync(`flt ask human --run-id "${RUN_ID}"`, { input: payload }).toString();
+          fs.writeFileSync(`${art}/review-answers-2.json`, out);
+          const a2 = JSON.parse(out);
+          for (const ans of a2.answers || []) {
+            const choice = (ans.selected || [])[0];
+            if (choice === "approve") approved.push(slugByQid[ans.questionId]);
+          }
+        }
+        process.stdout.write(approved.join(" "));
+      ')
+
+      if [ -z "$APPROVED" ]; then
+        echo "no candidates approved — nothing to promote"
+      else
+        for slug in $APPROVED; do
+          flt promote "$ART/${slug}.vNext.md" --evidence "$RUN_ID" || \
+            echo "WARN: promote failed for $slug" >&2
+        done
+      fi
     on_complete: done
-    on_fail: abort
+    on_fail: review
