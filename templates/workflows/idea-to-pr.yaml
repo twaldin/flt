@@ -63,7 +63,10 @@ steps:
       If blocked: flt workflow fail "<one-line reason>"
     on_complete: reviewer
     on_fail: coder
-    max_retries: 2
+    # Bounds BOTH self-loop AND cross-step retries (post-engine-fix:
+    # reviewer/verifier -> coder bounces also count against this counter).
+    # 4 = ~2 own-failure retries + ~2 reviewer-bounce retries before bail.
+    max_retries: 4
 
   - id: reviewer
     # codex/gpt-5.4 — deliberately a DIFFERENT cli+model than the coder

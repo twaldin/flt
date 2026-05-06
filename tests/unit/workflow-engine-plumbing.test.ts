@@ -337,4 +337,92 @@ steps:
         expect(loaded?.history.map(h => [h.step, h.result])).toContainEqual(['fanout', 'failed'])
         expect(spawnCalls).toContain(workflowAgentName(run.id, 'recover'))
     })
+
+    it('cross-step on_fail counts retries against the TARGET step max_retries', async () => {
+        // wf: coder (max_retries: 2) -> reviewer (on_fail: coder).
+        // 1st reviewer fail: cross-step branch runs coder, retries[coder]=1.
+        // 2nd reviewer fail: retries[coder]=2.
+        // 3rd reviewer fail: would set retries[coder]=3 ≥ 2, bail with "exhausted".
+        writeWorkflow(home, 'wf-cross-retry', `
+name: wf-cross-retry
+steps:
+  - id: coder
+    preset: pi-coder
+    task: 'do {fail_reason}'
+    max_retries: 2
+    on_complete: reviewer
+    on_fail: coder
+  - id: reviewer
+    preset: pi-coder
+    task: review
+    on_complete: done
+    on_fail: coder
+`)
+
+        const run = makeRun(home, 'cross-retry-1', 'wf-cross-retry', 'reviewer')
+        saveWorkflowRun(run)
+
+        // Simulate fail #1 from reviewer
+        writeResult(run.runDir!, 'reviewer', '_', 'fail', 'first complaint')
+        await advanceWorkflow(run.id)
+        let loaded = loadWorkflowRun(run.id)
+        expect(loaded?.currentStep).toBe('coder')
+        expect(loaded?.retries.coder).toBe(1)
+        expect(loaded?.stepFailReason).toBe('first complaint')
+
+        // Simulate coder pass, reviewer fail #2
+        loaded!.currentStep = 'reviewer'
+        saveWorkflowRun(loaded!)
+        writeResult(run.runDir!, 'reviewer', '_', 'fail', 'second complaint')
+        await advanceWorkflow(run.id)
+        loaded = loadWorkflowRun(run.id)
+        expect(loaded?.currentStep).toBe('coder')
+        expect(loaded?.retries.coder).toBe(2)
+        expect(loaded?.stepFailReason).toBe('second complaint')
+
+        // Simulate coder pass, reviewer fail #3 — should bail (cross-step exhausted)
+        loaded!.currentStep = 'reviewer'
+        saveWorkflowRun(loaded!)
+        writeResult(run.runDir!, 'reviewer', '_', 'fail', 'third complaint')
+        await advanceWorkflow(run.id)
+        loaded = loadWorkflowRun(run.id)
+        expect(loaded?.status).toBe('failed')
+        expect(loaded?.stepFailReason).toBe('third complaint')
+    })
+
+    it('cross-step on_fail leaves runs unbounded when target max_retries is undefined', async () => {
+        // Legacy behavior preserved: workflows that don't opt in (no
+        // max_retries on the target step) still bounce forever as before.
+        // The counter does not increment, status stays running.
+        writeWorkflow(home, 'wf-cross-unbounded', `
+name: wf-cross-unbounded
+steps:
+  - id: coder
+    preset: pi-coder
+    task: 'do {fail_reason}'
+    on_complete: reviewer
+    on_fail: coder
+  - id: reviewer
+    preset: pi-coder
+    task: review
+    on_complete: done
+    on_fail: coder
+`)
+
+        const run = makeRun(home, 'cross-unbounded-1', 'wf-cross-unbounded', 'reviewer')
+        saveWorkflowRun(run)
+
+        for (let i = 0; i < 5; i++) {
+            const loadedBefore = loadWorkflowRun(run.id)
+            loadedBefore!.currentStep = 'reviewer'
+            saveWorkflowRun(loadedBefore!)
+            writeResult(run.runDir!, 'reviewer', '_', 'fail', `complaint #${i + 1}`)
+            await advanceWorkflow(run.id)
+        }
+        const loaded = loadWorkflowRun(run.id)
+        expect(loaded?.status).toBe('running')
+        expect(loaded?.currentStep).toBe('coder')
+        // No retry counter increment when target step has no max_retries.
+        expect(loaded?.retries.coder ?? 0).toBe(0)
+    })
 })
