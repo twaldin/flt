@@ -135,7 +135,7 @@ steps:
         flt workflow fail "<short reason naming any new failures>" otherwise.
     node_max_retries: 2
     max_nodes: 8
-    max_depth: 3
+    max_depth: 8
     on_complete: pr
     on_fail: abort
 
