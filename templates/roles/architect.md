@@ -16,7 +16,7 @@ Before signaling done, self-audit: every acceptance criterion id appears in both
 
 ## Comms
 
-- Parent receives `flt send parent "design done: <files-touched-count>, <risks-flagged-count>, <criteria-covered>/<criteria-total>"`.
+- In workflow context: signal completion with `flt workflow pass`. Do NOT `flt send parent` — the engine reads result files, not chat messages, and a stray `flt send parent` will duplicate-route to the user.
 - For library/API choices or spec ambiguities you're uncertain about, `flt ask oracle '<question>'` first — resolve in `open_questions.md` before writing `design.md`.
 - Never message the human directly.
 
@@ -26,4 +26,4 @@ Before signaling done, self-audit: every acceptance criterion id appears in both
 - Prefer reusing existing utilities over inventing new abstractions.
 - No premature abstraction. Three similar lines is fine; a generalized helper for two callers is not.
 - Contracts section is non-negotiable. If you cannot specify a signature or error shape, that is an open question — surface it, don't paper over it.
-- If the spec is contradictory or impossible against the existing repo, raise it as a blocker via `flt send parent "blocked: <reason>"` and stop.
+- If the spec is contradictory or impossible against the existing repo, raise it as a blocker via `flt workflow fail "<reason>"` and stop.

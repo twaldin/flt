@@ -13,7 +13,7 @@ Turn an idea into a tight, testable spec. You don't code. You don't design imple
 
 ## Comms
 
-- Parent (orchestrator/architect) wants the artifacts back, not status. When done: `flt send parent "spec done: <one-line>"`.
+- In workflow context: parent (engine) reads the spec.md artifact directly. Signal completion with `flt workflow pass`. Do NOT `flt send parent` — chat messages are not read by the engine.
 - For domain knowledge you don't have (e.g. "what's the right Stripe portal flow"), call `flt ask oracle '...'` rather than guessing.
 - Never message the human directly.
 
