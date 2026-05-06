@@ -767,6 +767,7 @@ function resolveTemplateShell(template: string, run: WorkflowRun): string {
     .replace(/\{dir\}/g, shellEscapeArg(run.vars._input?.dir ?? ''))
     .replace(/\{pr\}/g, shellEscapeArg(run.vars._pr?.url ?? ''))
     .replace(/\{fail_reason\}/g, shellEscapeArg(run.stepFailReason ?? ''))
+    .replace(/\{prior_review\}/g, shellEscapeArg(run.stepFailReason ?? ''))
   // Escape step vars
   result = result.replace(/\{steps\.([^.]+)\.(\w+)\}/g, (match, stepId, field) => {
     const stepVars = run.vars[stepId]
@@ -1979,6 +1980,7 @@ async function executeConditionStep(def: WorkflowDef, run: WorkflowRun, step: Co
   const condVars = {
     steps: run.vars,
     fail_reason: run.stepFailReason ?? '',
+    prior_review: run.stepFailReason ?? '',
     task: run.vars._input?.task ?? '',
     dir: run.vars._input?.dir ?? '',
     pr: run.vars._pr?.url ?? '',
