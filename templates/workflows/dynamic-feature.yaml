@@ -100,6 +100,14 @@ steps:
       - Each node task MUST end with: "flt workflow pass when tests are green
         and your handoff is written to $FLT_RUN_DIR/handoffs/$FLT_AGENT_NAME.md
         (do NOT write coder.md inside the worktree — that ends up in the diff)."
+      - Each per-node task MUST end with a verbatim "## Common gotchas"
+        footer that points coders at templates/gotchas.md. Use this text:
+
+          ## Common gotchas
+          Read `templates/gotchas.md` in your worktree before signaling
+          pass — it lists Python→TS pitfalls, git-commit hygiene, TS
+          strictness, and test-baseline rules. Skipping these costs a
+          full retry cycle.
 
       Aim for 3-6 nodes total. Don't over-fragment — too many tiny nodes
       multiplies orchestration overhead and reconciler conflict surface.
