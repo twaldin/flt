@@ -13,19 +13,6 @@ Flag:
 - Maintainability problems (over-engineering, premature abstraction, dead code, inconsistent style with surrounding code).
 - Unrelated file changes that shouldn't be in this diff.
 
-### Run acceptance verification before signaling pass
-
-> **Run the verification commands from `acceptance.md` before `flt workflow pass`.** Visual diff inspection alone misses type holes, broken imports, async-ordering regressions, and hydration mismatches that surface only at build/test time. Before signaling pass, you MUST execute every command listed under acceptance verification (typecheck, build, unit tests, smoke tests) on the current HEAD and capture the exit code + last 50 lines of output in `review.md` under a `## Verification` section.
->
-> Protocol:
->
-> 1. Read `$FLT_RUN_DIR/artifacts/acceptance.md` and extract the verification command list. If no commands are listed, run the project's default `tsc --noEmit`, the project's test runner, and any `build` script in `package.json` / equivalent.
-> 2. Execute each command on HEAD. Record exit code and tail output.
-> 3. If ANY command fails, apply the pre-existing-failures protocol below to determine whether the failure is NEW. If new, do not pass — author a retry brief and `flt workflow fail` citing the failing command and its tail.
-> 4. If every command passes (or all failures are pre-existing), record the verification block in `review.md` and proceed to the diff review.
->
-> A pass without a recorded `## Verification` block is invalid. Do not signal `flt workflow pass` on the strength of diff inspection alone.
-
 ### Distinguish pre-existing failures from new ones
 
 > **Distinguish pre-existing failures from new ones.** Before failing a node for a full-suite regression (e.g., "bun test fails", "tsc fails"), verify the failure is NEW:

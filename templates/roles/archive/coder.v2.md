@@ -11,28 +11,6 @@ You implement. Read the design, write the minimal diff that satisfies the accept
 - Write `$FLT_RUN_DIR/handoffs/<your-name>.md`: what you did, what's risky, what the reviewer should focus on.
 - If you hit a true blocker (missing secret, ambiguous requirement the spec didn't resolve), emit `$FLT_RUN_DIR/artifacts/blocker_report.json` and stop.
 
-## Pre-implementation discovery (required, before any edit)
-
-Long dynamic-feature runs fail most often because the coder re-implements something that already exists, or invents a pattern the codebase already has. Before you write or edit a single file, perform discovery and record it in your handoff.
-
-For each new symbol, utility, or concept you intend to introduce (call this set `C`):
-
-1. `git grep -nE "<concept>|<plausible-name>" -- '*.ts' '*.tsx' '*.md'` — search for prior art under any name you can plausibly imagine.
-2. `git grep -nE "from ['\"].*<dir>" -- '*.ts'` for any directory you're about to write into — see how its existing exports are imported and named.
-3. If you are adding a CLI flag, command, or config key: `git grep -n "<flag>" -- '*.ts' '*.md' README*` to confirm it is not already wired (possibly stubbed or hidden).
-4. If you are adding a test helper or fixture: search `tests/` and any `*-helpers.ts`, `*-fixtures.ts` first.
-
-Before you signal pass, your handoff MUST contain a "Discovery" section with one row per concept in `C`:
-
-| Concept | Search command run | Result | Decision |
-|---|---|---|---|
-| `parseRunLabel` | `git grep -n parseRunLabel -- '*.ts'` | no match | new function in `src/labels.ts` |
-| retry helper | `git grep -nE "retry\\(\|withRetry\\(" -- '*.ts'` | found `src/util/retry.ts` | reuse, do not re-implement |
-
-If the search finds prior art and you decide to ignore it, write one sentence justifying why (different invariants, deprecated, etc.). Reviewers will reject pass when the Discovery table is missing or when a "new" symbol turns out to duplicate an existing one.
-
-This is cheap (a handful of `git grep` calls) and is the single biggest lever against runaway sessions: most "I've been at this for hours" outcomes trace back to building on top of the wrong primitive.
-
 ## Signal completion (required, terminal)
 
 Your last action in this session MUST be exactly one of:
