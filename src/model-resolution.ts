@@ -9,23 +9,28 @@ const ALIAS_TABLE: Record<string, Record<string, string>> = {
   'cc-opus': {
     'claude-code': 'opus[1m]',
     'codex': 'gpt-5.4',
+    'droid': 'gpt-5.5',
     'openclaude': 'opus[1m]',
   },
   'cc-sonnet': {
     'claude-code': 'sonnet',
     'crush': 'anthropic/claude-sonnet-4-6',
+    'droid': 'gpt-5.4',
     'openclaude': 'sonnet',
   },
   'cc-haiku': {
     'claude-code': 'haiku',
+    'droid': 'gpt-5.4-mini',
     'openclaude': 'haiku',
   },
   'pi-coder': {
     'codex': 'gpt-5.3-codex',
+    'droid': 'gpt-5.3-codex',
     'pi': 'openai-codex/gpt-5.3-codex',
   },
   'pi-deep': {
     'codex': 'gpt-5.4-high',
+    'droid': 'gpt-5.5',
     'pi': 'openai-codex/gpt-5.4:high',
   },
   'gemini-pro': {
@@ -64,6 +69,7 @@ const BARE_MODEL_HARNESSES = new Set([
   'claude-code',
   'codex',
   'continue-cli',
+  'droid',
   'gemini',
   'openclaude',
   'qwen',
@@ -152,9 +158,6 @@ export function resolveModelForCli(cli: string, model: string | undefined, noRes
     } else {
       resolved = normalized
     }
-  } else if (cli === 'factory-droid') {
-    const bare = stripKnownProviderPrefixes(normalized)
-    resolved = bare.startsWith('custom:') ? bare : `custom:${bare}`
   } else if (PROVIDER_MODEL_HARNESSES.has(cli)) {
     resolved = ensureProviderPrefix(normalized)
   } else if (PRESERVE_EXPLICIT_PROVIDER_HARNESSES.has(cli) && normalized.includes('/')) {

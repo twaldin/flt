@@ -14,6 +14,8 @@ describe('model resolution', () => {
   it('strips provider for bare-model CLIs', () => {
     expect(resolveModelForCli('codex', 'openai-codex/gpt-5.4')).toBe('gpt-5.4')
     expect(resolveModelForCli('claude-code', 'anthropic/sonnet')).toBe('sonnet')
+    expect(resolveModelForCli('droid', 'openai/gpt-5.4')).toBe('gpt-5.4')
+    expect(resolveModelForCli('droid', 'gpt-5.5')).toBe('gpt-5.5')
   })
 
   it('adds provider for provider-model CLIs', () => {
@@ -33,9 +35,10 @@ describe('resolveAlias', () => {
     expect(resolveAlias('pi', 'some-random-alias')).toBeNull()
   })
 
-  it('cc-opus: maps correctly for claude-code, codex, openclaude', () => {
+  it('cc-opus: maps correctly for claude-code, codex, droid, openclaude', () => {
     expect(resolveAlias('claude-code', 'cc-opus')).toBe('opus[1m]')
     expect(resolveAlias('codex', 'cc-opus')).toBe('gpt-5.4')
+    expect(resolveAlias('droid', 'cc-opus')).toBe('gpt-5.5')
     expect(resolveAlias('openclaude', 'cc-opus')).toBe('opus[1m]')
   })
 
@@ -45,7 +48,6 @@ describe('resolveAlias', () => {
     expect(() => resolveAlias('opencode', 'cc-opus')).toThrow('Model alias "cc-opus" has no mapping for CLI "opencode".')
     expect(() => resolveAlias('crush', 'cc-opus')).toThrow('Model alias "cc-opus" has no mapping for CLI "crush".')
     expect(() => resolveAlias('continue-cli', 'cc-opus')).toThrow('Model alias "cc-opus" has no mapping for CLI "continue-cli".')
-    expect(() => resolveAlias('droid', 'cc-opus')).toThrow('Model alias "cc-opus" has no mapping for CLI "droid".')
     expect(() => resolveAlias('qwen', 'cc-opus')).toThrow('Model alias "cc-opus" has no mapping for CLI "qwen".')
     expect(() => resolveAlias('kilo', 'cc-opus')).toThrow('Model alias "cc-opus" has no mapping for CLI "kilo".')
   })
@@ -54,6 +56,10 @@ describe('resolveAlias', () => {
     expect(resolveAlias('claude-code', 'cc-sonnet')).toBe('sonnet')
     expect(resolveAlias('crush', 'cc-sonnet')).toBe('anthropic/claude-sonnet-4-6')
     expect(resolveAlias('openclaude', 'cc-sonnet')).toBe('sonnet')
+  })
+
+  it('cc-sonnet: maps correctly for droid', () => {
+    expect(resolveAlias('droid', 'cc-sonnet')).toBe('gpt-5.4')
   })
 
   it('cc-sonnet: throws for CLIs with no mapping', () => {
@@ -70,14 +76,19 @@ describe('resolveAlias', () => {
     expect(resolveAlias('openclaude', 'cc-haiku')).toBe('haiku')
   })
 
+  it('cc-haiku: maps correctly for droid', () => {
+    expect(resolveAlias('droid', 'cc-haiku')).toBe('gpt-5.4-mini')
+  })
+
   it('cc-haiku: throws for CLIs with no mapping', () => {
     expect(() => resolveAlias('codex', 'cc-haiku')).toThrow('Model alias "cc-haiku" has no mapping for CLI "codex".')
     expect(() => resolveAlias('pi', 'cc-haiku')).toThrow('Model alias "cc-haiku" has no mapping for CLI "pi".')
     expect(() => resolveAlias('gemini', 'cc-haiku')).toThrow('Model alias "cc-haiku" has no mapping for CLI "gemini".')
   })
 
-  it('pi-coder: maps correctly for codex and pi', () => {
+  it('pi-coder: maps correctly for codex, droid, and pi', () => {
     expect(resolveAlias('codex', 'pi-coder')).toBe('gpt-5.3-codex')
+    expect(resolveAlias('droid', 'pi-coder')).toBe('gpt-5.3-codex')
     expect(resolveAlias('pi', 'pi-coder')).toBe('openai-codex/gpt-5.3-codex')
   })
 
@@ -87,14 +98,14 @@ describe('resolveAlias', () => {
     expect(() => resolveAlias('opencode', 'pi-coder')).toThrow('Model alias "pi-coder" has no mapping for CLI "opencode".')
     expect(() => resolveAlias('crush', 'pi-coder')).toThrow('Model alias "pi-coder" has no mapping for CLI "crush".')
     expect(() => resolveAlias('continue-cli', 'pi-coder')).toThrow('Model alias "pi-coder" has no mapping for CLI "continue-cli".')
-    expect(() => resolveAlias('droid', 'pi-coder')).toThrow('Model alias "pi-coder" has no mapping for CLI "droid".')
     expect(() => resolveAlias('openclaude', 'pi-coder')).toThrow('Model alias "pi-coder" has no mapping for CLI "openclaude".')
     expect(() => resolveAlias('qwen', 'pi-coder')).toThrow('Model alias "pi-coder" has no mapping for CLI "qwen".')
     expect(() => resolveAlias('kilo', 'pi-coder')).toThrow('Model alias "pi-coder" has no mapping for CLI "kilo".')
   })
 
-  it('pi-deep: maps correctly for codex and pi', () => {
+  it('pi-deep: maps correctly for codex, droid, and pi', () => {
     expect(resolveAlias('codex', 'pi-deep')).toBe('gpt-5.4-high')
+    expect(resolveAlias('droid', 'pi-deep')).toBe('gpt-5.5')
     expect(resolveAlias('pi', 'pi-deep')).toBe('openai-codex/gpt-5.4:high')
   })
 
