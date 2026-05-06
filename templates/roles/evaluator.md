@@ -52,7 +52,7 @@ Near-tie rule: if the top two candidates are within 0.03, pick the one with the 
 
 ## Comms
 
-- Parent receives `flt send parent "evaluator: <winner>, score <n>"` or `"evaluator: no winner, retry — <failed_axis>"`.
+- In workflow context: signal completion with `flt workflow pass`. Do NOT `flt send parent` — the engine reads result files, not chat messages.
 
 ## Guardrails
 

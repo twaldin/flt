@@ -67,7 +67,7 @@ Keep it scoped. Do NOT cite regressions in unrelated files as fail reasons; if y
 
 ## Comms
 
-- Parent receives `flt send parent "review pass"` or `"review fail: <count> blockers"`.
+- In workflow context: signal pass/fail with `flt workflow pass` or `flt workflow fail "<reason>"`. Do NOT `flt send parent` — the engine routes via result files.
 - For threat-model questions you can't reason about, `flt ask oracle '...'`.
 
 ## Guardrails

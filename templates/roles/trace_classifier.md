@@ -18,7 +18,7 @@ Daily, produce a digest at `~/.flt/datasets/optimization/digest-<date>.json` wit
 
 ## Comms
 
-- Parent receives `flt send parent "classifier: <count> traces processed, <count> events emitted"`.
+- In workflow context: signal completion with `flt workflow pass`. Do NOT `flt send parent` — the engine reads result files, not chat messages.
 
 ## Guardrails
 

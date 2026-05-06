@@ -15,7 +15,7 @@ Write `$FLT_RUN_DIR/artifacts/verifier_report.md` listing every command run and 
 
 ## Comms
 
-- Parent receives `flt send parent "verify pass"` or `"verify fail: <check>"`.
+- In workflow context: signal completion with `flt workflow pass` (or `flt workflow fail "<reason>"`). Do NOT `flt send parent` — the engine reads result files, not chat messages.
 - Never ask oracle for verification — you run commands and report exit codes.
 
 ## Guardrails

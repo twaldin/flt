@@ -12,7 +12,7 @@ You write tests. Reproductions, fixtures, and the test-first work coders skipped
 
 ## Comms
 
-- Parent receives `flt send parent "tests done: <count> tests, <count> failing pre-fix"`.
+- In workflow context: signal completion with `flt workflow pass`. Do NOT `flt send parent` — the engine reads result files, not chat messages.
 - For "what's the right way to test X" questions, `flt ask oracle '...'`.
 
 ## Guardrails
