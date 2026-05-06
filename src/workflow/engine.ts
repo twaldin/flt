@@ -2084,11 +2084,39 @@ async function executeStep(def: WorkflowDef, run: WorkflowRun, step: WorkflowSte
     if (!run.runDir) {
       throw new Error(`workflow run "${run.id}" is missing runDir`)
     }
+    // Resolve step.dir as the shell's cwd (yaml-declared working directory).
+    // Previously ignored, forcing run-blocks to do their own `cd` and silently
+    // failing when the target dir didn't exist. Auto-PR steps point at the
+    // integration worktree which can be cleanup-raced after reconciler dies.
+    let stepCwd = step.dir ? resolveTemplate(step.dir, run) : undefined
+    if (stepCwd && !existsSync(stepCwd)) {
+      // Best-effort recreate: if step.dir matches a known dynamic_dag
+      // integration worktree on this run, re-add the worktree so the pr step
+      // can push from it. Other missing dirs (user error in yaml) fall through
+      // and let the shell fail loudly.
+      const groups = run.dynamicDagGroups ?? {}
+      for (const groupState of Object.values(groups)) {
+        if (groupState.integrationWorktree === stepCwd && groupState.integrationBranch) {
+          // Re-attach the worktree to the existing integration branch.
+          // Pass NO baseBranch — that would trigger `git branch -D` and
+          // destroy the merge commits the reconciler just landed.
+          try {
+            const { createWorktree } = require('../worktree') as typeof import('../worktree')
+            const repoDir = run.vars._input?.dir ?? process.cwd()
+            createWorktree(repoDir, basename(stepCwd).replace(/^flt-wt-/, ''))
+          } catch (e) {
+            appendEvent({ type: 'workflow', detail: `recreate integration worktree failed ${run.id}/${step.id}: ${(e as Error).message}`, at: new Date().toISOString() })
+          }
+          break
+        }
+      }
+    }
     // Phase 1: run the shell command. Failure here = THIS step failed.
     try {
       execSync(resolveTemplateShell(step.run, run), {
         stdio: 'inherit',
         timeout: 30_000,
+        cwd: stepCwd && existsSync(stepCwd) ? stepCwd : undefined,
         env: {
           ...process.env,
           FLT_RUN_DIR: run.runDir,
