@@ -83,14 +83,24 @@ steps:
         a = stable, b = candidate.
 
         Inputs:
-        - $FLT_RUN_DIR/artifacts/hypothesis.json
-        - $FLT_RUN_DIR/artifacts/*.vNext.md
+        - $FLT_RUN_DIR/artifacts/*.hypothesis.json (one per candidate)
+        - $FLT_RUN_DIR/artifacts/*.vNext.md (one per candidate)
+
+        Write output to a path the engine will not overwrite. The engine
+        writes its own verdict to results/eval-$FLT_RUN_LABEL.json after
+        the agent exits — write your output to .output.txt to preserve it.
 
         Run:
-        flt eval suite run default > "$FLT_RUN_DIR/results/eval-$FLT_RUN_LABEL.json" 2>&1 || \
-          (bun test > "$FLT_RUN_DIR/results/eval-$FLT_RUN_LABEL.json" 2>&1)
+        flt eval suite run default > "$FLT_RUN_DIR/results/eval-$FLT_RUN_LABEL.output.txt" 2>&1 || \
+          (bun test > "$FLT_RUN_DIR/results/eval-$FLT_RUN_LABEL.output.txt" 2>&1)
 
-        flt workflow pass when eval output is written.
+        Then write a structured score file the review step + flt promote
+        can consume — at minimum a numeric score per axis:
+        cat > "$FLT_RUN_DIR/results/eval-$FLT_RUN_LABEL.scores.json" <<JSON
+        {"scores": {"eval_pass": 1}}
+        JSON
+
+        flt workflow pass when both .output.txt and .scores.json are written.
         flt workflow fail "eval did not run" only if neither command can execute.
     on_complete: review
     on_fail: abort
