@@ -1056,6 +1056,7 @@ async function executeParallelStep(def: WorkflowDef, run: WorkflowRun, parallelS
       parent: run.parentName,
       bootstrap: resolveTemplate(parallelStep.step.task ?? '', run),
       workflow: run.workflow,
+      workflowRunId: run.id,
       workflowStep: parallelStep.id,
       projectRoot: run.vars._input?.dir,
       extraEnv: {
@@ -1109,6 +1110,7 @@ async function prepareMultiDepBase(run: WorkflowRun, step: DynamicDagStep, state
     parent: run.parentName,
     bootstrap: 'Resolve git merge conflicts and commit. Then flt workflow pass.',
     workflow: run.workflow,
+    workflowRunId: run.id,
     workflowStep: step.id,
     projectRoot: run.vars._input?.dir,
     extraEnv: run.runDir
@@ -1180,6 +1182,7 @@ async function spawnDagNode(def: WorkflowDef, run: WorkflowRun, step: DynamicDag
         parent: run.parentName,
         bootstrap,
         workflow: run.workflow,
+        workflowRunId: run.id,
         workflowStep: step.id,
         projectRoot: run.vars._input?.dir,
         extraEnv: run.runDir
@@ -1212,6 +1215,7 @@ async function spawnDagNode(def: WorkflowDef, run: WorkflowRun, step: DynamicDag
       parent: run.parentName,
       bootstrap,
       workflow: run.workflow,
+      workflowRunId: run.id,
       workflowStep: step.id,
       projectRoot: run.vars._input?.dir,
       extraEnv: run.runDir
@@ -1350,6 +1354,7 @@ async function maybeRunFinalReconcile(def: WorkflowDef, run: WorkflowRun, step: 
     parent: run.parentName,
     bootstrap: task,
     workflow: run.workflow,
+    workflowRunId: run.id,
     workflowStep: step.id,
     projectRoot: run.vars._input?.dir,
     extraEnv: run.runDir
@@ -1619,6 +1624,7 @@ async function advanceDynamicDag(def: WorkflowDef, run: WorkflowRun, step: Dynam
           parent: run.parentName,
           bootstrap: task,
           workflow: run.workflow,
+          workflowRunId: run.id,
           workflowStep: step.id,
           projectRoot: run.vars._input?.dir,
           extraEnv: {
@@ -2229,6 +2235,7 @@ async function executeStep(def: WorkflowDef, run: WorkflowRun, step: WorkflowSte
     parent: run.parentName,
     bootstrap: task,
     workflow: run.workflow,
+    workflowRunId: run.id,
     workflowStep: step.id,
     projectRoot: run.vars._input?.dir,
     extraEnv: run.runDir
@@ -2496,8 +2503,31 @@ export async function _applyPrForTest(agentName: string, runId: string, stepId: 
   await applyAutoCommit(agent, run, def, stepId)
 }
 
-// Map agent names to workflow run IDs for the controller poller
+// Map agent names to workflow run IDs for the controller poller.
+//
+// Issue #66: ad-hoc agents spawned via `flt spawn` (no workflow membership)
+// were being mapped into a concurrently-running workflow because the legacy
+// name-pattern lookup over active runs could false-positive — and
+// `flt kill <ad-hoc>` then cascaded into failing the unrelated run.
+//
+// Resolution order:
+//   1. If the agent's state record has an explicit `workflowRunId`, return
+//      that (or null if the run is no longer active). Authoritative.
+//   2. If the agent exists in state but has no `workflowRunId`, return null
+//      immediately — it is unambiguously NOT a workflow agent.
+//   3. Only when no agent record exists at all (controller saw a transient
+//      name that has already been removed) do we fall back to the legacy
+//      name-pattern match.
 export function getWorkflowForAgent(agentName: string): string | null {
+  const agent = getAgent(agentName)
+  if (agent !== undefined) {
+    if (agent.workflowRunId !== undefined && agent.workflowRunId.length > 0) {
+      const runs = listWorkflowRuns().filter(r => r.id === agent.workflowRunId && r.status === 'running')
+      return runs[0]?.id ?? null
+    }
+    return null
+  }
+
   const runs = listWorkflowRuns().filter(r => r.status === 'running')
   for (const run of runs) {
     const expectedAgent = workflowAgentName(run.id, run.currentStep)

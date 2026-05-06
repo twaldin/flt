@@ -84,6 +84,7 @@ describe('no-git-touch for manual spawn', () => {
       parentName: 'human', dir: repoDir,
       worktreePath: repoDir,
       workflow: 'my-workflow',
+      workflowRunId: runId,
       spawnedAt: new Date().toISOString(),
     }
     saveState(state)
@@ -138,6 +139,7 @@ describe('no-git-touch for manual spawn', () => {
       parentName: 'human', dir: repoDir,
       worktreePath: repoDir,
       workflow: 'my-workflow',
+      workflowRunId: runId,
       spawnedAt: new Date().toISOString(),
     }
     saveState(state)
@@ -185,5 +187,54 @@ describe('no-git-touch for manual spawn', () => {
     _applyAutoCommitForTest(agentName)
 
     expect(countCommits(repoDir)).toBe(commitsBefore)
+  })
+
+  // Regression for issue #66: a manual `flt spawn` while a workflow is
+  // running must NOT be mapped into that workflow. Before the fix the
+  // legacy name-pattern fallback could false-positive on certain names.
+  it('issue #66: ad-hoc agent never maps to a concurrently-running workflow', () => {
+    // Active workflow run with a registered step agent
+    const runId = 'concurrent-run'
+    const runDir = join(home, '.flt', 'runs', runId)
+    mkdirSync(join(runDir, 'results'), { recursive: true })
+    const wfAgentName = `${runId}-step1`
+
+    const state = loadState()
+    state.agents[wfAgentName] = {
+      cli: 'claude-code', model: 'sonnet', tmuxSession: `flt-${wfAgentName}`,
+      parentName: 'human', dir: repoDir,
+      worktreePath: repoDir,
+      workflow: 'my-workflow',
+      workflowRunId: runId,
+      spawnedAt: new Date().toISOString(),
+    }
+    // Ad-hoc agent spawned alongside, no workflow membership
+    state.agents['unrelated-helper'] = {
+      cli: 'pi', model: 'gpt-5', tmuxSession: 'flt-unrelated-helper',
+      parentName: 'orchestrator', dir: repoDir,
+      worktreePath: repoDir,
+      // no workflow / workflowRunId fields
+      spawnedAt: new Date().toISOString(),
+    }
+    saveState(state)
+
+    const run: WorkflowRun = {
+      id: runId,
+      workflow: 'my-workflow',
+      currentStep: 'step1',
+      status: 'running',
+      parentName: 'human',
+      history: [],
+      retries: {},
+      vars: { _input: { task: 'task', dir: repoDir } },
+      startedAt: new Date().toISOString(),
+      runDir,
+    }
+    saveWorkflowRun(run)
+
+    // The workflow-bound agent maps correctly
+    expect(getWorkflowForAgent(wfAgentName)).toBe(runId)
+    // The ad-hoc agent must NOT cascade into the workflow run
+    expect(getWorkflowForAgent('unrelated-helper')).toBeNull()
   })
 })
