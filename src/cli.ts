@@ -614,6 +614,82 @@ workflowCmd
     }
   })
 
+// Resolve a node-fail gate (dynamic_dag step where one or more nodes' coder/
+// reviewer failed). Headless equivalent of the TUI's node-fail prompt.
+const workflowNodeCmd = workflowCmd
+  .command('node')
+  .description('Resolve a node-fail gate on a dynamic_dag step (retry/skip/abort)')
+
+workflowNodeCmd
+  .command('retry <run> <node>')
+  .description('Retry the failed node (respawn its coder against the current diff)')
+  .action(async (run, node) => {
+    try {
+      const { workflowNodeDecision } = await import('./commands/workflow')
+      await workflowNodeDecision('retry', run, node)
+    } catch (e) {
+      console.error('Error: ' + (e as Error).message)
+      process.exit(1)
+    }
+  })
+
+workflowNodeCmd
+  .command('skip <run> <node>')
+  .description('Skip the failed node and continue with the rest of the DAG')
+  .action(async (run, node) => {
+    try {
+      const { workflowNodeDecision } = await import('./commands/workflow')
+      await workflowNodeDecision('skip', run, node)
+    } catch (e) {
+      console.error('Error: ' + (e as Error).message)
+      process.exit(1)
+    }
+  })
+
+workflowNodeCmd
+  .command('abort <run>')
+  .description('Abort the entire dynamic_dag step (and the workflow run)')
+  .action(async (run) => {
+    try {
+      const { workflowNodeDecision } = await import('./commands/workflow')
+      await workflowNodeDecision('abort', run)
+    } catch (e) {
+      console.error('Error: ' + (e as Error).message)
+      process.exit(1)
+    }
+  })
+
+// Resolve a reconcile-fail gate (dynamic_dag's reconcile phase failed).
+const workflowReconcileCmd = workflowCmd
+  .command('reconcile')
+  .description('Resolve a reconcile-fail gate on a dynamic_dag step')
+
+workflowReconcileCmd
+  .command('retry <run>')
+  .description('Retry the reconcile (respawn the reconcile agent)')
+  .action(async (run) => {
+    try {
+      const { workflowReconcileDecision } = await import('./commands/workflow')
+      await workflowReconcileDecision('retry-reconcile', run)
+    } catch (e) {
+      console.error('Error: ' + (e as Error).message)
+      process.exit(1)
+    }
+  })
+
+workflowReconcileCmd
+  .command('abort <run>')
+  .description('Abort the reconcile (and the workflow run)')
+  .action(async (run) => {
+    try {
+      const { workflowReconcileDecision } = await import('./commands/workflow')
+      await workflowReconcileDecision('abort', run)
+    } catch (e) {
+      console.error('Error: ' + (e as Error).message)
+      process.exit(1)
+    }
+  })
+
 workflowCmd
   .command('pass')
   .description('Signal PASS from inside a workflow step agent')
