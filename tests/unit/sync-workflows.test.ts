@@ -1,11 +1,27 @@
+import { createHash } from 'crypto'
 import { describe, it, expect, beforeEach, afterEach } from 'bun:test'
-import { mkdtempSync, rmSync, existsSync, writeFileSync, mkdirSync, readFileSync, utimesSync } from 'fs'
+import { mkdtempSync, rmSync, existsSync, writeFileSync, mkdirSync, readFileSync } from 'fs'
 import { join } from 'path'
 import { tmpdir } from 'os'
 import { detectStaleWorkflows, syncWorkflows } from '../../src/commands/sync-workflows'
 
 function makeTmpDir(prefix: string): string {
   return mkdtempSync(join(tmpdir(), prefix))
+}
+
+function sha256Hex(content: string): string {
+  return createHash('sha256').update(content).digest('hex')
+}
+
+function writeSyncState(installDir: string, files: Record<string, string>): void {
+  writeFileSync(join(installDir, '.sync-state.json'), JSON.stringify({ version: 1, files }, null, 2))
+}
+
+function readSyncState(installDir: string): { version: number; files: Record<string, string> } {
+  return JSON.parse(readFileSync(join(installDir, '.sync-state.json'), 'utf-8')) as {
+    version: number
+    files: Record<string, string>
+  }
 }
 
 describe('detectStaleWorkflows', () => {
@@ -32,51 +48,102 @@ describe('detectStaleWorkflows', () => {
     expect(detectStaleWorkflows({ tplDir, installDir })).toEqual([])
   })
 
-  it('returns empty when all installed files are newer than templates', () => {
-    const old = new Date(Date.now() - 10_000)
-    const now = new Date()
-
-    writeFileSync(join(tplDir, 'foo.yaml'), 'name: foo\n')
-    utimesSync(join(tplDir, 'foo.yaml'), old, old)
-
-    writeFileSync(join(installDir, 'foo.yaml'), 'name: foo\n')
-    utimesSync(join(installDir, 'foo.yaml'), now, now)
+  it('is silent when bundled, installed, and state hashes are identical', () => {
+    const content = 'name: same\n'
+    writeFileSync(join(tplDir, 'same.yaml'), content)
+    writeFileSync(join(installDir, 'same.yaml'), content)
+    writeSyncState(installDir, { 'same.yaml': sha256Hex(content) })
 
     expect(detectStaleWorkflows({ tplDir, installDir })).toEqual([])
   })
 
-  it('returns stale entry when template is newer than installed file', () => {
-    const old = new Date(Date.now() - 10_000)
-    const now = new Date()
+  it('is silent when user edited locally and bundled stayed stable', () => {
+    const bundledContent = 'name: workflow\nversion: 1\n'
+    writeFileSync(join(tplDir, 'workflow.yaml'), bundledContent)
+    writeFileSync(join(installDir, 'workflow.yaml'), 'name: workflow\nversion: local\n')
+    writeSyncState(installDir, { 'workflow.yaml': sha256Hex(bundledContent) })
 
-    writeFileSync(join(tplDir, 'bar.yaml'), 'name: bar\n')
-    utimesSync(join(tplDir, 'bar.yaml'), now, now)
+    expect(detectStaleWorkflows({ tplDir, installDir })).toEqual([])
+  })
 
-    writeFileSync(join(installDir, 'bar.yaml'), 'name: bar\n')
-    utimesSync(join(installDir, 'bar.yaml'), old, old)
+  it('returns clean-update when only bundled content changed', () => {
+    const lastSyncedContent = 'name: workflow\nversion: 1\n'
+    const bundledContent = 'name: workflow\nversion: 2\n'
+    const lastSyncHash = sha256Hex(lastSyncedContent)
+    const bundledHash = sha256Hex(bundledContent)
 
-    const stale = detectStaleWorkflows({ tplDir, installDir })
-    expect(stale).toHaveLength(1)
-    expect(stale[0].file).toBe('bar.yaml')
-    expect(stale[0].templateMtimeMs).toBeGreaterThan(stale[0].installedMtimeMs)
+    writeFileSync(join(tplDir, 'workflow.yaml'), bundledContent)
+    writeFileSync(join(installDir, 'workflow.yaml'), lastSyncedContent)
+    writeSyncState(installDir, { 'workflow.yaml': lastSyncHash })
+
+    expect(detectStaleWorkflows({ tplDir, installDir })).toEqual([
+      {
+        file: 'workflow.yaml',
+        kind: 'clean-update',
+        bundledHash,
+        installedHash: lastSyncHash,
+        lastSyncHash,
+      },
+    ])
+  })
+
+  it('returns three-way-conflict when both installed and bundled changed since last sync', () => {
+    const lastSyncedContent = 'name: workflow\nversion: 1\n'
+    const bundledContent = 'name: workflow\nversion: 2\n'
+    const installedContent = 'name: workflow\nversion: local\n'
+    const lastSyncHash = sha256Hex(lastSyncedContent)
+    const bundledHash = sha256Hex(bundledContent)
+    const installedHash = sha256Hex(installedContent)
+
+    writeFileSync(join(tplDir, 'workflow.yaml'), bundledContent)
+    writeFileSync(join(installDir, 'workflow.yaml'), installedContent)
+    writeSyncState(installDir, { 'workflow.yaml': lastSyncHash })
+
+    expect(detectStaleWorkflows({ tplDir, installDir })).toEqual([
+      {
+        file: 'workflow.yaml',
+        kind: 'three-way-conflict',
+        bundledHash,
+        installedHash,
+        lastSyncHash,
+      },
+    ])
+  })
+
+  it('returns first-sync-needed when state is missing and installed differs from bundled', () => {
+    const bundledContent = 'name: workflow\nversion: 2\n'
+    const installedContent = 'name: workflow\nversion: local\n'
+
+    writeFileSync(join(tplDir, 'workflow.yaml'), bundledContent)
+    writeFileSync(join(installDir, 'workflow.yaml'), installedContent)
+
+    expect(detectStaleWorkflows({ tplDir, installDir })).toEqual([
+      {
+        file: 'workflow.yaml',
+        kind: 'first-sync-needed',
+        bundledHash: sha256Hex(bundledContent),
+        installedHash: sha256Hex(installedContent),
+      },
+    ])
+  })
+
+  it('is silent when state is missing and installed matches bundled', () => {
+    const content = 'name: workflow\n'
+    writeFileSync(join(tplDir, 'workflow.yaml'), content)
+    writeFileSync(join(installDir, 'workflow.yaml'), content)
+
+    expect(detectStaleWorkflows({ tplDir, installDir })).toEqual([])
   })
 
   it('skips template files not present in installDir', () => {
     writeFileSync(join(tplDir, 'new.yaml'), 'name: new\n')
-    // installDir has no new.yaml
 
     expect(detectStaleWorkflows({ tplDir, installDir })).toEqual([])
   })
 
   it('ignores non-yaml files in tplDir', () => {
-    const old = new Date(Date.now() - 10_000)
-    const now = new Date()
-
     writeFileSync(join(tplDir, 'README.md'), 'docs\n')
-    utimesSync(join(tplDir, 'README.md'), now, now)
-
-    writeFileSync(join(installDir, 'README.md'), 'docs\n')
-    utimesSync(join(installDir, 'README.md'), old, old)
+    writeFileSync(join(installDir, 'README.md'), 'docs edited\n')
 
     expect(detectStaleWorkflows({ tplDir, installDir })).toEqual([])
   })
@@ -112,7 +179,6 @@ describe('syncWorkflows', () => {
 
     await syncWorkflows({ force: true, tplDir, fltDir })
 
-    // Content unchanged — still the identical file
     expect(readFileSync(join(fltDir, 'workflows', 'same.yaml'), 'utf-8')).toBe('name: same\n')
   })
 
@@ -142,5 +208,26 @@ describe('syncWorkflows', () => {
 
     expect(existsSync(join(fltDir, 'workflows', 'template.yaml'))).toBe(true)
     expect(existsSync(join(fltDir, 'workflows', 'README.md'))).toBe(false)
+  })
+
+  it('updates sync state after force-sync', async () => {
+    const bundledContent = 'name: changed\nversion: 2\n'
+    writeFileSync(join(tplDir, 'changed.yaml'), bundledContent)
+    writeFileSync(join(fltDir, 'workflows', 'changed.yaml'), 'name: changed\nversion: 1\n')
+
+    await syncWorkflows({ force: true, tplDir, fltDir })
+
+    expect(readSyncState(join(fltDir, 'workflows')).files['changed.yaml']).toBe(sha256Hex(bundledContent))
+  })
+
+  it('does not update sync state when overwrite is declined', async () => {
+    const previousHash = sha256Hex('name: changed\nversion: 1\n')
+    writeFileSync(join(tplDir, 'changed.yaml'), 'name: changed\nversion: 2\n')
+    writeFileSync(join(fltDir, 'workflows', 'changed.yaml'), 'name: changed\nversion: local\n')
+    writeSyncState(join(fltDir, 'workflows'), { 'changed.yaml': previousHash })
+
+    await syncWorkflows({ tplDir, fltDir, ask: async () => 'n' })
+
+    expect(readSyncState(join(fltDir, 'workflows')).files['changed.yaml']).toBe(previousHash)
   })
 })
