@@ -1465,7 +1465,14 @@ export class App {
   private openWorkflowDrilldown(): void {
     const modal = this.state.workflowsModal
     if (!modal || modal.drilldown) return
-    const row = modal.rows[modal.selectedIndex]
+    // The render groups rows running-first then past (modal-workflows.ts:122-124).
+    // selectedIndex indexes that combined list, NOT modal.rows (which is sorted
+    // globally by startedAt desc). Mirror the same split here or the popup
+    // shows the wrong run when the newest startedAt is past, not running.
+    const running = modal.rows.filter(r => r.status === 'running')
+    const past = modal.rows.filter(r => r.status !== 'running')
+    const items = [...running, ...past]
+    const row = items[modal.selectedIndex]
     if (!row) return
     modal.drilldown = getWorkflowHistory(row.id)
     modal.drilldownId = row.id
