@@ -1203,12 +1203,47 @@ function reconcileDagPlanFromDisk(run: WorkflowRun, step: DynamicDagStep): boole
 }
 
 /**
+ * Names the spawn pipeline will register for this dag node — one `${run}-${step}-${node}-coder`
+ * for serial nodes, or one `${run}-${step}-${node}-${label}` per parallel candidate.
+ */
+function expectedDagAgentNames(run: WorkflowRun, step: DynamicDagStep, node: DagNodeState): string[] {
+  if (node.parallel > 1) {
+    return Array.from({ length: node.parallel }, (_, i) =>
+      `${run.id}-${step.id}-${node.id}-${String.fromCharCode(97 + i)}`,
+    )
+  }
+  return [`${run.id}-${step.id}-${node.id}-coder`]
+}
+
+/**
+ * Race precheck (issue #90): if every expected agent name for this node is
+ * already registered in state.json with a live status AND its worktree dir
+ * exists on disk, another caller (typically a manual `flt workflow advance`)
+ * already spawned this node. The auto-retry loop must not respawn — that
+ * trips "Agent already exists" on every attempt and step-fails the run.
+ */
+function dagSpawnAlreadyInFlight(run: WorkflowRun, step: DynamicDagStep, node: DagNodeState): boolean {
+  const names = expectedDagAgentNames(run, step, node)
+  if (names.length === 0) return false
+  for (const name of names) {
+    const existing = getAgent(name)
+    if (!existing) return false
+    if (existing.status === 'exited') return false
+    if (!existing.worktreePath || !existsSync(existing.worktreePath)) return false
+  }
+  return true
+}
+
+/**
  * Spawn a single dag node with retry + plan-reread + structured error logging
  * (issue #87). Each attempt:
  *   1. Re-reads plan.json so a re-prodded planner's renames take effect.
  *   2. If the requested nodeId is gone from the current plan, hands off to
  *      scheduleReadyNodes (which picks a fresh ready node from the new plan).
- *   3. Otherwise tries the worktree+spawn pipeline; on failure logs an
+ *   3. Defensive lookup (issue #90): if the expected agent(s) are already
+ *      alive in state.json with worktree dirs on disk, another caller won
+ *      the spawn; treat as success.
+ *   4. Otherwise tries the worktree+spawn pipeline; on failure logs an
  *      `error` event with message + stack + (run, step, nodeId) and retries
  *      with exponential backoff. After max attempts, fails the step with a
  *      `_` result rather than stalling silently.
@@ -1245,6 +1280,14 @@ async function spawnDagNode(def: WorkflowDef, run: WorkflowRun, step: DynamicDag
       return
     }
     if (node.status !== 'pending') return
+
+    if (dagSpawnAlreadyInFlight(run, step, node)) {
+      // Race winner already spawned this node (issue #90). Mark non-pending so
+      // scheduleReadyNodes' iteration doesn't re-pick it and return as success.
+      node.status = 'running'
+      saveWorkflowRun(run)
+      return
+    }
 
     try {
       await spawnDagNodeOnce(def, run, step, nodeId)
