@@ -364,10 +364,10 @@ modelsCmd
 
 program
   .command('ask <target> [question]')
-  .description('Ask the oracle, or `flt ask human <json>` (stdin if json omitted) for structured questions')
+  .description('Ask the oracle, an agent (`flt ask <agent> "<q>"`), or `flt ask human <json>` (stdin if json omitted)')
   .option('--from <name>', 'Caller agent name; default = human')
   .option('--run-id <id>', 'Tag the question with a run-id (default = _unrouted)')
-  .option('--timeout <ms>', 'Timeout in milliseconds', (v) => parseInt(v, 10))
+  .option('--timeout <ms>', 'Timeout in milliseconds (oracle/human) or seconds (agent). 0 with agent = block forever', (v) => parseInt(v, 10))
   .action(async (target, question, opts) => {
     try {
       if (target === 'oracle') {
@@ -399,8 +399,37 @@ program
         if (result.status === 'timeout') process.exit(2)
         return
       }
-      console.error(`Unknown ask target "${target}". Supported: oracle, human.`)
+      // `flt ask <agent>` — agent-to-agent QnA (or human-to-agent).
+      if (!question) {
+        console.error(`flt ask ${target} requires a question argument`)
+        process.exit(1)
+      }
+      const { askAgent } = await import('./commands/ask')
+      // --timeout for agent target is in seconds (per spec); oracle/human stay in ms.
+      const timeoutMs = opts.timeout === undefined ? undefined : opts.timeout * 1000
+      const result = await askAgent(target, question, { from: opts.from, timeoutMs })
+      if (result.status === 'ok') {
+        if (result.answer !== undefined) console.log(result.answer)
+        return
+      }
+      console.error(`timeout waiting for ${target}`)
+      process.exit(2)
+    } catch (e) {
+      console.error('Error: ' + (e as Error).message)
       process.exit(1)
+    }
+  })
+
+program
+  .command('answer <qnaId> [text]')
+  .description('Answer a pending agent-to-agent question (delivered via [FLT-ASK <id>] tag)')
+  .option('--file', `Read answer body from ~/.flt/qna/<qnaId>.answer.md instead of inline text`)
+  .option('--qna-dir <path>', 'Override qna directory (test-only)')
+  .action(async (qnaId, text, opts) => {
+    try {
+      const { answerAgent } = await import('./commands/answer')
+      const result = answerAgent(qnaId, { text, file: opts.file === true, qnaDir: opts.qnaDir })
+      console.log(`Answered ${result.qnaId} (asker=${result.asker})`)
     } catch (e) {
       console.error('Error: ' + (e as Error).message)
       process.exit(1)

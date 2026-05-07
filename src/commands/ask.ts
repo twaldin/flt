@@ -4,11 +4,18 @@ import { homedir } from 'os'
 import { resolveRoute } from '../routing/resolver'
 import { spawnDirect } from './spawn'
 import { killDirect } from './kill'
+import { sendDirect } from './send'
+import { detectCaller } from '../detect'
+import { getAgent } from '../state'
 import {
   answerPath,
   defaultQnaDir,
+  newAgentQnaId,
   qnaRunDir,
   questionPath,
+  readAgentQnaRecord,
+  writeAgentQnaRecord,
+  type AgentQnaRecord,
   type Answer,
   type AskPayload,
 } from '../qna'
@@ -192,4 +199,91 @@ export async function askHuman(
   }
 
   return { status: 'timeout', answers: Array.from(collected.values()) }
+}
+
+export interface AskAgentOptions {
+  /** Asker label. Defaults to detected caller agent name, or "human". */
+  from?: string
+  /** Timeout in ms. 0 = block forever. Defaults to 5min. */
+  timeoutMs?: number
+  /** Override qna dir (test-only). */
+  qnaDir?: string
+  /** Poll interval (default 500ms). */
+  pollMs?: number
+  /** Injectable send + agent lookup for tests. */
+  sendFn?: (args: { target: string; message: string; from: string }) => Promise<void>
+  agentExistsFn?: (name: string) => boolean
+}
+
+export interface AskAgentResult {
+  status: 'ok' | 'timeout'
+  qnaId: string
+  answer?: string
+}
+
+const FLT_ASK_TAG_PREFIX = '[FLT-ASK '
+
+export function formatAskTag(qnaId: string, question: string): string {
+  return `${FLT_ASK_TAG_PREFIX}${qnaId}] ${question}`
+}
+
+export async function askAgent(
+  target: string,
+  question: string,
+  opts: AskAgentOptions = {},
+): Promise<AskAgentResult> {
+  if (!target || target.length === 0) throw new Error('askAgent requires a target agent name')
+  if (!question || question.length === 0) throw new Error('askAgent requires a question')
+
+  const qnaDir = opts.qnaDir ?? defaultQnaDir()
+  const caller = detectCaller()
+  const asker = opts.from ?? caller.agentName ?? 'human'
+
+  if (asker === target) {
+    throw new Error(`cannot ask self: asker and target are both "${target}"`)
+  }
+
+  const exists = (opts.agentExistsFn ?? defaultAgentExists)(target)
+  if (!exists) {
+    throw new Error(`agent "${target}" not addressable`)
+  }
+
+  const qnaId = newAgentQnaId()
+  const record: AgentQnaRecord = {
+    id: qnaId,
+    asker,
+    target,
+    targetType: 'agent',
+    question,
+    status: 'pending',
+    createdAt: new Date().toISOString(),
+  }
+  writeAgentQnaRecord(record, qnaDir)
+
+  const tagged = formatAskTag(qnaId, question)
+  const send = opts.sendFn ?? defaultSend
+  await send({ target, message: tagged, from: asker })
+
+  const timeoutMs = opts.timeoutMs ?? 300_000
+  const pollMs = opts.pollMs ?? 500
+  const blockForever = timeoutMs === 0
+  const deadline = blockForever ? Number.POSITIVE_INFINITY : Date.now() + timeoutMs
+
+  while (Date.now() < deadline) {
+    const current = readAgentQnaRecord(qnaId, qnaDir)
+    if (current && current.status === 'answered' && current.answer !== undefined) {
+      return { status: 'ok', qnaId, answer: current.answer }
+    }
+    await sleep(pollMs)
+  }
+
+  return { status: 'timeout', qnaId }
+}
+
+function defaultAgentExists(name: string): boolean {
+  return getAgent(name) !== undefined
+}
+
+async function defaultSend(args: { target: string; message: string; from: string }): Promise<void> {
+  await sendDirect({ target: args.target, message: args.message, from: args.from })
 }
