@@ -8,6 +8,7 @@ import { pendingQna, writeAnswer, type QnaRow, type Question } from '../qna'
 import { computeColumnWidths, truncateEllipsis } from './columns'
 import { ATTR_BOLD, ATTR_DIM, ATTR_INVERSE, ATTR_UNDERLINE, type Screen } from './screen'
 import { COLORS, fgToBg, getTheme } from './theme'
+import { TextInput, parseRawKey, wrapForDisplay } from './widgets/text-input'
 
 export type ModalKind = GateRow['kind'] | 'question'
 
@@ -41,7 +42,12 @@ export interface GatesModalState {
     runId: string
     index: number
     selected: Set<string>
-    typing: { text: string } | null
+    /**
+     * Free-text answer mode. Activated by pressing 't' on a question. The
+     * widget owns a multi-line buffer; rendering wraps within a bounded box
+     * so long answers scroll inside the modal instead of off-screen.
+     */
+    typing: { input: TextInput; scroll: number } | null
     batch?: { questions: Question[]; answerPaths: string[]; index: number }
   } | null
   watcher: fs.FSWatcher | null
@@ -752,9 +758,23 @@ function renderQuestionPicker(
     for (const l of block.headLines) allLines.push({ text: l, kind: 'opt-head', selected: block.selected })
     for (const l of block.descLines) allLines.push({ text: l, kind: 'opt-desc', selected: block.selected })
   }
+  // Multi-line typing buffer renders as a stack of wrapped lines with a
+  // blinking cursor cell at the cursor position. Bounded by typingBoxRows
+  // below so long answers scroll within the box rather than off-screen.
+  const typingBoxRows = 6
+  let typingLines: string[] = []
+  let typingCursorRow = 0
+  let typingCursorCol = 0
   if (picker.typing) {
     allLines.push({ text: '', kind: 'spacer' })
-    allLines.push({ text: `> ${picker.typing.text}█`, kind: 'input' })
+    const wrap = wrapForDisplay(picker.typing.input.getValue(), Math.max(8, wrapTarget - 2), picker.typing.input.getCursor())
+    typingLines = wrap.lines.length > 0 ? wrap.lines : ['']
+    typingCursorRow = wrap.cursorRow
+    typingCursorCol = wrap.cursorCol
+    // Reserve typingBoxRows worth of layout space inside the picker.
+    for (let i = 0; i < typingBoxRows; i += 1) {
+      allLines.push({ text: '', kind: 'input' })
+    }
   }
 
   // Compute width = max line length + padding, capped.
@@ -767,7 +787,7 @@ function renderQuestionPicker(
 
   // Footer help text (kept short so it doesn't dominate width)
   const help = picker.typing
-    ? 'type your answer | Enter submit | Esc back'
+    ? 'type | Shift-Enter newline | Enter submit | ←→ ⌥← ⌃A/E nav | Esc back'
     : (picker.question.multiSelect
       ? 'j/k select | Space toggle | t type custom | Enter submit | Esc back'
       : 'j/k select | t type custom | Enter submit | Esc back')
@@ -807,6 +827,11 @@ function renderQuestionPicker(
   }
   scrollOffset = Math.max(0, scrollOffset)
 
+  // Track where in the picker the typing-box rows start, so we can paint
+  // the wrapped buffer + cursor over those reserved rows after the loop.
+  let typingBoxStartRow: number | null = null
+  let typingBoxRowsRemaining = 0
+
   let r = pickerTop + 1
   for (let i = scrollOffset; i < allLines.length && r < pickerTop + 1 + contentRowsAvail; i += 1) {
     const ln = allLines[i]
@@ -819,9 +844,50 @@ function renderQuestionPicker(
     const fg = ln.selected ? t.sidebarSelected : (ln.kind === 'opt-desc' ? t.sidebarMuted : t.sidebarText)
     const bg = ln.selected ? t.sidebarSelectedBg : ''
     const attrs = ln.selected ? ATTR_INVERSE : (isPromptHead ? ATTR_BOLD : (ln.kind === 'opt-desc' ? ATTR_DIM : 0))
+
+    if (isInput && picker.typing) {
+      // First input row claims the typing-box origin; subsequent input rows
+      // are filled by the typing-box renderer below.
+      if (typingBoxStartRow === null) {
+        typingBoxStartRow = r
+        typingBoxRowsRemaining = typingBoxRows
+      }
+      // Paint a blank padded row; the typing-box renderer overwrites these
+      // cells with the wrapped buffer + cursor.
+      screen.put(r, pickerLeft + 2, padRight('', innerWidth), fg, bg, 0)
+      r += 1
+      continue
+    }
     const padded = padRight(ln.text, innerWidth)
     screen.put(r, pickerLeft + 2, isInput ? ln.text : padded, fg, bg, attrs)
     r += 1
+  }
+
+  if (picker.typing && typingBoxStartRow !== null) {
+    const boxRows = Math.min(typingBoxRowsRemaining, typingBoxRows)
+    // Scroll typingLines so the cursor row is in view.
+    let scroll = picker.typing.scroll
+    if (typingCursorRow < scroll) scroll = typingCursorRow
+    if (typingCursorRow >= scroll + boxRows) scroll = typingCursorRow - boxRows + 1
+    scroll = Math.max(0, Math.min(scroll, Math.max(0, typingLines.length - boxRows)))
+    picker.typing.scroll = scroll
+
+    const fg = t.sidebarText
+    for (let i = 0; i < boxRows; i += 1) {
+      const idx = scroll + i
+      const r2 = typingBoxStartRow + i
+      const text = i === 0 ? '> ' : '  '
+      const lineText = typingLines[idx] ?? ''
+      const visible = (text + lineText).slice(0, innerWidth)
+      screen.put(r2, pickerLeft + 2, padRight(visible, innerWidth), fg, '', 0)
+    }
+    // Draw cursor block over the wrapped position (clamped to the box).
+    const cursorRowOffset = typingCursorRow - scroll
+    if (cursorRowOffset >= 0 && cursorRowOffset < boxRows) {
+      const prefixWidth = cursorRowOffset === 0 ? 2 : 2 // "> " or "  "
+      const cursorScreenCol = pickerLeft + 2 + prefixWidth + Math.min(typingCursorCol, Math.max(0, innerWidth - prefixWidth - 1))
+      screen.put(typingBoxStartRow + cursorRowOffset, cursorScreenCol, '█', t.sidebarBorder, '', 0)
+    }
   }
 
   // Footer (always at the bottom, with a visual separator above).
@@ -1016,23 +1082,45 @@ export function handleGatesKey(state: GatesModalState, key: string, actions: Gat
     const picker = state.questionPicker
     const opts = picker.question.options
     if (picker.typing) {
+      const t = picker.typing
+      // Top-level escape exits typing mode (rather than canceling a sub-popup
+      // inside the widget — there isn't one in this modal).
       if (key === 'escape') {
         picker.typing = null
-      } else if (key === 'enter') {
-        const text = picker.typing.text.trim()
+        return true
+      }
+      // Plain Enter commits.
+      if (key === 'enter') {
+        const text = t.input.getValue().trim()
         const selected = picker.question.multiSelect ? Array.from(picker.selected) : []
         dispatchAnswer(picker.runId, picker.question.id, selected, text || undefined)
         advancePickerOrClose(state)
         actions.refresh()
-      } else if (key === 'backspace') {
-        picker.typing.text = picker.typing.text.slice(0, -1)
-      } else if (key.length === 1) {
-        picker.typing.text += key
+        return true
+      }
+      // Try widget key handling (cursor/edit/newline). Reserved keys (escape,
+      // enter) handled above so we can keep modal-level semantics for them.
+      const widgetKey = parseRawKey(key)
+      if (widgetKey && widgetKey !== 'escape' && widgetKey !== 'enter') {
+        if (t.input.handleKey(widgetKey)) return true
+      }
+      // Otherwise treat as a literal text character (single-codepoint).
+      if (key.length === 1 || (key.length > 1 && !widgetKey && Array.from(key).length === 1)) {
+        t.input.insert(key)
+        return true
+      }
+      // Pasted multi-char text comes through this path too.
+      if (key.length > 1 && !widgetKey) {
+        t.input.insert(key)
+        return true
       }
       return true
     }
     if (key === 't') {
-      picker.typing = { text: '' }
+      picker.typing = {
+        input: new TextInput({ mode: 'multi' }),
+        scroll: 0,
+      }
       return true
     }
     if (key === 'escape') {
@@ -1185,7 +1273,7 @@ export function handleGatesKey(state: GatesModalState, key: string, actions: Gat
           runId: row.runId === '_unrouted' ? '' : row.runId,
           index: 0,
           selected: new Set<string>(),
-          typing: key === 't' ? { text: '' } : null,
+          typing: key === 't' ? { input: new TextInput({ mode: 'multi' }), scroll: 0 } : null,
           batch: isBatch
             ? { questions: row.batchQuestions!, answerPaths: row.batchAnswerPaths!, index: 0 }
             : undefined,

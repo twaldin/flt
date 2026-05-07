@@ -629,26 +629,46 @@ function renderCommandBar(screen: Screen, state: AppState, row: number, col: num
 
   const available = Math.max(0, width - 2)
   const input = state.commandInput
-  const inputLen = widthOf(input)
-  const leftClipped = inputLen > available
+  const inputChars = Array.from(input)
+  const inputLen = inputChars.length
+  const cursorInInput = clamp(state.commandCursor, 0, inputLen)
+  const inputCol = col + 1
 
-  let inputCol = col + 1
-  let inputText: string
+  // Scroll horizontally so the cursor stays visible.
+  let scroll = 0
+  if (inputLen > available && available > 0) {
+    if (cursorInInput >= scroll + available) {
+      scroll = cursorInInput - available + 1
+    }
+    // After cursor-driven scroll, keep at least one trailing char visible.
+    scroll = Math.min(scroll, Math.max(0, inputLen - available + 1))
+    // Ensure cursor>=scroll
+    if (cursorInInput < scroll) scroll = cursorInInput
+    scroll = Math.max(0, scroll)
+  }
+
+  const leftClipped = scroll > 0
+  const rightClipped = inputLen - scroll > available
+
+  const visibleSlice = inputChars.slice(scroll, scroll + available).join('')
+  let inputText = visibleSlice
   if (leftClipped && available > 1) {
-    inputText = '‹' + input.slice(-(available - 1))
-  } else {
-    inputText = inputLen <= available ? input : input.slice(-available)
+    inputText = '‹' + inputChars.slice(scroll + 1, scroll + available).join('')
+  }
+  if (rightClipped && available > 1 && !leftClipped) {
+    // Trailing ellipsis — only show when there's room and we haven't already
+    // marked the leading clip.
+    inputText = inputChars.slice(scroll, scroll + available - 1).join('') + '›'
   }
   screen.put(row, inputCol, inputText, t.commandInput)
   if (leftClipped && available > 1) {
     screen.put(row, inputCol, '‹', t.commandHint, '', ATTR_DIM)
   }
+  if (rightClipped && available > 1 && !leftClipped) {
+    screen.put(row, inputCol + inputText.length - 1, '›', t.commandHint, '', ATTR_DIM)
+  }
 
-  const cursorInInput = Math.max(0, Math.min(state.commandCursor, widthOf(state.commandInput)))
-  const visibleCursor = leftClipped && available > 1
-    ? Math.max(1, Math.min(available, 1 + cursorInInput - Math.max(0, widthOf(state.commandInput) - (available - 1))))
-    : Math.max(0, Math.min(available, cursorInInput))
-
+  const visibleCursor = clamp(cursorInInput - scroll, 0, available)
   const cursorCol = inputCol + visibleCursor
   if (cursorCol < col + width) {
     screen.put(row, cursorCol, '█', t.commandPrefix)
@@ -708,10 +728,14 @@ function renderCompletionPopup(screen: Screen, state: AppState, commandRow: numb
   const available = Math.max(0, screen.cols - 2)
   const inputLen = widthOf(state.commandInput)
   const cursorInInput = Math.max(0, Math.min(state.commandCursor, inputLen))
-  const leftClipped = inputLen > available
-  const visibleCursor = leftClipped && available > 1
-    ? Math.max(1, Math.min(available, 1 + cursorInInput - Math.max(0, inputLen - (available - 1))))
-    : Math.max(0, Math.min(available, cursorInInput))
+  let scroll = 0
+  if (inputLen > available && available > 0) {
+    if (cursorInInput >= scroll + available) scroll = cursorInInput - available + 1
+    scroll = Math.min(scroll, Math.max(0, inputLen - available + 1))
+    if (cursorInInput < scroll) scroll = cursorInInput
+    scroll = Math.max(0, scroll)
+  }
+  const visibleCursor = clamp(cursorInInput - scroll, 0, available)
   const anchorCol = commandInputCol + visibleCursor
   const minCol = 0
   const maxCol = Math.max(minCol, screen.cols - popupWidth)
