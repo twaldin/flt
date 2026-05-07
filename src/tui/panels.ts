@@ -246,14 +246,22 @@ function renderSidebar(screen: Screen, state: AppState, top: number, left: numbe
       ? continuation.slice(0, -2) + '│ '
       : continuation
 
+    // belowPrefix decides what's drawn on the cli/wt rows BELOW the name.
+    // Two channels matter:
+    //   1. Siblings: if this entry has more siblings below at the same depth
+    //      (├ connector), draw a │ at the connector column so the line
+    //      continues down to the next sibling. If this is the last sibling
+    //      (└ connector), no │ — line terminates here.
+    //   2. Children: if this entry has children, add a │ ONE column further
+    //      in for the children's connectors below.
+    // Root entries (no connector) only have channel 2.
     let belowPrefix: string
     if (!connector) {
       belowPrefix = hasChildren ? continuation + '│ ' : continuation
-    } else if (connector === '└') {
-      const stripped = continuation.slice(0, -2) + '  '
-      belowPrefix = hasChildren ? stripped + '│ ' : stripped
     } else {
-      belowPrefix = continuation
+      const siblingChannel = connector === '└' ? '  ' : '│ '
+      const base = continuation.slice(0, -2) + siblingChannel
+      belowPrefix = hasChildren ? base + '│ ' : base
     }
 
     const innerWidth = Math.max(0, width - 2 - widthOf(namePrefix))
