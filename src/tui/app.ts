@@ -12,6 +12,7 @@ import { capturePane, capturePaneVisible, flushBatchedKeys, hasSession, refreshC
 import { getInboxPath } from '../commands/init'
 import { parseCommand, enrichMessageWithFiles } from './command-parser'
 import { setupInput, getCompletionItems, type InputBindings, type TmuxInsertKey } from './input'
+import { TextInput, parseRawKey, type Key as TextInputKey } from './widgets/text-input'
 import { getKeybindsBanner } from './keybinds'
 import { calculateLayout, renderLayout } from './panels'
 import { Screen } from './screen'
@@ -140,6 +141,9 @@ export class App {
   private lastActivity = 0
   private burstTimeout: ReturnType<typeof setTimeout> | null = null
 
+  // Shared text-input widget for the command bar.
+  private commandWidget: TextInput | null = null
+
   constructor() {
     const cols = process.stdout.columns ?? 80
     const rows = process.stdout.rows ?? 24
@@ -249,6 +253,8 @@ export class App {
         this.state.completionSelectedIndex = 0
         this.requestRender()
       },
+      commandWidgetKey: (key, raw) => this.commandWidgetKey(key, raw),
+      commandWidgetInsert: (text) => this.commandWidgetInsert(text),
       quit: () => {
         this.stop()
         process.exit(0)
@@ -374,6 +380,11 @@ export class App {
     this.state.previousMode = previousMode
     this.state.mode = mode
     this.restartPolling()
+
+    // Tear down the command-bar widget when leaving command mode.
+    if (previousMode === 'command' && mode !== 'command') {
+      this.commandWidget = null
+    }
 
 
     // Signal controller which agent is being typed into
@@ -537,6 +548,17 @@ export class App {
     this.state.mode = 'command'
     this.state.commandInput = initial
     this.state.commandCursor = initial.length
+    this.commandWidget = new TextInput({
+      mode: 'single',
+      initialValue: initial,
+      history: { entries: this.state.commandHistory },
+      onChange: (snap) => {
+        this.state.commandInput = snap.value
+        this.state.commandCursor = snap.cursor
+        this.updateCompletionPopup()
+        this.requestRender()
+      },
+    })
     this.updateCompletionPopup()
     this.restartPolling()
     this.requestRender()
@@ -546,8 +568,35 @@ export class App {
     this.markActivity()
     this.state.commandInput = input
     this.state.commandCursor = cursor
+    if (this.commandWidget) {
+      // Re-sync the widget's buffer; suppresses re-emit via onChange.
+      this.commandWidget.setValue(input, cursor)
+    }
     this.updateCompletionPopup()
     this.requestRender()
+  }
+
+  /**
+   * Route an editing key into the command bar's TextInput. Returns true if
+   * the widget consumed the key. High-level command-mode keys (Enter execute,
+   * Tab complete, Esc cancel, history nav) stay on the keybind action layer
+   * and are not handled here.
+   */
+  private commandWidgetKey(rawKey: string, raw?: Buffer): boolean {
+    const widget = this.commandWidget
+    if (!widget) return false
+    const k = parseRawKey(rawKey, raw)
+    if (k === null) return false
+    // Don't let the widget eat keys the keybind layer needs.
+    const reserved: Set<TextInputKey> = new Set(['enter', 'tab', 'shift-tab', 'escape', 'up', 'down'])
+    if (reserved.has(k)) return false
+    return widget.handleKey(k)
+  }
+
+  private commandWidgetInsert(text: string): boolean {
+    if (!this.commandWidget) return false
+    this.commandWidget.insert(text)
+    return true
   }
 
   private updateCompletionPopup(): void {
@@ -651,6 +700,7 @@ export class App {
     const next = idx >= hist.length ? '' : hist[idx]!
     this.state.commandInput = next
     this.state.commandCursor = next.length
+    if (this.commandWidget) this.commandWidget.setValue(next, next.length)
     this.requestRender()
   }
 
@@ -845,6 +895,7 @@ export class App {
   private submitCommand(input: string): void {
     const command = input.trim()
     this.state.mode = 'normal'
+    this.commandWidget = null
     this.restartPolling()
     this.requestRender()
 

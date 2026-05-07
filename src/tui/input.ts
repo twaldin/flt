@@ -1,4 +1,7 @@
 import { StringDecoder } from 'string_decoder'
+import { existsSync, readdirSync, lstatSync, statSync } from 'fs'
+import { homedir } from 'os'
+import { join, dirname, basename, isAbsolute, resolve as pathResolve } from 'path'
 import { getAdapter as getHarnessAdapter } from '@twaldin/harness-ts'
 import { getKeybindAction, type ConfigurableMode, type KeybindAction } from './keybinds'
 import type { WorkflowFilter } from '../metrics-workflows'
@@ -95,6 +98,17 @@ export interface InputBindings {
   setCompletionPopup: (items: CompletionItem[], selectedIndex: number) => void
   setCompletionSelectedIndex: (index: number) => void
   closeCompletionPopup: () => void
+  /**
+   * Route a command-bar key event to the shared TextInput widget. Returns
+   * true if the widget consumed the key (cursor/edit handled). High-level
+   * keys (Enter execute, Tab complete, Esc cancel, Up/Down history) stay on
+   * the keybind action layer.
+   *
+   * Optional so unit-test bindings stubs don't have to implement it; missing
+   * means "no widget is active, fall through to the keybind layer."
+   */
+  commandWidgetKey?: (key: string, raw?: Buffer) => boolean
+  commandWidgetInsert?: (text: string) => boolean
 }
 
 const COMMANDS = ['send', 'logs', 'spawn', 'presets', 'kill', 'theme', 'ascii', 'keybinds', 'help']
@@ -196,6 +210,46 @@ function toItems(values: string[], label?: string, descriptions?: Record<string,
 interface CompletionResult {
   items: CompletionItem[]
   currentToken: string
+}
+
+function listPathCandidates(prefix: string, dirsOnly: boolean): CompletionItem[] {
+  if (prefix.length === 0) return []
+  let expanded = prefix
+  if (prefix === '~') expanded = homedir()
+  else if (prefix.startsWith('~/')) expanded = homedir() + prefix.slice(1)
+
+  const isDirSearch = expanded.endsWith('/') || expanded === ''
+  const dir = isDirSearch ? (expanded || '.') : (dirname(expanded) || '.')
+  const filterPrefix = isDirSearch ? '' : basename(expanded)
+  const cwd = process.cwd()
+  const absDir = isAbsolute(dir) ? dir : pathResolve(cwd, dir)
+  if (!existsSync(absDir)) return []
+  let entries: string[]
+  try { entries = readdirSync(absDir) } catch { return [] }
+
+  const items: CompletionItem[] = []
+  for (const name of entries) {
+    if (filterPrefix && !name.toLowerCase().startsWith(filterPrefix.toLowerCase())) continue
+    if (name.startsWith('.') && !filterPrefix.startsWith('.')) continue
+    let isDir = false
+    try {
+      const lp = join(absDir, name)
+      const st = lstatSync(lp)
+      isDir = st.isDirectory()
+      if (!isDir && st.isSymbolicLink()) {
+        try { isDir = statSync(lp).isDirectory() } catch {}
+      }
+    } catch {
+      continue
+    }
+    if (dirsOnly && !isDir) continue
+
+    const originalDir = isDirSearch ? prefix : prefix.slice(0, prefix.length - filterPrefix.length)
+    const value = `${originalDir}${name}${isDir ? '/' : ''}`
+    items.push({ value, label: isDir ? 'dir' : 'file' })
+  }
+  items.sort((a, b) => a.value.localeCompare(b.value))
+  return items
 }
 
 function listSkillNames(): string[] {
@@ -306,6 +360,10 @@ function getCompletions(
     if (prevPart === '--skill') {
       const matched = matchCandidates(listSkillNames(), lastPart)
       return { items: toItems(matched, 'skill'), currentToken: lastPart }
+    }
+
+    if (prevPart === '--dir' || prevPart === '-d') {
+      return { items: listPathCandidates(lastPart, true), currentToken: lastPart }
     }
 
     if (lastPart.startsWith('-')) {
@@ -511,6 +569,18 @@ export class RawKeyParser {
           continue
         }
 
+        // Option+b / Option+f: word-jump (Terminal.app / iTerm2 with meta)
+        if (buf[i + 1] === 0x62) {
+          this.onEvent({ type: 'key', key: 'word-left', raw: buf.subarray(i, i + 2) })
+          i += 2
+          continue
+        }
+        if (buf[i + 1] === 0x66) {
+          this.onEvent({ type: 'key', key: 'word-right', raw: buf.subarray(i, i + 2) })
+          i += 2
+          continue
+        }
+
         if (buf[i + 1] === 0x5b) {
           if (i + 2 >= buf.length) {
             this.pendingEscape = buf.subarray(i)
@@ -569,10 +639,45 @@ export class RawKeyParser {
 
           const seq = buf.subarray(i, j + 1)
           const seqText = seq.toString('utf8')
+          // Modifier-aware arrows: \x1b[1;<mod><A-D>
+          //   mod 2 = shift, 3 = alt/option, 4 = shift+alt, 5 = ctrl,
+          //   6 = ctrl+shift, 7 = ctrl+alt, 8 = ctrl+alt+shift,
+          //   9 = cmd (some Macs), 10 = cmd+shift
+          // Map alt/cmd-modified arrows to word-jump (alt) and line-jump (cmd).
+          const modArrow = seqText.match(/^\x1b\[1;(\d+)([A-D])$/)
+          if (modArrow) {
+            const mod = parseInt(modArrow[1]!, 10)
+            const dir = modArrow[2]!
+            const altMod = mod === 3 || mod === 4 || mod === 7 || mod === 8
+            const cmdMod = mod === 9 || mod === 10
+            if (altMod) {
+              if (dir === 'D') this.onEvent({ type: 'key', key: 'word-left', raw: seq })
+              else if (dir === 'C') this.onEvent({ type: 'key', key: 'word-right', raw: seq })
+              else if (dir === 'A') this.onEvent({ type: 'key', key: 'up', raw: seq })
+              else this.onEvent({ type: 'key', key: 'down', raw: seq })
+              i = j + 1
+              continue
+            }
+            if (cmdMod) {
+              if (dir === 'D') this.onEvent({ type: 'key', key: 'home', raw: seq })
+              else if (dir === 'C') this.onEvent({ type: 'key', key: 'end', raw: seq })
+              else if (dir === 'A') this.onEvent({ type: 'key', key: 'up', raw: seq })
+              else this.onEvent({ type: 'key', key: 'down', raw: seq })
+              i = j + 1
+              continue
+            }
+            // Other modifiers (shift, ctrl) → fall through to plain arrows
+          }
           if (/^\x1b\[[0-9;]*A$/.test(seqText)) this.onEvent({ type: 'key', key: 'up', raw: seq })
           else if (/^\x1b\[[0-9;]*B$/.test(seqText)) this.onEvent({ type: 'key', key: 'down', raw: seq })
           else if (/^\x1b\[[0-9;]*C$/.test(seqText)) this.onEvent({ type: 'key', key: 'right', raw: seq })
           else if (/^\x1b\[[0-9;]*D$/.test(seqText)) this.onEvent({ type: 'key', key: 'left', raw: seq })
+          else if (seqText === '\x1b[H' || seqText === '\x1b[1~' || seqText === '\x1b[7~') {
+            this.onEvent({ type: 'key', key: 'home', raw: seq })
+          }
+          else if (seqText === '\x1b[F' || seqText === '\x1b[4~' || seqText === '\x1b[8~') {
+            this.onEvent({ type: 'key', key: 'end', raw: seq })
+          }
           else if (/^\x1b\[<\d+;\d+;\d+[mM]$/.test(seqText)) {
             const m = seqText.match(/^\x1b\[<(\d+);\d+;\d+([mM])$/)
             if (m) {
@@ -606,6 +711,10 @@ export class RawKeyParser {
           }
           else if (/^\x1b\[[0-9;]*~$/.test(seqText)) {
             // VT-style function keys: \x1b[3~ = Delete, \x1b[5~ = PgUp, etc.
+            // Mac laptop "delete" key is actually backspace; we map fwd-delete
+            // to 'backspace' for parity with existing mode handlers. The
+            // TextInput widget's 'delete' action is reachable via fn+delete on
+            // mac (which sends a different sequence) and via Ctrl-D.
             const num = parseInt(seqText.slice(2, -1).split(';')[0], 10)
             if (num === 3) this.onEvent({ type: 'key', key: 'backspace', raw: seq })
           }
@@ -631,12 +740,20 @@ export class RawKeyParser {
       }
 
       if (isControlByte(byte)) {
+        // 0x0d = Enter (CR). 0x0a = LF (Ctrl+J in raw mode); we emit it as
+        // 'enter' too for compatibility with terminals that pre-translate
+        // CR→LF. Multi-line widgets distinguish via 'shift-enter' (kitty
+        // protocol) or by accepting Ctrl-J explicitly via keybinds.
         if (byte === 0x0d || byte === 0x0a) this.onEvent({ type: 'key', key: 'enter', raw: buf.subarray(i, i + 1) })
         else if (byte === 0x09) this.onEvent({ type: 'key', key: 'tab', raw: buf.subarray(i, i + 1) })
         else if (byte === 0x7f) this.onEvent({ type: 'key', key: 'backspace', raw: buf.subarray(i, i + 1) })
+        else if (byte === 0x01) this.onEvent({ type: 'key', key: 'ctrl-a', raw: buf.subarray(i, i + 1) })
         else if (byte === 0x03) this.onEvent({ type: 'key', key: 'ctrl-c', raw: buf.subarray(i, i + 1) })
         else if (byte === 0x04) this.onEvent({ type: 'key', key: 'ctrl-d', raw: buf.subarray(i, i + 1) })
+        else if (byte === 0x05) this.onEvent({ type: 'key', key: 'ctrl-e', raw: buf.subarray(i, i + 1) })
+        else if (byte === 0x0b) this.onEvent({ type: 'key', key: 'ctrl-k', raw: buf.subarray(i, i + 1) })
         else if (byte === 0x15) this.onEvent({ type: 'key', key: 'ctrl-u', raw: buf.subarray(i, i + 1) })
+        else if (byte === 0x17) this.onEvent({ type: 'key', key: 'ctrl-w', raw: buf.subarray(i, i + 1) })
         i += 1
         continue
       }
@@ -657,15 +774,19 @@ export class RawKeyParser {
 
 function appendCommandText(bindings: InputBindings, text: string): void {
   const state = bindings.getState()
-  const next = state.commandInput + text
-  bindings.setCommand(next, next.length)
+  const before = state.commandInput.slice(0, state.commandCursor)
+  const after = state.commandInput.slice(state.commandCursor)
+  const next = before + text + after
+  bindings.setCommand(next, state.commandCursor + text.length)
 }
 
 function backspaceCommand(bindings: InputBindings): void {
   const state = bindings.getState()
-  if (!state.commandInput) return
-  const next = state.commandInput.slice(0, -1)
-  bindings.setCommand(next, next.length)
+  if (!state.commandInput || state.commandCursor === 0) return
+  const before = state.commandInput.slice(0, state.commandCursor - 1)
+  const after = state.commandInput.slice(state.commandCursor)
+  const next = before + after
+  bindings.setCommand(next, state.commandCursor - 1)
 }
 
 function tabCompleteCommand(bindings: InputBindings, reverse: boolean): void {
@@ -1053,6 +1174,10 @@ function handleSpecialKey(event: Extract<ParsedInputEvent, { type: 'key' }>, bin
   }
 
   if (state.mode === 'command') {
+    // Route editing/cursor keys through the shared TextInput widget first.
+    // Returns false for high-level keys (Enter, Tab, Esc, Up/Down) which
+    // remain on the keybind action layer for command-bar semantics.
+    if (bindings.commandWidgetKey?.(event.key, event.raw)) return
     handleConfigurableKey('command', event.key, bindings)
     return
   }
@@ -1131,7 +1256,11 @@ function handleText(event: Extract<ParsedInputEvent, { type: 'text' }>, bindings
   }
 
   if (state.mode === 'command') {
-    appendCommandText(bindings, event.text)
+    // Route through the shared TextInput widget if it's active so insertion
+    // happens at the cursor position (not appended at end).
+    if (!bindings.commandWidgetInsert?.(event.text)) {
+      appendCommandText(bindings, event.text)
+    }
     return
   }
 
@@ -1143,6 +1272,14 @@ function handleText(event: Extract<ParsedInputEvent, { type: 'text' }>, bindings
       bindings.openCommand(`send ${agent} ${trimmed}`)
       return
     }
+  }
+
+  // For gates mode, forward the whole text as a single call so the typing
+  // widget can ingest pasted content as one block (preserving newlines).
+  // The handler will fall back to per-char handling for non-typing keys.
+  if (state.mode === 'gates' && event.text.length > 1) {
+    bindings.gatesKey(event.text)
+    return
   }
 
   for (const char of event.text) {
