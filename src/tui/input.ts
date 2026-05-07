@@ -1,6 +1,8 @@
 import { StringDecoder } from 'string_decoder'
+import { getAdapter as getHarnessAdapter } from '@twaldin/harness-ts'
 import { getKeybindAction, type ConfigurableMode, type KeybindAction } from './keybinds'
 import type { WorkflowFilter } from '../metrics-workflows'
+import { isPaneAlternateScreen } from '../tmux'
 import type { AgentView, AppState, CompletionItem, InboxMessage, Mode, ModalState } from './types'
 
 export type TmuxInsertKey =
@@ -702,28 +704,38 @@ function executeKeybindAction(mode: ConfigurableMode, action: KeybindAction, bin
   const state = bindings.getState()
   const selected = state.selectedAgent
 
-  // Opencode keeps its own in-app scroll viewport (separate from tmux scrollback).
-  // In log-focus mode, route common scroll actions to opencode itself so j/k and
-  // ctrl-u/ctrl-d move inside opencode's current view instead of only moving flt's
-  // capture offset.
-  if (mode === 'log-focus' && selected?.cli === 'opencode') {
-    if (action === 'scrollDown') {
-      bindings.sendInsertKey('C-M-e')
-      return
-    }
-    if (action === 'scrollUp') {
-      bindings.sendInsertKey('C-M-y')
-      return
-    }
-    if (action === 'pageDown') {
-      bindings.flushInsert()
-      bindings.sendInsertKey('NPage')
-      return
-    }
-    if (action === 'pageUp') {
-      bindings.flushInsert()
-      bindings.sendInsertKey('PPage')
-      return
+  // Some CLIs own their own scroll viewport (separate from tmux scrollback) and
+  // need scroll keys forwarded into the running app. The Adapter.scrollOwnership
+  // field on the harness adapter dictates the routing:
+  //   - 'app'              → always forward to the app (e.g. opencode).
+  //   - 'fullscreen-aware' → forward only when tmux's alternate screen is active
+  //                          (e.g. claude-code in its TUI; cooked REPL falls
+  //                          through to tmux scrollback).
+  //   - 'tmux' / undefined → fall through to flt's capture-offset scrollback.
+  if (mode === 'log-focus' && selected) {
+    const ownership = getHarnessAdapter(selected.cli)?.scrollOwnership
+    const routeToApp =
+      ownership === 'app' ||
+      (ownership === 'fullscreen-aware' && isPaneAlternateScreen(selected.tmuxSession))
+    if (routeToApp) {
+      if (action === 'scrollDown') {
+        bindings.sendInsertKey('C-M-e')
+        return
+      }
+      if (action === 'scrollUp') {
+        bindings.sendInsertKey('C-M-y')
+        return
+      }
+      if (action === 'pageDown') {
+        bindings.flushInsert()
+        bindings.sendInsertKey('NPage')
+        return
+      }
+      if (action === 'pageUp') {
+        bindings.flushInsert()
+        bindings.sendInsertKey('PPage')
+        return
+      }
     }
   }
 
