@@ -1,24 +1,26 @@
 import { describe, it, expect, mock } from 'bun:test'
 
-let alternateScreenActive = false
+const FULLSCREEN_KEYS = { lineDown: 'C-M-e', lineUp: 'C-M-y', pageDown: 'NPage', pageUp: 'PPage' }
+let claudeCodeTuiMode: 'fullscreen' | 'default' = 'default'
 
 mock.module('@twaldin/harness-ts', () => ({
   getAdapter: (name: string) => {
-    const ownership = name === 'opencode'
-      ? 'app'
-      : name === 'claude-code'
-        ? 'fullscreen-aware'
-        : undefined
-    return {
-      instructionsFilename: 'AGENTS.md',
-      submitKeys: ['Enter'],
-      scrollOwnership: ownership,
+    if (name === 'opencode') {
+      return {
+        instructionsFilename: 'AGENTS.md',
+        submitKeys: ['Enter'],
+        getCurrentScrollKeys: () => FULLSCREEN_KEYS,
+      }
     }
+    if (name === 'claude-code') {
+      return {
+        instructionsFilename: 'CLAUDE.md',
+        submitKeys: ['Enter'],
+        getCurrentScrollKeys: () => (claudeCodeTuiMode === 'fullscreen' ? FULLSCREEN_KEYS : null),
+      }
+    }
+    return { instructionsFilename: 'AGENTS.md', submitKeys: ['Enter'] }
   },
-}))
-
-mock.module('../../../src/tmux', () => ({
-  isPaneAlternateScreen: () => alternateScreenActive,
 }))
 
 import { RawKeyParser, handleInputEvent, getCompletionHint, getCompletionItems, type InputBindings, type ParsedInputEvent } from '../../../src/tui/input'
@@ -208,8 +210,8 @@ describe('input dispatch', () => {
     expect(calls).toContain('insert-key:C-M-y')
   })
 
-  it('fullscreen-aware adapter routes scroll to app only when alt-screen active', () => {
-    alternateScreenActive = true
+  it('claude-code in /tui fullscreen mode forwards scroll chord to the app', () => {
+    claudeCodeTuiMode = 'fullscreen'
     try {
       const { state, bindings, calls } = createBindings('log-focus')
       state.agents = [mockAgent('alpha', 'claude-code')]
@@ -217,16 +219,22 @@ describe('input dispatch', () => {
 
       handleInputEvent({ type: 'text', text: 'j', raw: Buffer.from('j') }, bindings)
       handleInputEvent({ type: 'text', text: 'k', raw: Buffer.from('k') }, bindings)
+      handleInputEvent({ type: 'key', key: 'ctrl-d', raw: Buffer.from([0x04]) }, bindings)
+      handleInputEvent({ type: 'key', key: 'ctrl-u', raw: Buffer.from([0x15]) }, bindings)
 
       expect(calls).toContain('insert-key:C-M-e')
       expect(calls).toContain('insert-key:C-M-y')
+      expect(calls).toContain('insert-key:NPage')
+      expect(calls).toContain('insert-key:PPage')
+      expect(calls).not.toContain('down')
+      expect(calls).not.toContain('up')
     } finally {
-      alternateScreenActive = false
+      claudeCodeTuiMode = 'default'
     }
   })
 
-  it('fullscreen-aware adapter falls through to tmux scrollback when alt-screen inactive', () => {
-    alternateScreenActive = false
+  it('claude-code in /tui default mode falls through to tmux scrollback', () => {
+    claudeCodeTuiMode = 'default'
     const { state, bindings, calls } = createBindings('log-focus')
     state.agents = [mockAgent('alpha', 'claude-code')]
     state.selectedIndex = 0

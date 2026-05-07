@@ -28,13 +28,19 @@ declare module '@twaldin/harness-ts' {
 
   export type HarnessReadyState = 'loading' | 'ready'
   export type HarnessAgentStatus = 'idle' | 'running' | 'waiting' | 'done' | 'unknown'
-  export type HarnessScrollOwnership = 'app' | 'fullscreen-aware' | 'tmux'
+
+  export interface ScrollKeys {
+    lineDown: string
+    lineUp: string
+    pageDown: string
+    pageUp: string
+  }
 
   export interface HarnessAdapter {
     instructionsFilename: string
     submitKeys?: string[]
     flattenOnPaste?: boolean
-    scrollOwnership?: HarnessScrollOwnership
+    getCurrentScrollKeys?: () => ScrollKeys | null
     detectReady?: (pane: string) => HarnessReadyState
     handleDialog?: (pane: string) => string[] | null
     detectStatus?: (pane: string) => HarnessAgentStatus

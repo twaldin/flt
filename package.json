@@ -51,7 +51,7 @@
     "test:targeted": "bun test"
   },
   "dependencies": {
-    "@twaldin/harness-ts": "^0.2.6",
+    "@twaldin/harness-ts": "^0.2.7",
     "commander": "^13.1.0",
     "figlet": "^1.11.0",
     "yaml": "^2.8.3"
