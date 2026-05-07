@@ -46,6 +46,54 @@ export function defaultQnaDir(): string {
   return join(homedir(), '.flt', 'qna')
 }
 
+const AGENT_SUBDIR = 'agent'
+
+export type AgentQnaTargetType = 'agent' | 'human' | 'oracle'
+
+export interface AgentQnaRecord {
+  id: string
+  asker: string
+  target: string
+  targetType: AgentQnaTargetType
+  question: string
+  answer?: string
+  status: 'pending' | 'answered'
+  createdAt: string
+  resolvedAt?: string
+}
+
+export function agentQnaDir(qnaDir: string = defaultQnaDir()): string {
+  return join(qnaDir, AGENT_SUBDIR)
+}
+
+export function agentQnaRecordPath(id: string, qnaDir: string = defaultQnaDir()): string {
+  return join(agentQnaDir(qnaDir), `${id}.json`)
+}
+
+export function agentQnaAnswerFilePath(id: string, qnaDir: string = defaultQnaDir()): string {
+  return join(qnaDir, `${id}.answer.md`)
+}
+
+export function newAgentQnaId(): string {
+  return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`
+}
+
+export function readAgentQnaRecord(id: string, qnaDir: string = defaultQnaDir()): AgentQnaRecord | null {
+  const path = agentQnaRecordPath(id, qnaDir)
+  if (!existsSync(path)) return null
+  try {
+    return JSON.parse(readFileSync(path, 'utf-8')) as AgentQnaRecord
+  } catch {
+    return null
+  }
+}
+
+export function writeAgentQnaRecord(record: AgentQnaRecord, qnaDir: string = defaultQnaDir()): void {
+  const dir = agentQnaDir(qnaDir)
+  if (!existsSync(dir)) mkdirSync(dir, { recursive: true })
+  writeFileSync(agentQnaRecordPath(record.id, qnaDir), JSON.stringify(record, null, 2))
+}
+
 export function qnaRunDir(qnaDir: string, runId: string | undefined): string {
   return join(qnaDir, runId && runId.length > 0 ? runId : UNROUTED)
 }
