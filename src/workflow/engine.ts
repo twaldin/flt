@@ -47,7 +47,7 @@ function hasPendingQnaFromAgent(agentName: string | undefined, runId?: string): 
   )
 }
 import { getPreset } from '../presets'
-import { createWorktree, removeWorktree } from '../worktree'
+import { createWorktree, removeWorktree, reconcileStaleBranchForFreshSpawn, isGitRepo } from '../worktree'
 
 let _spawnFn: typeof import('../commands/spawn').spawnDirect | null = null
 
@@ -593,6 +593,54 @@ export async function advanceWorkflow(runId: string, idleAgentName?: string): Pr
   appendEvent({ type: 'workflow', detail: `advanced ${run.id} step ${nextStepId}`, at: new Date().toISOString() })
 
   await executeStep(def, run, nextStepDef)
+}
+
+/**
+ * Reconcile run.json's view of "step is in flight" against the live fleet
+ * (issue #92). If currentStep is a spawn step but no live agent exists for
+ * it (never spawned, or the session died without going through the normal
+ * idle/kill path), fire a fresh spawn rather than waiting for an idle
+ * signal that will never come.
+ *
+ * Returns true if a respawn was triggered. Caller should skip the regular
+ * advanceWorkflow tick when true — the new agent has just started and has
+ * no verdict yet, so advance has nothing to do.
+ *
+ * Only handles single-spawn steps. Parallel/dynamic_dag have their own
+ * reconciliation paths (`scheduleReadyNodes`, candidate-state checks).
+ */
+export async function respawnIfPhantomSpawnStep(runId: string): Promise<boolean> {
+  const run = loadWorkflowRun(runId)
+  if (!run || run.status !== 'running') return false
+
+  const def = loadWorkflowDef(run.workflow)
+  const stepDef = def.steps.find(s => s.id === run.currentStep)
+  if (!stepDef) return false
+  if (!isSpawnStep(stepDef)) return false
+  if (stepDef.run) return false  // shell-command step, no agent to reconcile
+
+  const agentName = workflowAgentName(run.id, stepDef.id)
+  const agent = getAgent(agentName)
+  const sessionAlive = agent ? tmux.hasSession(agent.tmuxSession) : false
+  if (agent && sessionAlive) return false
+
+  appendEvent({
+    type: 'workflow',
+    detail: `reconcile ${run.id}/${stepDef.id}: no live agent for in-flight step; respawning`,
+    at: new Date().toISOString(),
+  })
+
+  // If a dead-but-registered agent record exists, drop it so spawn() doesn't
+  // hit the "agent already exists" guard.
+  if (agent && !sessionAlive) {
+    try {
+      const { killDirect } = await import('../commands/kill')
+      killDirect({ name: agentName, fromWorkflow: true })
+    } catch {}
+  }
+
+  await executeStep(def, run, stepDef)
+  return true
 }
 
 export async function handleStepFailure(runId: string): Promise<void> {
@@ -2425,26 +2473,73 @@ async function executeStep(def: WorkflowDef, run: WorkflowRun, step: WorkflowSte
     ? join(run.runDir, 'handoffs', `${step.id}-feedback.md`)
     : undefined
   const stepPrConfig = resolvePrConfig(step, step.preset)
-  await spawn({
-    name: agentName,
-    preset: step.preset,
-    dir,
-    worktree: step.worktree !== false,
-    worktreeBranchPrefix: stepPrConfig.branchPrefix,
-    parent: run.parentName,
-    bootstrap: task,
-    workflow: run.workflow,
-    workflowRunId: run.id,
-    workflowStep: step.id,
-    projectRoot: run.vars._input?.dir,
-    extraEnv: run.runDir
-      ? {
-          FLT_RUN_DIR: run.runDir,
-          FLT_RUN_LABEL: '_',
-          ...(retryReviewPath ? { FLT_RETRY_REVIEW_PATH: retryReviewPath } : {}),
-        }
-      : undefined,
-  })
+  const useWorktree = step.worktree !== false
+
+  // Reconcile orphaned git state from a prior aborted attempt. When the
+  // branch flt/<agentName> exists with no associated worktree (issue #92),
+  // `git worktree add` can fail mid-pipeline and the spawn vanishes silently.
+  // Pruning + dropping the stale branch lets createWorktree fall through to
+  // the fresh-branch path. Best-effort — never throws.
+  const reconcileRoot = dir ?? run.vars._input?.dir ?? process.cwd()
+  if (useWorktree && isGitRepo(reconcileRoot)) {
+    try {
+      const { action } = reconcileStaleBranchForFreshSpawn(reconcileRoot, agentName, stepPrConfig.branchPrefix)
+      if (action === 'deleted-stale-branch') {
+        appendEvent({
+          type: 'workflow',
+          detail: `spawn-prep ${run.id}/${step.id}: dropped stale branch ${stepPrConfig.branchPrefix ?? 'flt'}/${agentName}`,
+          at: new Date().toISOString(),
+        })
+      }
+    } catch (e) {
+      appendEvent({
+        type: 'workflow',
+        detail: `spawn-prep ${run.id}/${step.id}: reconcile failed: ${(e as Error).message}`,
+        at: new Date().toISOString(),
+      })
+    }
+  }
+
+  try {
+    await spawn({
+      name: agentName,
+      preset: step.preset,
+      dir,
+      worktree: useWorktree,
+      worktreeBranchPrefix: stepPrConfig.branchPrefix,
+      parent: run.parentName,
+      bootstrap: task,
+      workflow: run.workflow,
+      workflowRunId: run.id,
+      workflowStep: step.id,
+      projectRoot: run.vars._input?.dir,
+      extraEnv: run.runDir
+        ? {
+            FLT_RUN_DIR: run.runDir,
+            FLT_RUN_LABEL: '_',
+            ...(retryReviewPath ? { FLT_RETRY_REVIEW_PATH: retryReviewPath } : {}),
+          }
+        : undefined,
+    })
+  } catch (e) {
+    // Surface spawn-step failures to activity.log + write a step-fail result
+    // so the workflow follows on_fail / retry instead of stalling silently
+    // (issue #92). Mirrors the dag-spawn convention in spawnDagNode.
+    const err = e as Error
+    const reason = `spawn-failed ${run.id}/${step.id}: ${err.message}`
+    appendEvent({
+      type: 'error',
+      agent: agentName,
+      detail: `${reason}\n${err.stack ?? ''}`,
+      at: new Date().toISOString(),
+    })
+    if (run.runDir) {
+      writeResult(run.runDir, step.id, '_', 'fail', reason)
+    }
+    // Route through the standard failure path so retries / on_fail apply.
+    await handleStepFailure(run.id)
+    return
+  }
 
   // Capture agent vars immediately after spawn
   const agent = getAgent(agentName)

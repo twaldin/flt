@@ -182,6 +182,47 @@ export function removeWorktree(repoDir: string, wtPath: string, branch: string):
   gitNoThrow(repoDir, 'worktree', 'prune')
 }
 
+/**
+ * Best-effort cleanup of git state left behind by a prior aborted spawn so a
+ * fresh `createWorktree` call has a clean slate (issue #92).
+ *
+ * Steps:
+ *   1. `git worktree prune` — drops registrations whose target dir is gone.
+ *      Without this, `git worktree add` can fail with "branch already
+ *      checked out at <deleted-path>".
+ *   2. If the target branch exists but no live worktree references it,
+ *      delete the branch. This forces a fresh `worktree add -b ... HEAD`
+ *      below rather than reusing an unknown branch tip from a prior
+ *      attempt that may have been left in a bad state.
+ *
+ * Returns the action taken so callers can log it. Never throws —
+ * createWorktree's branch-handling is the source of truth and will surface
+ * any genuine git failures.
+ */
+export function reconcileStaleBranchForFreshSpawn(
+  repoDir: string,
+  agentName: string,
+  branchPrefix?: string,
+): { action: 'none' | 'pruned' | 'deleted-stale-branch' } {
+  const prefix = (branchPrefix ?? 'flt').replace(/\/$/, '')
+  const branch = `${prefix}/${agentName}`
+
+  gitNoThrow(repoDir, 'worktree', 'prune')
+
+  const branchExists = gitNoThrowOutput(repoDir, 'rev-parse', '--verify', branch) !== null
+  if (!branchExists) return { action: 'pruned' }
+
+  const list = gitNoThrowOutput(repoDir, 'worktree', 'list', '--porcelain') ?? ''
+  const branchRef = `refs/heads/${branch}`
+  const branchHasWorktree = list.split('\n').some(line => line === `branch ${branchRef}`)
+  if (branchHasWorktree) return { action: 'pruned' }
+
+  // Orphan branch (no live worktree) — delete so createWorktree can fall
+  // through to the fresh-branch path.
+  gitNoThrow(repoDir, 'branch', '-D', branch)
+  return { action: 'deleted-stale-branch' }
+}
+
 export function isGitRepo(dir: string): boolean {
   return gitNoThrowOutput(dir, 'rev-parse', '--is-inside-work-tree') === 'true'
 }
