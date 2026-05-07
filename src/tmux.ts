@@ -135,12 +135,6 @@ export function getPaneCurrentCommand(session: string): string | null {
   return cmd || null
 }
 
-/** True when the pane's alternate screen is active (CLIs in fullscreen TUI mode). */
-export function isPaneAlternateScreen(session: string): boolean {
-  const out = tmuxNoThrow('display-message', '-p', '-t', paneTarget(session), '#{alternate_on}')
-  return out?.trim() === '1'
-}
-
 export function setEnv(session: string, key: string, value: string): void {
   tmux('set-environment', '-t', session, key, value)
 }

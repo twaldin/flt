@@ -5,27 +5,36 @@ import { join, dirname, basename, isAbsolute, resolve as pathResolve } from 'pat
 import { getAdapter as getHarnessAdapter } from '@twaldin/harness-ts'
 import { getKeybindAction, type ConfigurableMode, type KeybindAction } from './keybinds'
 import type { WorkflowFilter } from '../metrics-workflows'
-import { isPaneAlternateScreen } from '../tmux'
 import type { AgentView, AppState, CompletionItem, InboxMessage, Mode, ModalState } from './types'
 
-export type TmuxInsertKey =
-  | 'Enter'
-  | 'Escape'
-  | 'BSpace'
-  | 'Tab'
-  | 'Up'
-  | 'Down'
-  | 'Left'
-  | 'Right'
-  | 'PPage'
-  | 'NPage'
-  | 'C-c'
-  | 'M-BSpace'
-  | 'C-u'
-  | 'C-d'
-  | 'M-d'
-  | 'C-M-y'
-  | 'C-M-e'
+export const TMUX_INSERT_KEYS = [
+  'Enter',
+  'Escape',
+  'BSpace',
+  'Tab',
+  'Up',
+  'Down',
+  'Left',
+  'Right',
+  'PPage',
+  'NPage',
+  'C-c',
+  'M-BSpace',
+  'C-u',
+  'C-d',
+  'M-d',
+  'C-M-y',
+  'C-M-e',
+] as const
+
+export type TmuxInsertKey = (typeof TMUX_INSERT_KEYS)[number]
+
+const TMUX_INSERT_KEY_SET: ReadonlySet<string> = new Set(TMUX_INSERT_KEYS)
+
+function asTmuxInsertKey(s: string): TmuxInsertKey | null {
+  if (!TMUX_INSERT_KEY_SET.has(s)) return null
+  return s as TmuxInsertKey
+}
 
 export type ParsedInputEvent =
   | { type: 'key'; key: string; raw: Buffer }
@@ -825,36 +834,25 @@ function executeKeybindAction(mode: ConfigurableMode, action: KeybindAction, bin
   const state = bindings.getState()
   const selected = state.selectedAgent
 
-  // Some CLIs own their own scroll viewport (separate from tmux scrollback) and
-  // need scroll keys forwarded into the running app. The Adapter.scrollOwnership
-  // field on the harness adapter dictates the routing:
-  //   - 'app'              → always forward to the app (e.g. opencode).
-  //   - 'fullscreen-aware' → forward only when tmux's alternate screen is active
-  //                          (e.g. claude-code in its TUI; cooked REPL falls
-  //                          through to tmux scrollback).
-  //   - 'tmux' / undefined → fall through to flt's capture-offset scrollback.
+  // Some CLIs own their own virtualized scroll viewport (separate from tmux
+  // scrollback) and want scroll keys forwarded into the running app. The
+  // adapter's getCurrentScrollKeys() returns the chord map to forward right
+  // now, or null to fall through to tmux/flt scrollback. This is mode-aware
+  // for CLIs whose viewport changes at runtime (e.g. claude-code's
+  // `/tui` slash command toggles between alt-screen "fullscreen" and the
+  // classic main-screen renderer).
   if (mode === 'log-focus' && selected) {
-    const ownership = getHarnessAdapter(selected.cli)?.scrollOwnership
-    const routeToApp =
-      ownership === 'app' ||
-      (ownership === 'fullscreen-aware' && isPaneAlternateScreen(selected.tmuxSession))
-    if (routeToApp) {
-      if (action === 'scrollDown') {
-        bindings.sendInsertKey('C-M-e')
-        return
-      }
-      if (action === 'scrollUp') {
-        bindings.sendInsertKey('C-M-y')
-        return
-      }
-      if (action === 'pageDown') {
-        bindings.flushInsert()
-        bindings.sendInsertKey('NPage')
-        return
-      }
-      if (action === 'pageUp') {
-        bindings.flushInsert()
-        bindings.sendInsertKey('PPage')
+    const keys = getHarnessAdapter(selected.cli)?.getCurrentScrollKeys?.() ?? null
+    if (keys) {
+      const chord =
+        action === 'scrollDown' ? asTmuxInsertKey(keys.lineDown) :
+        action === 'scrollUp' ? asTmuxInsertKey(keys.lineUp) :
+        action === 'pageDown' ? asTmuxInsertKey(keys.pageDown) :
+        action === 'pageUp' ? asTmuxInsertKey(keys.pageUp) :
+        null
+      if (chord) {
+        if (action === 'pageDown' || action === 'pageUp') bindings.flushInsert()
+        bindings.sendInsertKey(chord)
         return
       }
     }
