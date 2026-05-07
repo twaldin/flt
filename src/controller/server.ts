@@ -5,6 +5,7 @@ import { execFileSync } from 'child_process'
 import type { ControllerRequest, ControllerResponse } from './client'
 import { getSocketPath, getPidPath } from './client'
 import { startPolling, stopPolling, setStatusChangeCallback } from './poller'
+import { startReaper, stopReaper } from './reaper'
 import { loadState, setAgent, allAgents, getStateDir } from '../state'
 
 // Mark this process as the controller
@@ -26,6 +27,10 @@ reconcileAgents()
 
 // Start status polling
 startPolling(1000)
+
+// Periodic reaper for orphaned instruction projections (state has projection
+// but tmux session is gone). Backstop for kill/poller paths that may miss.
+startReaper(30_000)
 
 // Workflow advancement: when an agent goes idle, check if it's a workflow step
 setStatusChangeCallback((name, prev, next) => {
@@ -262,6 +267,7 @@ function extractFlag(args: string, flag: string): string | null {
 // Cleanup on shutdown
 function cleanup(): void {
   stopPolling()
+  stopReaper()
   try { unlinkSync(socketPath) } catch {}
   try { unlinkSync(pidPath) } catch {}
   server.stop()

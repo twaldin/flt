@@ -3,7 +3,7 @@ import { join } from 'path'
 import { homedir } from 'os'
 
 export interface FleetEvent {
-  type: 'spawn' | 'kill' | 'status' | 'workflow' | 'message' | 'error'
+  type: 'spawn' | 'kill' | 'status' | 'workflow' | 'message' | 'error' | 'instructions'
   agent?: string
   detail: string
   at: string

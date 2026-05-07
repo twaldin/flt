@@ -1,12 +1,11 @@
 declare module '@twaldin/harness-ts' {
   export interface InstructionProjection {
-    originalPath: string
-    projectedPath: string
-    backupPath?: string
-    usedMarkers?: {
-      start: string
-      end: string
-    }
+    workdir: string
+    filename: string
+    filePath: string
+    existedBefore: boolean
+    backupPath: string
+    wroteBackup: boolean
   }
 
   export interface ProjectInstructionsOptions {

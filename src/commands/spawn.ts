@@ -479,7 +479,7 @@ export async function spawnDirect(args: SpawnArgs): Promise<void> {
 
     const fltOnlyFiles: string[] = ['.flt/.managed-skills.json', ...skillManifestFiles]
     const fltModifiedFiles: string[] = instructionProjection
-      ? [instructionProjection.originalPath]
+      ? [instructionProjection.filePath]
       : []
 
     writeFltManifest(workDir, { fltOnlyFiles, fltModifiedFiles })
