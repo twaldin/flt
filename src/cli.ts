@@ -977,7 +977,7 @@ program
   .command('activity')
   .description('Show fleet activity log')
   .option('-n, --lines <n>', 'Number of events to show', '20')
-  .option('--type <type>', 'Filter by event type (spawn, kill, status, workflow, message, error)')
+  .option('--type <type>', 'Filter by event type (spawn, kill, status, workflow, message, error, instructions)')
   .option('--since <iso>', 'Show events at or after this ISO timestamp')
   .action((opts) => {
     try {
@@ -1008,6 +1008,25 @@ traceCmd
         throw new Error(`Invalid status: ${status}. Expected failed, passed, or all.`)
       }
       traceRecent({ since: String(opts.since), status })
+    } catch (e) {
+      console.error(`Error: ${(e as Error).message}`)
+      process.exit(1)
+    }
+  })
+
+const auditCmd = program
+  .command('audit')
+  .description('Audit fleet state for orphaned resources')
+
+auditCmd
+  .command('projections')
+  .description('Audit instruction-file projections for orphaned/stale entries')
+  .option('--json', 'Emit JSON instead of a table')
+  .option('--restore', 'Restore orphans (otherwise audit is read-only)')
+  .action((opts) => {
+    try {
+      const { auditProjections } = require('./commands/audit-projections') as typeof import('./commands/audit-projections')
+      auditProjections({ json: !!opts.json, restore: !!opts.restore })
     } catch (e) {
       console.error(`Error: ${(e as Error).message}`)
       process.exit(1)
