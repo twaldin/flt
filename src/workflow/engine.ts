@@ -1125,7 +1125,163 @@ async function prepareMultiDepBase(run: WorkflowRun, step: DynamicDagStep, state
   return { ready: false }
 }
 
+// Retry policy for dag-spawn pipeline failures (issue #87). Backoffs in ms
+// between attempts; total length is the max attempt count. Test-injectable
+// via _setDagSpawnBackoffsForTest.
+let dagSpawnBackoffsMs: number[] = [250, 1000, 4000]
+
+export function _setDagSpawnBackoffsForTest(values: number[] | null): void {
+  dagSpawnBackoffsMs = values ?? [250, 1000, 4000]
+}
+
+/**
+ * Refresh `run.dynamicDagGroups[step.id]` from the latest plan.json on disk.
+ * The architect can rewrite plan.json mid-step (controller's "no verdict
+ * after idle" reaper re-prods it; see issue #87), so the cached DAG must be
+ * reconciled before each spawn attempt:
+ *   - pending nodes whose ids are gone from the new plan are dropped
+ *   - pending nodes that survive get their task/preset/parallel/dependsOn
+ *     refreshed
+ *   - new ids in the plan are added as pending
+ *   - non-pending (running/reviewing/passed/failed/skipped) nodes are left
+ *     alone — disrupting an in-flight node would orphan its agent
+ * Returns false (with no mutation) if plan.json is unreadable or invalid.
+ */
+function reconcileDagPlanFromDisk(run: WorkflowRun, step: DynamicDagStep): boolean {
+  const state = run.dynamicDagGroups?.[step.id]
+  if (!state) return false
+
+  const planPath = resolveTemplate(step.plan_from, run)
+  let parsed: DagPlan
+  try {
+    parsed = JSON.parse(readFileSync(planPath, 'utf-8')) as DagPlan
+  } catch {
+    return false
+  }
+
+  const valid = validatePlan(parsed, {
+    max_nodes: step.max_nodes ?? 12,
+    max_depth: step.max_depth ?? 5,
+  })
+  if (!valid.ok) return false
+
+  const defaultPreset = parsed.default_preset ?? 'pi-coder'
+  const planNodes = parsed.nodes ?? []
+  const planById = new Map(planNodes.map(n => [n.id, n]))
+
+  for (const id of Object.keys(state.nodes)) {
+    if (!planById.has(id) && state.nodes[id].status === 'pending') {
+      delete state.nodes[id]
+    }
+  }
+
+  for (const planNode of planNodes) {
+    const existing = state.nodes[planNode.id]
+    if (existing) {
+      if (existing.status === 'pending') {
+        existing.task = planNode.task
+        existing.dependsOn = [...(planNode.depends_on ?? [])]
+        existing.preset = planNode.preset ?? defaultPreset
+        existing.parallel = planNode.parallel ?? 1
+      }
+    } else {
+      state.nodes[planNode.id] = {
+        id: planNode.id,
+        task: planNode.task,
+        dependsOn: [...(planNode.depends_on ?? [])],
+        preset: planNode.preset ?? defaultPreset,
+        parallel: planNode.parallel ?? 1,
+        retries: 0,
+        status: 'pending',
+      }
+    }
+  }
+
+  state.topoOrder = computeTopoOrder(Object.values(state.nodes))
+  saveWorkflowRun(run)
+  return true
+}
+
+/**
+ * Spawn a single dag node with retry + plan-reread + structured error logging
+ * (issue #87). Each attempt:
+ *   1. Re-reads plan.json so a re-prodded planner's renames take effect.
+ *   2. If the requested nodeId is gone from the current plan, hands off to
+ *      scheduleReadyNodes (which picks a fresh ready node from the new plan).
+ *   3. Otherwise tries the worktree+spawn pipeline; on failure logs an
+ *      `error` event with message + stack + (run, step, nodeId) and retries
+ *      with exponential backoff. After max attempts, fails the step with a
+ *      `_` result rather than stalling silently.
+ */
 async function spawnDagNode(def: WorkflowDef, run: WorkflowRun, step: DynamicDagStep, nodeId: string): Promise<void> {
+  if (!run.dynamicDagGroups?.[step.id]) return
+
+  const maxAttempts = dagSpawnBackoffsMs.length
+  let lastError: Error | undefined
+
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    const reconciled = reconcileDagPlanFromDisk(run, step)
+    const state = run.dynamicDagGroups?.[step.id]
+    if (!state) return
+    if (!reconciled) {
+      lastError = new Error('plan.json unreadable or invalid')
+      appendEvent({
+        type: 'error',
+        agent: `${run.id}-${step.id}-${nodeId}`,
+        detail: `dag-spawn ${run.id}/${step.id}/${nodeId} attempt ${attempt}/${maxAttempts}: ${lastError.message}`,
+        at: new Date().toISOString(),
+      })
+      break
+    }
+
+    const node = state.nodes[nodeId]
+    if (!node) {
+      appendEvent({
+        type: 'workflow',
+        detail: `dag-spawn ${run.id}/${step.id}/${nodeId}: node dropped from plan; rescheduling ready nodes`,
+        at: new Date().toISOString(),
+      })
+      await scheduleReadyNodes(def, run, step)
+      return
+    }
+    if (node.status !== 'pending') return
+
+    try {
+      await spawnDagNodeOnce(def, run, step, nodeId)
+      return
+    } catch (e) {
+      lastError = e as Error
+      appendEvent({
+        type: 'error',
+        agent: `${run.id}-${step.id}-${nodeId}`,
+        detail: `dag-spawn ${run.id}/${step.id}/${nodeId} attempt ${attempt}/${maxAttempts}: ${(e as Error).message}\n${(e as Error).stack ?? ''}`,
+        at: new Date().toISOString(),
+      })
+      const reset = run.dynamicDagGroups?.[step.id]?.nodes[nodeId]
+      if (reset) {
+        reset.status = 'pending'
+        saveWorkflowRun(run)
+      }
+      if (attempt < maxAttempts) {
+        const delay = dagSpawnBackoffsMs[attempt - 1] ?? 0
+        if (delay > 0) await new Promise<void>(resolve => setTimeout(resolve, delay))
+      }
+    }
+  }
+
+  const reason = `dag-spawn ${nodeId} failed after ${maxAttempts} attempts: ${lastError?.message ?? 'unknown error'}`
+  appendEvent({
+    type: 'error',
+    agent: `${run.id}-${step.id}-${nodeId}`,
+    detail: reason,
+    at: new Date().toISOString(),
+  })
+  if (run.runDir) {
+    writeResult(run.runDir, step.id, '_', 'fail', reason)
+  }
+}
+
+async function spawnDagNodeOnce(def: WorkflowDef, run: WorkflowRun, step: DynamicDagStep, nodeId: string): Promise<void> {
   void def
   const state = run.dynamicDagGroups?.[step.id]
   if (!state) return
