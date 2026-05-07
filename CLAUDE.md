@@ -79,6 +79,8 @@ tests/
 - **Status polling, not push.** A change in the running agent's pane is observed at most ~1s late. Tests that race against status transitions need to wait, not assume.
 - **`flt kill` nukes the worktree.** If you used the helper worktree to stash diffs, capture them before kill.
 - **Workflow advancement fires on `running → idle`.** Steps that exit before going idle (instant errors, refusals to start) won't trigger `advanceWorkflow`. Add an explicit failure path if you introduce a new such case.
+- **TUI is a separate process from the controller.** `flt controller stop && flt controller start` does NOT restart the TUI — the TUI process loaded `panels.ts` and other rendering code ONCE at launch and keeps using that snapshot. After syncing source changes into the install directory (or merging a fix that touches sidebar/render code), you have to quit the TUI (`q` or kill the `flt tui` process) AND restart it for the change to take effect. The controller restart only matters for spawn/kill/poller logic, not for what's painted on screen.
+- **Two install paths exist for `flt`.** The `flt` binary on `$PATH` is typically `~/.bun/bin/flt`, which symlinks to `~/.bun/install/global/node_modules/@twaldin/flt-cli/src/cli.ts`. There is ALSO an `~/.nvm/versions/node/<v>/lib/node_modules/@twaldin/flt-cli/` install if `npm i -g` was used at any point. When syncing local source changes into the install directory for testing, copy into BOTH paths (or at least the one that backs `$(readlink "$(which flt)")`) — copying to only one means the running TUI/controller might still be on the stale code. `md5 ~/flt/src/foo.ts <each-install-path>/src/foo.ts` is the quickest verifier.
 
 ## Working in this repo
 
