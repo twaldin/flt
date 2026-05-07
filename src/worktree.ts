@@ -53,7 +53,7 @@ export function createWorktree(repoDir: string, agentName: string, baseBranch?: 
       if (remoteExists) {
         gitNoThrow(wtPath, 'merge', '--ff-only', `origin/${branch}`)
       }
-      ensureFltGitignore(repoDir)
+      ensureWorktreeExclude(wtPath)
       return { path: wtPath, branch }
     }
     gitNoThrow(repoDir, 'worktree', 'remove', '--force', wtPath)
@@ -87,15 +87,10 @@ export function createWorktree(repoDir: string, agentName: string, baseBranch?: 
     runWorktreeSetup(repoDir, wtPath)
   }
 
-  // Auto-add flt agent scratch dirs to project's .gitignore so per-spawn
-  // bootstrap.md / handoffs/ never leak into committed history. Only adds the
-  // entries that are actually missing.
-  ensureFltGitignore(repoDir)
-
-  // Per-worktree exclude (.git/info/exclude — never committed). Belt-and-
-  // suspenders alongside ensureFltGitignore: even if the user's repo doesn't
-  // have .flt/ in .gitignore (or the change isn't staged yet), git itself
-  // skips these paths during `git add -A` for THIS worktree only.
+  // Per-worktree exclude (.git/info/exclude — never committed). Keeps flt's
+  // agent scratch dirs (.flt/, handoffs/, .harness-backup-*) out of `git
+  // status` / `git add -A` for THIS worktree only without dirtying the
+  // committed .gitignore.
   ensureWorktreeExclude(wtPath)
 
   return { path: wtPath, branch }
@@ -129,26 +124,6 @@ function ensureWorktreeExclude(wtPath: string): void {
     const block = `${sep}\n# flt agent fleet (per-worktree, not committed)\n${additions.join('\n')}\n`
     writeFileSync(excludePath, body + block)
   } catch { /* best-effort */ }
-}
-
-/**
- * Ensures `.flt/` and `handoffs/` are present in the repo's root .gitignore.
- * Idempotent. Safe on missing .gitignore (creates it). No commit — just edits
- * the working tree; users opt in to staging the change.
- */
-export function ensureFltGitignore(repoDir: string): void {
-  const path = join(repoDir, '.gitignore')
-  let body = ''
-  try { body = existsSync(path) ? readFileSync(path, 'utf-8') : '' } catch { return }
-  const lines = body.split('\n')
-  const has = (entry: string) => lines.some(l => l.trim() === entry)
-  const additions: string[] = []
-  if (!has('.flt/')) additions.push('.flt/')
-  if (!has('handoffs/')) additions.push('handoffs/')
-  if (additions.length === 0) return
-  const sep = body.length > 0 && !body.endsWith('\n') ? '\n' : ''
-  const block = `${sep}\n# flt agent fleet artifacts (per-spawn scratch + handoff docs)\n${additions.join('\n')}\n`
-  try { writeFileSync(path, body + block) } catch { /* best-effort */ }
 }
 
 function runWorktreeSetup(repoDir: string, wtPath: string): void {
