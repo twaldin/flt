@@ -84,7 +84,7 @@ steps:
     on_fail: plan
 
   - id: reviewer
-    preset: cc-sonnet
+    preset: cc-reviewer
     dir: '{steps.execute.worktree}'
     worktree: false
     task: |

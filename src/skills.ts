@@ -42,9 +42,18 @@ export interface ProjectSkillsResult {
   warnings: string[]
 }
 
+export interface SyntheticSkill {
+  name: string
+  description: string
+  /** Full SKILL.md content (with or without frontmatter; written verbatim). */
+  content: string
+}
+
 interface ProjectSkillsOpts {
   requested?: string[]
   all?: boolean
+  /** Skills generated at spawn time (e.g. /flt) rather than copied from ~/.flt/skills/. */
+  synthetic?: SyntheticSkill[]
 }
 
 function parseFrontmatter(raw: string): ParsedFrontmatter {
@@ -166,6 +175,7 @@ export function projectSkills(
 ): ProjectSkillsResult {
   const requested = (opts?.requested ?? []).map(v => v.trim()).filter(Boolean)
   const all = Boolean(opts?.all)
+  const synthetic = opts?.synthetic ?? []
   const available = loadGlobalSkills()
   const warnings: string[] = []
 
@@ -183,6 +193,20 @@ export function projectSkills(
     }
   }
 
+  // Synthetic skills are always installed (caller already gated on whether to
+  // include them). Append after disk-loaded skills so the rendered list keeps
+  // a stable order.
+  for (const syn of synthetic) {
+    selected.push({
+      name: syn.name,
+      description: syn.description,
+      source: 'global',
+      path: '<synthetic>',
+      cliSupport: ['*'],
+      content: syn.content,
+    })
+  }
+
   const prior = readManagedManifest(workDir)
   for (const target of prior.files) {
     const full = join(workDir, target)
@@ -197,46 +221,31 @@ export function projectSkills(
   const managedFiles: string[] = []
   const cliName = adapter.name
 
+  // Synthetic skills carry their content inline; disk-loaded skills get
+  // copied. Both end up in the same destination layout.
+  function installAt(skill: SkillEntry, relRoot: string): void {
+    const destDir = join(workDir, relRoot, skill.name)
+    const destFile = join(destDir, SKILL_FILE)
+    try {
+      mkdirSync(destDir, { recursive: true })
+      if (skill.path === '<synthetic>') {
+        writeFileSync(destFile, skill.content ?? '', 'utf-8')
+      } else {
+        copyFileSync(join(skill.path, SKILL_FILE), destFile)
+      }
+      managedFiles.push(join(relRoot, skill.name, SKILL_FILE))
+    } catch {
+      warnings.push(`Failed to install skill "${skill.name}" to ${destFile}`)
+    }
+  }
+
   if (cliName === 'claude-code') {
-    const skillsRoot = join(workDir, '.claude', 'skills')
-    for (const skill of selected) {
-      const destDir = join(skillsRoot, skill.name)
-      const destFile = join(destDir, SKILL_FILE)
-      try {
-        mkdirSync(destDir, { recursive: true })
-        copyFileSync(join(skill.path, SKILL_FILE), destFile)
-        managedFiles.push(join('.claude', 'skills', skill.name, SKILL_FILE))
-      } catch {
-        warnings.push(`Failed to copy skill "${skill.name}" to ${destFile}`)
-      }
-    }
+    for (const skill of selected) installAt(skill, join('.claude', 'skills'))
   } else if (cliName === 'opencode') {
-    const skillsRoot = join(workDir, '.opencode', 'skills')
-    for (const skill of selected) {
-      const destDir = join(skillsRoot, skill.name)
-      const destFile = join(destDir, SKILL_FILE)
-      try {
-        mkdirSync(destDir, { recursive: true })
-        copyFileSync(join(skill.path, SKILL_FILE), destFile)
-        managedFiles.push(join('.opencode', 'skills', skill.name, SKILL_FILE))
-      } catch {
-        warnings.push(`Failed to copy skill "${skill.name}" to ${destFile}`)
-      }
-    }
+    for (const skill of selected) installAt(skill, join('.opencode', 'skills'))
   } else {
     // codex, gemini, swe-agent, pi — write mirrors + inject list into instruction file
-    const mirrorsRoot = join(workDir, '.flt', 'skills')
-    for (const skill of selected) {
-      const destDir = join(mirrorsRoot, skill.name)
-      const destFile = join(destDir, SKILL_FILE)
-      try {
-        mkdirSync(destDir, { recursive: true })
-        copyFileSync(join(skill.path, SKILL_FILE), destFile)
-        managedFiles.push(join('.flt', 'skills', skill.name, SKILL_FILE))
-      } catch {
-        warnings.push(`Failed to mirror skill "${skill.name}" to ${destFile}`)
-      }
-    }
+    for (const skill of selected) installAt(skill, join('.flt', 'skills'))
 
     if (adapter.instructionFile) {
       const filePath = join(workDir, adapter.instructionFile)

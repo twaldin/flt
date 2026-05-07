@@ -34,25 +34,33 @@ describe('instructions', () => {
   it('builds system block with template substitution', () => {
     const block = buildSystemBlock(baseOpts)
     expect(block).toContain('Fleet Agent: coder-1')
-    expect(block).toContain('Parent agent: orchestrator')
+    expect(block).toContain('Parent: orchestrator')
     expect(block).toContain('CLI: claude-code')
     expect(block).toContain('Model: opus-4-6')
-    expect(block).toContain('flt send parent')
+    // Minimal block points the agent at the /flt skill — full protocol lives there.
+    expect(block).toContain('Read the /flt skill')
   })
 
   it('uses root template when parent is human', () => {
     const block = buildSystemBlock({ ...baseOpts, parentName: 'human' })
-    expect(block).toContain('managed root agent')
+    expect(block).toContain('Mode: root')
     expect(block).toContain('Parent: human')
-    expect(block).toContain('Terminal output can be useful')
+    expect(block).toContain('Read the /flt skill')
   })
 
   it('uses subagent template when parent is another agent', () => {
     const block = buildSystemBlock({ ...baseOpts, parentName: 'orchestrator' })
-    expect(block).toContain('managed subagent')
-    expect(block).toContain('Parent agent: orchestrator')
-    expect(block).toContain('never human')
-    expect(block).toContain('flt ask oracle')
+    expect(block).toContain('Mode: subagent')
+    expect(block).toContain('Parent: orchestrator')
+    expect(block).toContain('Read the /flt skill')
+  })
+
+  it('uses workflow template when in a workflow', () => {
+    const block = buildSystemBlock({ ...baseOpts, workflow: 'idea-to-pr', step: 'coder' })
+    expect(block).toContain('Mode: workflow')
+    expect(block).toContain('Workflow: idea-to-pr')
+    expect(block).toContain('Step: coder')
+    expect(block).toContain('Read the /flt skill')
   })
 
   it('builds full instructions without SOUL.md', () => {

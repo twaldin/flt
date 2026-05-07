@@ -74,7 +74,7 @@ steps:
     max_retries: 1
 
   - id: reviewer
-    preset: cc-sonnet
+    preset: cc-reviewer
     dir: '{steps.fix.worktree}'
     worktree: false
     task: |

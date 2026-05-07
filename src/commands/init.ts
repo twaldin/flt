@@ -3,30 +3,51 @@ import { existsSync, writeFileSync, mkdirSync, readFileSync, copyFileSync, readd
 import { join } from 'path'
 import { homedir } from 'os'
 
+// Preset reorg (2026-05): three layers.
+//  1. Primitive role presets — role + skills only, no cli/model. User picks
+//     harness at spawn time with --cli / --model.
+//  2. Task-specific presets — variations on roles with task-tuned skill sets.
+//  3. Harness-bound dupes — cc-* (claude-code + tier model) and pi-* (cli=pi,
+//     model deferred to spawn). Old per-CLI bundles (codex-*, gemini-*,
+//     glm-*, opencode-*, cc-opus, cc-sonnet, pi-deep) were dropped.
 const SEED_PRESETS = {
-  'cc-architect': { cli: 'claude-code', model: 'opus[1m]', description: 'Architect via claude-code', soul: 'roles/architect.md' },
-  'cc-coder': { cli: 'claude-code', model: 'sonnet', description: 'Coder via claude-code', soul: 'roles/coder.md' },
-  'cc-evaluator': { cli: 'claude-code', model: 'opus[1m]', description: 'Evaluator via claude-code', soul: 'roles/evaluator.md' },
-  'cc-mutator': { cli: 'claude-code', model: 'opus[1m]', description: 'Trace-driven artifact mutator', soul: 'roles/mutator.md' },
-  'cc-opus': { cli: 'claude-code', model: 'opus[1m]', description: 'Routing bundle: claude-code + opus[1m] (judgment tier; soul injected by spawn --role)', soul: 'roles/architect.md' },
-  'cc-oracle': { cli: 'claude-code', model: 'sonnet', description: 'Ephemeral oracle (spawn-on-message)', soul: 'roles/oracle.md' },
-  'cc-reviewer': { cli: 'claude-code', model: 'sonnet', description: 'Reviewer via claude-code', soul: 'roles/reviewer.md' },
-  'cc-sonnet': { cli: 'claude-code', model: 'sonnet', description: 'Routing bundle: claude-code + sonnet (execution-judgment tier; soul injected by spawn --role)', soul: 'roles/reviewer.md' },
-  'cc-spec-writer': { cli: 'claude-code', model: 'sonnet', description: 'Spec writer via claude-code', soul: 'roles/spec_writer.md' },
-  'cc-tester': { cli: 'claude-code', model: 'sonnet', description: 'Tester via claude-code', soul: 'roles/tester.md' },
-  'cc-trace-classifier': { cli: 'claude-code', model: 'haiku', description: 'Failure classifier', soul: 'roles/trace_classifier.md' },
-  'cc-verifier': { cli: 'claude-code', model: 'haiku', description: 'Verifier via claude-code', soul: 'roles/verifier.md' },
-  'codex-coder': { cli: 'codex', model: 'gpt-5.3-codex', description: 'Coder via codex', soul: 'roles/coder.md' },
-  'codex-reviewer': { cli: 'codex', model: 'gpt-5.4', description: 'Reviewer via codex', soul: 'roles/reviewer.md' },
-  'gemini-coder': { cli: 'gemini', model: 'gemini-2.5-pro', description: 'Long-context coder via gemini', soul: 'roles/coder.md' },
-  'glm-coder': { cli: 'claude-code', model: 'sonnet', description: 'claude-code via z.ai → GLM-5.1', soul: 'roles/coder.md', env: { ANTHROPIC_BASE_URL: 'https://api.z.ai/api/anthropic', API_TIMEOUT_MS: '3000000', ANTHROPIC_DEFAULT_SONNET_MODEL: 'glm-5.1', ANTHROPIC_AUTH_TOKEN: '${Z_AI_API_KEY}', CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: '1' } },
-  'glm-fast': { cli: 'claude-code', model: 'haiku', description: 'claude-code via z.ai → GLM-4.5-Air', soul: 'roles/coder.md', env: { ANTHROPIC_BASE_URL: 'https://api.z.ai/api/anthropic', API_TIMEOUT_MS: '3000000', ANTHROPIC_DEFAULT_HAIKU_MODEL: 'glm-4.5-air', ANTHROPIC_AUTH_TOKEN: '${Z_AI_API_KEY}', CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: '1' } },
-  'glm-opus': { cli: 'claude-code', model: 'opus[1m]', description: 'claude-code via z.ai → GLM-4.7', soul: 'roles/coder.md', env: { ANTHROPIC_BASE_URL: 'https://api.z.ai/api/anthropic', API_TIMEOUT_MS: '3000000', ANTHROPIC_DEFAULT_OPUS_MODEL: 'glm-4.7', ANTHROPIC_AUTH_TOKEN: '${Z_AI_API_KEY}', CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: '1' } },
-  'opencode-coder': { cli: 'opencode', model: 'default', description: 'Coder via opencode', soul: 'roles/coder.md' },
-  'orchestrator': { cli: 'claude-code', model: 'opus[1m]', description: 'Persistent fleet orchestrator', dir: '~/.flt/agents/orchestrator', parent: 'human', worktree: false, persistent: true, soul: 'agents/orchestrator/SOUL.md' },
-  'pi-coder': { cli: 'pi', model: 'gpt-5.3-codex', description: 'Coder via pi (gpt-5.3-codex)', soul: 'roles/coder.md' },
-  'pi-reviewer': { cli: 'pi', model: 'gpt-5.5', description: 'Reviewer via pi (gpt-5.5)', soul: 'roles/reviewer.md' },
-  'pi-deep': { cli: 'pi', model: 'gpt-5.5', description: 'Deep-reasoning oracle via pi (gpt-5.5)', soul: 'roles/oracle.md' },
+  // ---- Primitive role presets (no cli, no model) ----
+  'coder':             { description: 'Role: coder',             soul: 'roles/coder.md',                  skills: ['tdd', 'git-guardrails-claude-code'] },
+  'architect':         { description: 'Role: architect',         soul: 'roles/architect.md',              skills: ['grill', 'improve-codebase-architecture', 'zoom-out'] },
+  'reviewer':          { description: 'Role: reviewer',          soul: 'roles/reviewer.md',               skills: ['diagnose', 'git-guardrails-claude-code'] },
+  'evaluator':         { description: 'Role: evaluator',         soul: 'roles/evaluator.md',              skills: ['diagnose'] },
+  'spec-writer':       { description: 'Role: spec writer',       soul: 'roles/spec_writer.md',            skills: ['grill', 'to-prd', 'to-issues'] },
+  'tester':            { description: 'Role: tester',            soul: 'roles/tester.md',                 skills: ['tdd'] },
+  'oracle':            { description: 'Role: oracle',            soul: 'roles/oracle.md',                 skills: [] },
+  'mutator':           { description: 'Role: mutator',           soul: 'roles/mutator.md',                skills: [] },
+  'orchestrator':      { description: 'Role: orchestrator',      soul: 'agents/orchestrator/SOUL.md',     skills: ['grill', 'handoff'] },
+  'trace-classifier':  { description: 'Role: trace classifier',  soul: 'roles/trace_classifier.md',       skills: [] },
+  'verifier':          { description: 'Role: verifier',          soul: 'roles/verifier.md',               skills: [] },
+  // ---- Task-specific (still no cli/model) ----
+  'triage':          { description: 'Task: triage',                soul: 'roles/reviewer.md',     skills: ['triage', 'diagnose', 'git-guardrails-claude-code'] },
+  'architect-deep':  { description: 'Task: architecture deep-dive', soul: 'roles/architect.md',    skills: ['grill', 'improve-codebase-architecture', 'zoom-out'] },
+  'handoff-writer':  { description: 'Task: handoff writer',        soul: 'roles/spec_writer.md',  skills: ['handoff', 'grill'] },
+  'prototype':       { description: 'Task: prototype builder',     soul: 'roles/coder.md',        skills: ['prototype', 'git-guardrails-claude-code'] },
+  // ---- claude-code-bound dupes ----
+  'cc-coder':            { cli: 'claude-code', model: 'sonnet',   description: 'Coder via claude-code',            soul: 'roles/coder.md',              skills: ['tdd', 'git-guardrails-claude-code'] },
+  'cc-architect':        { cli: 'claude-code', model: 'opus[1m]', description: 'Architect via claude-code',        soul: 'roles/architect.md',          skills: ['grill', 'improve-codebase-architecture', 'zoom-out'] },
+  'cc-reviewer':         { cli: 'claude-code', model: 'sonnet',   description: 'Reviewer via claude-code',         soul: 'roles/reviewer.md',           skills: ['diagnose', 'git-guardrails-claude-code'] },
+  'cc-evaluator':        { cli: 'claude-code', model: 'opus[1m]', description: 'Evaluator via claude-code',        soul: 'roles/evaluator.md',          skills: ['diagnose'] },
+  'cc-spec-writer':      { cli: 'claude-code', model: 'sonnet',   description: 'Spec writer via claude-code',      soul: 'roles/spec_writer.md',        skills: ['grill', 'to-prd', 'to-issues'] },
+  'cc-tester':           { cli: 'claude-code', model: 'sonnet',   description: 'Tester via claude-code',           soul: 'roles/tester.md',             skills: ['tdd'] },
+  'cc-oracle':           { cli: 'claude-code', model: 'sonnet',   description: 'Ephemeral oracle (claude-code)',   soul: 'roles/oracle.md',             skills: [] },
+  'cc-mutator':          { cli: 'claude-code', model: 'opus[1m]', description: 'Trace-driven artifact mutator',    soul: 'roles/mutator.md',            skills: [] },
+  'cc-orchestrator':     { cli: 'claude-code', model: 'opus[1m]', description: 'Persistent fleet orchestrator',    soul: 'agents/orchestrator/SOUL.md', dir: '~/.flt/agents/orchestrator', parent: 'human', worktree: false, persistent: true, skills: ['grill', 'handoff'] },
+  'cc-trace-classifier': { cli: 'claude-code', model: 'haiku',    description: 'Failure classifier',               soul: 'roles/trace_classifier.md',   skills: [] },
+  'cc-verifier':         { cli: 'claude-code', model: 'haiku',    description: 'Verifier via claude-code',         soul: 'roles/verifier.md',           skills: [] },
+  'cc-triage':           { cli: 'claude-code', model: 'sonnet',   description: 'Triage via claude-code',           soul: 'roles/reviewer.md',           skills: ['triage', 'diagnose', 'git-guardrails-claude-code'] },
+  'cc-architect-deep':   { cli: 'claude-code', model: 'opus[1m]', description: 'Deep architecture via claude-code',soul: 'roles/architect.md',          skills: ['grill', 'improve-codebase-architecture', 'zoom-out'] },
+  'cc-handoff-writer':   { cli: 'claude-code', model: 'sonnet',   description: 'Handoff writer via claude-code',   soul: 'roles/spec_writer.md',        skills: ['handoff', 'grill'] },
+  'cc-prototype':        { cli: 'claude-code', model: 'sonnet',   description: 'Prototype via claude-code',        soul: 'roles/coder.md',              skills: ['prototype', 'git-guardrails-claude-code'] },
+  // ---- pi-bound (no model — spawn-time --model required) ----
+  'pi-coder':     { cli: 'pi', description: 'Coder via pi',     soul: 'roles/coder.md',     skills: ['tdd', 'git-guardrails-claude-code'] },
+  'pi-reviewer':  { cli: 'pi', description: 'Reviewer via pi',  soul: 'roles/reviewer.md',  skills: ['diagnose', 'git-guardrails-claude-code'] },
+  'pi-architect': { cli: 'pi', description: 'Architect via pi', soul: 'roles/architect.md', skills: ['grill', 'improve-codebase-architecture', 'zoom-out'] },
 }
 
 function fltHome(): string {
@@ -137,31 +158,31 @@ export function seedFlt(): void {
 
   if (writeIfAbsent(join(fltDir, 'routing', 'policy.yaml'), [
     '# Two-families split: Claude=judgment, GPT=execution',
-    'orchestrator: cc-opus',
-    'spec_writer: cc-sonnet',
-    'architect: cc-opus',
+    'orchestrator: cc-orchestrator',
+    'spec_writer: cc-spec-writer',
+    'architect: cc-architect',
     'coder: pi-coder',
-    'tester: pi-coder',
-    'reviewer: cc-sonnet',
-    'verifier: pi-coder',
-    'evaluator: cc-opus',
-    'oracle: pi-deep',
-    'mutator: cc-opus',
-    'trace_classifier: pi-coder',
+    'tester: cc-tester',
+    'reviewer: cc-reviewer',
+    'verifier: cc-verifier',
+    'evaluator: cc-evaluator',
+    'oracle: cc-oracle',
+    'mutator: cc-mutator',
+    'trace_classifier: cc-trace-classifier',
     '',
   ].join('\n'))) restored++
 
   if (writeIfAbsent(join(fltDir, 'routing', 'escalation.yaml'), [
     'triggers:',
     '  same_step_failed_twice:',
-    '    coder: cc-opus',
-    '    reviewer: cc-opus',
+    '    coder: cc-architect',
+    '    reviewer: cc-architect',
     '  low_confidence_blocker:',
-    '    "*": pi-deep',
+    '    "*": cc-oracle',
     '  security_tagged_diff:',
-    '    reviewer: cc-opus',
+    '    reviewer: cc-architect',
     '  hard_debug_reproducible:',
-    '    "*": pi-deep',
+    '    "*": cc-oracle',
     '',
   ].join('\n'))) restored++
 

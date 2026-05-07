@@ -7,7 +7,7 @@ steps:
     max_retries: 4
     on_complete: reviewer
   - id: reviewer
-    preset: cc-sonnet
+    preset: cc-reviewer
     dir: '{steps.coder.worktree}'
     worktree: false
     task: 'Review the coder work in branch {steps.coder.branch}. Run git diff main...HEAD. Run flt workflow pass on success or flt workflow fail "<reason>" on failure.'

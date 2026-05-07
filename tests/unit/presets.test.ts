@@ -69,11 +69,28 @@ describe('presets', () => {
     expect(getPreset('coder')).toBeUndefined()
   })
 
-  it('throws on invalid preset file shape', () => {
+  it('accepts primitive role presets without cli/model', () => {
     const fltDir = join(tempDir, '.flt')
     mkdirSync(fltDir, { recursive: true })
-    writeFileSync(join(fltDir, 'presets.json'), '{"bad":{"cli":"codex"}}\n')
-    expect(() => loadPresets()).toThrow('missing "model"')
+    writeFileSync(
+      join(fltDir, 'presets.json'),
+      JSON.stringify({ coder: { soul: 'roles/coder.md', skills: ['tdd'] } }) + '\n',
+    )
+    const loaded = loadPresets()
+    expect(loaded.coder).toEqual({
+      cli: undefined,
+      model: undefined,
+      description: undefined,
+      soul: 'roles/coder.md',
+      skills: ['tdd'],
+    })
+  })
+
+  it('rejects empty-string cli', () => {
+    const fltDir = join(tempDir, '.flt')
+    mkdirSync(fltDir, { recursive: true })
+    writeFileSync(join(fltDir, 'presets.json'), '{"bad":{"cli":""}}\n')
+    expect(() => loadPresets()).toThrow('"cli" must be a non-empty string')
   })
 
   it('throws on invalid preset name', () => {

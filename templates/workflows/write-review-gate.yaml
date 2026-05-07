@@ -12,7 +12,7 @@ auto_pr: false
 
 steps:
   - id: write
-    preset: cc-sonnet
+    preset: cc-spec-writer
     task: |
       Original task: {task}
 
@@ -41,7 +41,7 @@ steps:
     max_retries: 2
 
   - id: review
-    preset: codex-reviewer
+    preset: cc-reviewer
     worktree: false
     dir: '{steps.write.worktree}'
     task: |

@@ -1,7 +1,7 @@
 name: new-project
 steps:
   - id: grill
-    preset: cc-sonnet
+    preset: cc-spec-writer
     task: |
       Original task: {task}
       Read the task above. Identify any genuine ambiguities or scope decisions a coder will need clarified to deliver an unambiguous implementation. Skip questions whose answer is obvious from the task. Cap at 3 questions. If the task is unambiguous, skip the call and write 'No clarifications needed.' to grill-answers.md.
@@ -12,7 +12,7 @@ steps:
       flt workflow pass when grill-answers.md exists.
     on_complete: research
   - id: research
-    preset: cc-sonnet
+    preset: cc-spec-writer
     task: |
       Original task: {task}
 
@@ -32,14 +32,14 @@ steps:
       flt workflow pass when research.md is written.
     on_complete: spec
   - id: spec
-    preset: cc-sonnet
+    preset: cc-spec-writer
     task: |
       Read {steps.grill.worktree}/grill-answers.md FIRST and treat the user's answers as binding.
       Read {steps.research.worktree}/research.md for stack/gotchas context.
       Write spec.md for: {task}.
     on_complete: architect
   - id: architect
-    preset: cc-opus
+    preset: cc-architect
     dir: '{steps.spec.worktree}'
     worktree: false
     task: 'Read spec.md; produce design.md.'
