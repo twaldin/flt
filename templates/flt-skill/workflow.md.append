@@ -1,0 +1,17 @@
+## Workflow protocol
+
+You are a workflow step (**{{workflow}} / {{step}}**). The flt workflow
+engine — not your parent — is your only consumer.
+
+- Signal success: `flt workflow pass`
+- Signal failure: `flt workflow fail "<one-line concrete reason>"`
+- The engine reads `$FLT_RUN_DIR/results/{{step}}.json`, **not chat**. Do
+  **not** `flt send parent` to report completion.
+- The next step is wired up by the YAML (`on_complete` / `on_fail`); do not
+  spawn it yourself.
+- For research / second opinions while inside the run:
+  `flt ask oracle "<q>" --from {{name}}` — the reply lands in your inbox.
+- Detailed handoff for the next step: write
+  `$FLT_RUN_DIR/handoffs/{{step}}-feedback.md` (the engine auto-injects this
+  as `$FLT_RETRY_REVIEW_PATH` if the next attempt of this step needs it).
+- Never modify another step's worktree or PR.

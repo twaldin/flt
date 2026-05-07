@@ -3,8 +3,10 @@ import { homedir } from 'os'
 import { join } from 'path'
 
 export interface Preset {
-  cli: string
-  model: string
+  // cli/model are optional: primitive role presets (coder, architect, etc.) carry only role + skills
+  // and require spawn-time --cli / --model. Harness-bound presets (cc-*, pi-*) bake them in.
+  cli?: string
+  model?: string
   description?: string
   soul?: string       // path to SOUL.md: "roles/<role>.md" (template) or "agents/<name>/SOUL.md" (persistent), relative to ~/.flt/. Absolute paths also accepted.
   dir?: string        // working directory (~ expanded at resolve time)
@@ -64,11 +66,11 @@ function validatePresetValue(name: string, value: unknown): Preset {
   }
 
   const preset = value as Record<string, unknown>
-  if (typeof preset.cli !== 'string' || !preset.cli.trim()) {
-    throw new Error(`Invalid preset "${name}": missing "cli".`)
+  if (preset.cli !== undefined && (typeof preset.cli !== 'string' || !preset.cli.trim())) {
+    throw new Error(`Invalid preset "${name}": "cli" must be a non-empty string when set.`)
   }
-  if (typeof preset.model !== 'string' || !preset.model.trim()) {
-    throw new Error(`Invalid preset "${name}": missing "model".`)
+  if (preset.model !== undefined && (typeof preset.model !== 'string' || !preset.model.trim())) {
+    throw new Error(`Invalid preset "${name}": "model" must be a non-empty string when set.`)
   }
   if (preset.description !== undefined && typeof preset.description !== 'string') {
     throw new Error(`Invalid preset "${name}": "description" must be a string.`)
@@ -149,8 +151,8 @@ function validatePresetValue(name: string, value: unknown): Preset {
     : undefined
 
   return {
-    cli: preset.cli,
-    model: preset.model,
+    cli: typeof preset.cli === 'string' ? preset.cli.trim() || undefined : undefined,
+    model: typeof preset.model === 'string' ? preset.model.trim() || undefined : undefined,
     description: normalizeDescription(preset.description as string | undefined),
     soul: typeof preset.soul === 'string' ? preset.soul.trim() || undefined : undefined,
     dir: typeof preset.dir === 'string' ? preset.dir.trim() || undefined : undefined,

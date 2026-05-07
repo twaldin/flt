@@ -4,7 +4,7 @@ name: idea-to-pr
 # + branch context so they don't have to guess.
 steps:
   - id: grill
-    preset: cc-sonnet
+    preset: cc-spec-writer
     task: |
       Original task: {task}
       Read the task above. Identify any genuine ambiguities or scope decisions a coder will need clarified to deliver an unambiguous implementation. Skip questions whose answer is obvious from the task. Cap at 3 questions. If the task is unambiguous, skip the call and write 'No clarifications needed.' to grill-answers.md.
@@ -16,7 +16,7 @@ steps:
     on_complete: spec
 
   - id: spec
-    preset: cc-sonnet
+    preset: cc-spec-writer
     task: |
       Read {steps.grill.worktree}/grill-answers.md FIRST and treat the user's answers as binding.
       Original task: {task}
@@ -31,7 +31,7 @@ steps:
     on_complete: architect
 
   - id: architect
-    preset: cc-opus
+    preset: cc-architect
     dir: '{steps.spec.worktree}'
     worktree: false
     task: |
@@ -72,7 +72,7 @@ steps:
     # codex/gpt-5.4 — deliberately a DIFFERENT cli+model than the coder
     # (pi/gpt-5.3-codex) so the review is an actual cross-check, not the
     # same family second-guessing itself.
-    preset: codex-reviewer
+    preset: cc-reviewer
     dir: '{steps.coder.worktree}'
     worktree: false
     task: |

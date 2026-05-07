@@ -68,6 +68,15 @@ export async function routeCheck(opts: RouteCheckOptions = {}): Promise<RouteChe
     const cli = preset.cli
     const model = preset.model
 
+    if (!cli) {
+      rows.push({
+        role,
+        preset: presetName,
+        status: 'WARN',
+        notes: 'preset has no cli field (primitive role preset — needs spawn-time --cli)',
+      })
+      continue
+    }
     if (!model) {
       rows.push({
         role,

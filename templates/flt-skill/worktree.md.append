@@ -1,0 +1,12 @@
+## Worktree
+
+You are operating in a git worktree (created by `flt spawn` — your branch
+is named after you). Two consequences:
+
+- Pushing from here goes to a per-agent branch, never directly to `main`.
+  Don't `git push origin main` or rebase the integration branch from inside
+  the worktree.
+- `flt kill <you>` removes this worktree. If you produce diffs or files you
+  want to keep outside the normal commit/PR flow, copy them out before kill
+  (handoffs in `$FLT_RUN_DIR/handoffs/` survive teardown; loose files in
+  the worktree do not).

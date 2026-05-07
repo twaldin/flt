@@ -24,8 +24,8 @@ export function formatPresetList(): string {
   const headers = ['name', 'cli', 'model', 'description']
   const rows = presets.map((preset) => [
     preset.name,
-    preset.cli,
-    preset.model,
+    preset.cli ?? '-',
+    preset.model ?? '-',
     preset.description ?? '',
   ])
 

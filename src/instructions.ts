@@ -10,14 +10,25 @@ const BUNDLED_ROOT_TEMPLATE_PATH = join(import.meta.dir, '..', 'templates', 'sys
 const BUNDLED_SUBAGENT_TEMPLATE_PATH = join(import.meta.dir, '..', 'templates', 'system-block-subagent.md')
 const BUNDLED_WORKFLOW_PATH = join(import.meta.dir, '..', 'templates', 'workflow-block.md')
 
+// Resolved per-call so tests (and any HOME override) pick up the right
+// override directory at the time of use, not at module-load time.
 function resolveTemplate(localName: string, bundledPath: string): string {
   const localPath = join(home(), '.flt', 'templates', localName)
   return existsSync(localPath) ? localPath : bundledPath
 }
 
-const ROOT_TEMPLATE_PATH = resolveTemplate('system-block-root.md', BUNDLED_ROOT_TEMPLATE_PATH)
-const SUBAGENT_TEMPLATE_PATH = resolveTemplate('system-block-subagent.md', BUNDLED_SUBAGENT_TEMPLATE_PATH)
-const WORKFLOW_TEMPLATE_PATH = resolveTemplate('workflow-block.md', BUNDLED_WORKFLOW_PATH)
+function rootTemplatePath(): string {
+  return resolveTemplate('system-block-root.md', BUNDLED_ROOT_TEMPLATE_PATH)
+}
+
+function subagentTemplatePath(): string {
+  return resolveTemplate('system-block-subagent.md', BUNDLED_SUBAGENT_TEMPLATE_PATH)
+}
+
+function workflowTemplatePath(): string {
+  return resolveTemplate('workflow-block.md', BUNDLED_WORKFLOW_PATH)
+}
+
 const FLT_MARKER_START = '<!-- flt:start -->'
 const FLT_MARKER_END = '<!-- flt:end -->'
 
@@ -40,10 +51,10 @@ export type { InstructionProjection }
 
 export function buildSystemBlock(opts: InstructionOpts): string {
   const templatePath = opts.workflow
-    ? WORKFLOW_TEMPLATE_PATH
+    ? workflowTemplatePath()
     : (opts.parentName === 'human' || opts.parentName === 'cron')
-      ? ROOT_TEMPLATE_PATH
-      : SUBAGENT_TEMPLATE_PATH
+      ? rootTemplatePath()
+      : subagentTemplatePath()
   let template = readFileSync(templatePath, 'utf-8')
   template = template.replace(/\{\{name\}\}/g, opts.agentName)
   template = template.replace(/\{\{parentName\}\}/g, opts.parentName)

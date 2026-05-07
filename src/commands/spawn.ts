@@ -2,6 +2,7 @@ import { resolveAdapter } from '../adapters/registry'
 import { projectInstructions } from '../instructions'
 import type { InstructionProjection } from '../instructions'
 import { projectSkills } from '../skills'
+import { buildFltSkillContent, getFltSkillDescription } from '../flt-skill'
 import { createWorktree, isGitRepo } from '../worktree'
 import { loadState, setAgent, hasAgent } from '../state'
 import type { AgentState } from '../state'
@@ -430,14 +431,31 @@ export async function spawnDirect(args: SpawnArgs): Promise<void> {
   // Project instructions into workspace
   let instructionProjection: InstructionProjection | undefined
 
+  // Preset's `skills` array is the default skill set (auto-on for the role).
+  // CLI `--skill` flags STACK on top — they add to the preset's set rather
+  // than replace it. Dedup so listing a skill twice doesn't double-install.
   const explicitSkills = args.skills ?? []
-  const selectedSkills = explicitSkills.length > 0 ? explicitSkills : (presetSkills ?? [])
+  const selectedSkills = Array.from(new Set([...(presetSkills ?? []), ...explicitSkills]))
   const allSkills = args.allSkills ?? presetAllSkills ?? false
 
-  // Project selected skills into workspace (opt-in only)
+  // /flt skill is synthesized at spawn time so its content reflects the
+  // actual spawn context (worktree on/off, workflow vs subagent vs root).
+  // Always installed; the minimal CLAUDE.md block tells the agent to read it.
+  const fltSkillContent = buildFltSkillContent({
+    name,
+    parent: parentName,
+    cli: adapter.name,
+    model: resolvedModel ?? 'default',
+    workflow: args.workflow,
+    step: args.workflowStep,
+    worktree: useWorktree,
+  })
+
+  // Project selected skills into workspace (opt-in only) plus the synthetic flt skill
   const projectedSkills = projectSkills(workDir, adapter, {
     requested: selectedSkills,
     all: allSkills,
+    synthetic: [{ name: 'flt', description: getFltSkillDescription(), content: fltSkillContent }],
   }) ?? { names: [], warnings: [] }
   for (const warning of projectedSkills.warnings) {
     console.error(`Warning: ${warning}`)

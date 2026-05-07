@@ -116,7 +116,7 @@ steps:
     on_fail: abort
 
   - id: report
-    preset: cc-sonnet
+    preset: cc-spec-writer
     dir: '{steps.execute.worktree}'
     worktree: false
     task: |
