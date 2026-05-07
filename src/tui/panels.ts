@@ -235,7 +235,16 @@ function renderSidebar(screen: Screen, state: AppState, top: number, left: numbe
       namePrefix = continuation.slice(0, -2) + connector + ' '
     }
 
-    const abovePrefix = continuation
+    // For non-root entries, draw a vertical bar at the connector column so
+    // the line continues unbroken from the parent's belowPrefix down to
+    // this row's name connector (├ / └). Without this, when a parent is
+    // the last child of its grandparent (and so its own continuation drops
+    // its column to spaces), every grandchild's tree connector appears
+    // floating with a 1-row blank gap above it. Root entries have no
+    // parent above, so they use bare continuation.
+    const abovePrefix = connector
+      ? continuation.slice(0, -2) + '│ '
+      : continuation
 
     let belowPrefix: string
     if (!connector) {
