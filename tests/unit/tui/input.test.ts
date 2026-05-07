@@ -1,4 +1,26 @@
-import { describe, it, expect } from 'bun:test'
+import { describe, it, expect, mock } from 'bun:test'
+
+let alternateScreenActive = false
+
+mock.module('@twaldin/harness-ts', () => ({
+  getAdapter: (name: string) => {
+    const ownership = name === 'opencode'
+      ? 'app'
+      : name === 'claude-code'
+        ? 'fullscreen-aware'
+        : undefined
+    return {
+      instructionsFilename: 'AGENTS.md',
+      submitKeys: ['Enter'],
+      scrollOwnership: ownership,
+    }
+  },
+}))
+
+mock.module('../../../src/tmux', () => ({
+  isPaneAlternateScreen: () => alternateScreenActive,
+}))
+
 import { RawKeyParser, handleInputEvent, getCompletionHint, getCompletionItems, type InputBindings, type ParsedInputEvent } from '../../../src/tui/input'
 import { createInitialState, type AgentView } from '../../../src/tui/types'
 
@@ -184,6 +206,38 @@ describe('input dispatch', () => {
 
     expect(calls).toContain('insert-key:C-M-e')
     expect(calls).toContain('insert-key:C-M-y')
+  })
+
+  it('fullscreen-aware adapter routes scroll to app only when alt-screen active', () => {
+    alternateScreenActive = true
+    try {
+      const { state, bindings, calls } = createBindings('log-focus')
+      state.agents = [mockAgent('alpha', 'claude-code')]
+      state.selectedIndex = 0
+
+      handleInputEvent({ type: 'text', text: 'j', raw: Buffer.from('j') }, bindings)
+      handleInputEvent({ type: 'text', text: 'k', raw: Buffer.from('k') }, bindings)
+
+      expect(calls).toContain('insert-key:C-M-e')
+      expect(calls).toContain('insert-key:C-M-y')
+    } finally {
+      alternateScreenActive = false
+    }
+  })
+
+  it('fullscreen-aware adapter falls through to tmux scrollback when alt-screen inactive', () => {
+    alternateScreenActive = false
+    const { state, bindings, calls } = createBindings('log-focus')
+    state.agents = [mockAgent('alpha', 'claude-code')]
+    state.selectedIndex = 0
+
+    handleInputEvent({ type: 'text', text: 'j', raw: Buffer.from('j') }, bindings)
+    handleInputEvent({ type: 'text', text: 'k', raw: Buffer.from('k') }, bindings)
+
+    expect(calls).toContain('down')
+    expect(calls).toContain('up')
+    expect(calls).not.toContain('insert-key:C-M-e')
+    expect(calls).not.toContain('insert-key:C-M-y')
   })
 
   it('closes presets mode with escape', () => {
