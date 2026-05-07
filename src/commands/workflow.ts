@@ -1,7 +1,7 @@
 import { existsSync, renameSync, writeFileSync } from 'fs'
 import { join } from 'path'
 import { homedir } from 'os'
-import { startWorkflow, loadWorkflowRun, listWorkflowRuns, cancelWorkflow, advanceWorkflow, saveWorkflowRun, slugFromTask, compareToBaseline } from '../workflow/engine'
+import { startWorkflow, loadWorkflowRun, listWorkflowRuns, cancelWorkflow, advanceWorkflow, saveWorkflowRun, slugFromTask, compareToBaseline, respawnIfPhantomSpawnStep } from '../workflow/engine'
 import { listWorkflowDefs, loadWorkflowDef } from '../workflow/parser'
 
 export async function workflowRun(name: string, opts?: { parent?: string; task?: string; dir?: string; n?: number; slug?: string; prAdapter?: string }): Promise<void> {
@@ -75,12 +75,23 @@ export async function workflowApprove(runId: string, opts?: { candidate?: string
  * Manually trigger advanceWorkflow for a stuck run.
  * Useful when result files exist but the controller poller didn't fire because
  * the agent went idle without a status change. Idempotent.
+ *
+ * First reconciles run.json's view of "step is in flight" against the live
+ * fleet: if state says a spawn step is running but no live agent exists for
+ * it (issue #92), force-respawn instead of letting advanceWorkflow tick on
+ * a verdict that will never arrive.
  */
 export async function workflowAdvance(runId: string): Promise<void> {
   const run = loadWorkflowRun(runId)
   if (!run) throw new Error(`No workflow run found for "${runId}"`)
   if (run.status !== 'running') {
     console.log(`Workflow "${runId}" is not running (status: ${run.status}); nothing to advance.`)
+    return
+  }
+  const respawned = await respawnIfPhantomSpawnStep(runId)
+  if (respawned) {
+    const after = loadWorkflowRun(runId)
+    console.log(`Respawned ${runId}: step=${after?.currentStep} (no live agent was registered)`)
     return
   }
   await advanceWorkflow(runId)
