@@ -38,6 +38,17 @@ const codexAdapter: CliAdapter = {
   detectStatus: () => 'idle',
 }
 
+const droidAdapter: CliAdapter = {
+  name: 'droid',
+  cliCommand: 'droid',
+  instructionFile: 'AGENTS.md',
+  submitKeys: ['Enter'],
+  spawnArgs: () => ['droid'],
+  detectReady: () => 'ready',
+  handleDialog: () => null,
+  detectStatus: () => 'idle',
+}
+
 describe('skills', () => {
   let tempHome: string
   let workDir: string
@@ -173,6 +184,22 @@ describe('skills', () => {
 
       expect(result.names).toEqual(['my-skill'])
       expect(existsSync(join(workDir, 'AGENTS.md'))).toBe(false)
+    })
+  })
+
+  describe('projectSkills for droid', () => {
+    it('installs project skills under .factory/skills for Droid native discovery', () => {
+      makeSkill('my-skill', 'A test skill', 'Do the thing.')
+      writeFileSync(join(workDir, 'AGENTS.md'), '# Instructions\n')
+
+      const result = projectSkills(workDir, droidAdapter, { requested: ['my-skill'] })
+
+      expect(result.names).toEqual(['my-skill'])
+      expect(existsSync(join(workDir, '.factory', 'skills', 'my-skill', 'SKILL.md'))).toBe(true)
+      expect(existsSync(join(workDir, '.flt', 'skills', 'my-skill', 'SKILL.md'))).toBe(false)
+
+      const content = readFileSync(join(workDir, 'AGENTS.md'), 'utf-8')
+      expect(content).toContain('- my-skill: A test skill')
     })
   })
 
