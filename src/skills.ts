@@ -1,5 +1,5 @@
 import {
-  copyFileSync,
+  cpSync,
   existsSync,
   lstatSync,
   mkdirSync,
@@ -221,8 +221,26 @@ export function projectSkills(
   const managedFiles: string[] = []
   const cliName = adapter.name
 
-  // Synthetic skills carry their content inline; disk-loaded skills get
-  // copied. Both end up in the same destination layout.
+  function recordFiles(relDir: string): void {
+    const fullDir = join(workDir, relDir)
+    let entries: string[]
+    try {
+      entries = readdirSync(fullDir)
+    } catch {
+      return
+    }
+    for (const entry of entries) {
+      const rel = join(relDir, entry)
+      const full = join(workDir, rel)
+      try {
+        if (lstatSync(full).isDirectory()) recordFiles(rel)
+        else managedFiles.push(rel)
+      } catch {}
+    }
+  }
+
+  // Synthetic skills carry their content inline; disk-loaded skills get copied
+  // as whole directories so referenced scripts/assets/docs are available too.
   function installAt(skill: SkillEntry, relRoot: string): void {
     const destDir = join(workDir, relRoot, skill.name)
     const destFile = join(destDir, SKILL_FILE)
@@ -230,10 +248,11 @@ export function projectSkills(
       mkdirSync(destDir, { recursive: true })
       if (skill.path === '<synthetic>') {
         writeFileSync(destFile, skill.content ?? '', 'utf-8')
+        managedFiles.push(join(relRoot, skill.name, SKILL_FILE))
       } else {
-        copyFileSync(join(skill.path, SKILL_FILE), destFile)
+        cpSync(skill.path, destDir, { recursive: true, force: true })
+        recordFiles(join(relRoot, skill.name))
       }
-      managedFiles.push(join(relRoot, skill.name, SKILL_FILE))
     } catch {
       warnings.push(`Failed to install skill "${skill.name}" to ${destFile}`)
     }

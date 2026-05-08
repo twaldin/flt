@@ -830,6 +830,10 @@ function tabCompleteCommand(bindings: InputBindings, reverse: boolean): void {
   }
 }
 
+function harnessAdapterNameForCli(cli: string): string {
+  return cli === 'droid' ? 'factory-droid' : cli
+}
+
 function executeKeybindAction(mode: ConfigurableMode, action: KeybindAction, bindings: InputBindings): void {
   const state = bindings.getState()
   const selected = state.selectedAgent
@@ -842,7 +846,12 @@ function executeKeybindAction(mode: ConfigurableMode, action: KeybindAction, bin
   // `/tui` slash command toggles between alt-screen "fullscreen" and the
   // classic main-screen renderer).
   if (mode === 'log-focus' && selected) {
-    const keys = getHarnessAdapter(selected.cli)?.getCurrentScrollKeys?.() ?? null
+    let keys = null
+    try {
+      keys = getHarnessAdapter(harnessAdapterNameForCli(selected.cli))?.getCurrentScrollKeys?.() ?? null
+    } catch {
+      keys = null
+    }
     if (keys) {
       const chord =
         action === 'scrollDown' ? asTmuxInsertKey(keys.lineDown) :
