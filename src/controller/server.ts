@@ -119,6 +119,7 @@ async function handleAction(req: ControllerRequest): Promise<ControllerResponse>
       return { ok: true, data: { pid: process.pid, uptime: process.uptime() } }
 
     case 'spawn': {
+      reconcileAgents()
       const { spawnDirect } = await import('../commands/spawn')
       try {
         await spawnDirect(req.args as Parameters<typeof spawnDirect>[0])
@@ -129,6 +130,7 @@ async function handleAction(req: ControllerRequest): Promise<ControllerResponse>
     }
 
     case 'kill': {
+      reconcileAgents()
       const { killDirect } = await import('../commands/kill')
       try {
         killDirect(req.args)
@@ -149,6 +151,7 @@ async function handleAction(req: ControllerRequest): Promise<ControllerResponse>
     }
 
     case 'list':
+      reconcileAgents()
       return { ok: true, data: allAgents() }
 
     case 'status':
@@ -166,7 +169,7 @@ async function handleAction(req: ControllerRequest): Promise<ControllerResponse>
   }
 }
 
-function reconcileAgents(): void {
+export function reconcileAgents(): void {
   let sessions: string[]
   try {
     const out = execFileSync('tmux', ['list-sessions', '-F', '#{session_name}'], {
@@ -226,10 +229,12 @@ function reconcileAgents(): void {
             }).trim()
           } catch { continue }
 
-          if (args.includes('codex')) { cli = 'codex'; model = extractFlag(args, '--model') ?? model }
-          else if (args.includes('claude')) { cli = 'claude-code'; model = extractFlag(args, '--model') ?? model }
-          else if (args.includes('gemini')) { cli = 'gemini'; model = extractFlag(args, '--model') ?? model }
-          else if (args.includes('opencode')) { cli = 'opencode'; model = extractFlag(args, '--model') ?? model }
+          if (/\bcodex\b/.test(args)) { cli = 'codex'; model = extractFlag(args, '--model') ?? model }
+          else if (/\bclaude\b/.test(args)) { cli = 'claude-code'; model = extractFlag(args, '--model') ?? model }
+          else if (/\bgemini\b/.test(args)) { cli = 'gemini'; model = extractFlag(args, '--model') ?? model }
+          else if (/\bopencode\b/.test(args)) { cli = 'opencode'; model = extractFlag(args, '--model') ?? model }
+          else if (/\bdroid\b/.test(args)) { cli = 'droid'; model = model === 'unknown' ? 'default' : model }
+          else if (/\bpi\b/.test(args)) { cli = 'pi'; model = extractFlag(args, '--model') ?? model }
 
           if (cli !== 'unknown') break
         }

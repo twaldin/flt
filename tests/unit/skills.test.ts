@@ -38,6 +38,30 @@ const codexAdapter: CliAdapter = {
   detectStatus: () => 'idle',
 }
 
+const droidAdapter: CliAdapter = {
+  name: 'droid',
+  cliCommand: 'droid',
+  instructionFile: 'AGENTS.md',
+  skillDir: '.factory/skills',
+  submitKeys: ['Enter'],
+  spawnArgs: () => ['droid'],
+  detectReady: () => 'ready',
+  handleDialog: () => null,
+  detectStatus: () => 'idle',
+}
+
+const piAdapter: CliAdapter = {
+  name: 'pi',
+  cliCommand: 'pi',
+  instructionFile: 'AGENTS.md',
+  skillDir: '.pi/skills',
+  submitKeys: ['Enter'],
+  spawnArgs: () => ['pi'],
+  detectReady: () => 'ready',
+  handleDialog: () => null,
+  detectStatus: () => 'idle',
+}
+
 describe('skills', () => {
   let tempHome: string
   let workDir: string
@@ -176,6 +200,32 @@ describe('skills', () => {
     })
   })
 
+  describe('projectSkills for native skill CLIs', () => {
+    it('copies droid skills to .factory/skills without injecting a legacy skill list', () => {
+      makeSkill('my-skill', 'A test skill', 'Do the thing.')
+      writeFileSync(join(workDir, 'AGENTS.md'), '# Instructions\n')
+
+      const result = projectSkills(workDir, droidAdapter, { requested: ['my-skill'] })
+
+      expect(result.names).toEqual(['my-skill'])
+      expect(existsSync(join(workDir, '.factory', 'skills', 'my-skill', 'SKILL.md'))).toBe(true)
+      const content = readFileSync(join(workDir, 'AGENTS.md'), 'utf-8')
+      expect(content).not.toContain('<!-- flt:skills:start -->')
+    })
+
+    it('copies pi skills to .pi/skills so they appear in pi native skill discovery', () => {
+      makeSkill('my-skill', 'A test skill', 'Do the thing.')
+      writeFileSync(join(workDir, 'AGENTS.md'), '# Instructions\n')
+
+      const result = projectSkills(workDir, piAdapter, { requested: ['my-skill'] })
+
+      expect(result.names).toEqual(['my-skill'])
+      expect(existsSync(join(workDir, '.pi', 'skills', 'my-skill', 'SKILL.md'))).toBe(true)
+      const content = readFileSync(join(workDir, 'AGENTS.md'), 'utf-8')
+      expect(content).not.toContain('<!-- flt:skills:start -->')
+    })
+  })
+
   describe('cleanupSkills', () => {
     it('removes managed claude-code skill files after cleanup', () => {
       makeSkill('my-skill', 'A skill', 'Do the thing.')
@@ -205,6 +255,18 @@ describe('skills', () => {
       expect(content).not.toContain('<!-- flt:skills:start -->')
       expect(content).not.toContain('<!-- flt:skills:end -->')
       expect(content).toContain('# Instructions')
+    })
+
+    it('removes managed native droid skill files after cleanup', () => {
+      makeSkill('my-skill', 'A skill', 'Do the thing.')
+      projectSkills(workDir, droidAdapter, { requested: ['my-skill'] })
+
+      const destPath = join(workDir, '.factory', 'skills', 'my-skill', 'SKILL.md')
+      expect(existsSync(destPath)).toBe(true)
+
+      cleanupSkills(workDir, droidAdapter)
+
+      expect(existsSync(destPath)).toBe(false)
     })
 
     it('handles missing manifest gracefully', () => {

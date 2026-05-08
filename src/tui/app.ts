@@ -1029,8 +1029,12 @@ export class App {
       })
         .then(() => {
           clearTimeout(staleTimer)
-          this.setBanner(`Spawned ${name}`, 'green', 3000)
           this.poll()
+          if (this.state.agents.some(agent => agent.name === name)) {
+            this.setBanner(`Spawned ${name}`, 'green', 3000)
+          } else {
+            this.setBanner(`Spawn ${name} returned but no agent state was found`, 'red', 8000)
+          }
         })
         .catch((error: Error) => {
           clearTimeout(staleTimer)

@@ -104,6 +104,8 @@ function buildCommsBlock(parentName: string, workflow?: string): string {
 function skillsDir(cli: string): string {
   if (cli === 'claude-code') return '.claude/skills'
   if (cli === 'opencode') return '.opencode/skills'
+  if (cli === 'droid') return '.factory/skills'
+  if (cli === 'pi') return '.pi/skills'
   return '.flt/skills'
 }
 
