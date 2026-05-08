@@ -131,7 +131,35 @@ delete normalized.top_p
 
 The exact built chunk filename may change, e.g. `chunk-5YZRJBCQ.js`; grep for `delete normalized.max_output_tokens`.
 
-### 3. Restart the proxy
+### 3. Convert public Responses string input to Codex input items
+
+Droid manual/auto compaction (`/compact` / `/compress`) uses the public OpenAI Responses shorthand:
+
+```json
+{"model":"gpt-5.5","input":"Please summarize the following conversation: ..."}
+```
+
+The ChatGPT Codex backend behind OAuth rejects that shorthand with:
+
+```json
+{"detail":"Input must be a list"}
+```
+
+Patch the same `normalizeCodexResponsesBody` function immediately after `normalized.instructions = instructions;`:
+
+```js
+normalized.instructions = instructions;
+if (typeof normalized.input === "string") {
+  normalized.input = [{
+    role: "user",
+    content: [{ type: "input_text", text: normalized.input }]
+  }];
+}
+```
+
+This preserves Droid's public OpenAI provider behavior while sending the list-shaped input format Codex OAuth expects. It is required for Droid compaction to succeed through `provider: "openai"`.
+
+### 4. Restart the proxy
 
 ```bash
 lsof -tiTCP:10531 -sTCP:LISTEN | xargs kill
@@ -145,7 +173,7 @@ Verify:
 curl -sS http://127.0.0.1:10531/v1/models
 ```
 
-### 4. Switch Factory custom models to `provider: "openai"`
+### 5. Switch Factory custom models to `provider: "openai"`
 
 Update `~/.factory/settings.json` custom models to point at the local proxy with the native OpenAI provider:
 
