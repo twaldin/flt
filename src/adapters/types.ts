@@ -4,7 +4,7 @@ export interface SpawnOpts {
 }
 
 export type ReadyState = 'loading' | 'dialog' | 'ready'
-export type AgentStatus = 'running' | 'idle' | 'error' | 'rate-limited' | 'unknown' | 'exited'
+export type AgentStatus = 'spawning' | 'running' | 'idle' | 'error' | 'rate-limited' | 'unknown' | 'exited'
 
 export interface CliAdapter {
   /** Adapter identifier, e.g. "claude-code" */
@@ -13,6 +13,8 @@ export interface CliAdapter {
   cliCommand: string
   /** Where instructions go in the workspace, e.g. "CLAUDE.md" */
   instructionFile: string
+  /** Native workspace skill root, e.g. ".factory/skills"; falls back to .flt/skills. */
+  skillDir?: string
   /** Key sequences to submit input, e.g. ["Enter"] or ["Escape", "Enter"] */
   submitKeys: string[]
   /** If true, flatten \n to spaces before paste — target CLI treats newlines

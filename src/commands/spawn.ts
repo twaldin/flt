@@ -3,7 +3,7 @@ import { projectInstructions } from '../instructions'
 import type { InstructionProjection } from '../instructions'
 import { projectSkills } from '../skills'
 import { buildFltSkillContent, getFltSkillDescription } from '../flt-skill'
-import { createWorktree, isGitRepo } from '../worktree'
+import { createWorktree, isGitRepo, removeWorktree } from '../worktree'
 import { loadState, setAgent, hasAgent } from '../state'
 import type { AgentState } from '../state'
 import { getPreset, resolvePresetEnv } from '../presets'
@@ -16,6 +16,41 @@ import { createInterface } from 'node:readline'
 import { appendEvent } from '../activity'
 import { resolveModelForCli } from '../model-resolution'
 import { deliver, deliverKeys } from '../delivery'
+
+function cleanupFailedSpawn(
+  name: string,
+  sessionName: string,
+  workDir: string,
+  adapterName: string,
+  instructionProjection: InstructionProjection | undefined,
+  worktreePath: string | undefined,
+  worktreeBranch: string | undefined,
+): void {
+  try { tmux.killSession(sessionName) } catch {}
+  try {
+    const { cleanupSkills } = require('../skills') as typeof import('../skills')
+    const adapter = resolveAdapter(adapterName)
+    cleanupSkills(workDir, adapter)
+  } catch {}
+  try {
+    const { restoreInstructions } = require('../instructions') as typeof import('../instructions')
+    if (instructionProjection) restoreInstructions(instructionProjection)
+  } catch {}
+  if (worktreePath && worktreeBranch) {
+    try {
+      const repoDir = require('child_process').execSync('git rev-parse --show-toplevel', {
+        cwd: workDir,
+        encoding: 'utf-8',
+        timeout: 5000,
+      }).trim()
+      removeWorktree(repoDir, worktreePath, worktreeBranch)
+    } catch {}
+  }
+  try {
+    const { removeAgent } = require('../state') as typeof import('../state')
+    removeAgent(name)
+  } catch {}
+}
 
 interface SpawnArgs {
   name: string
@@ -365,6 +400,13 @@ export async function spawnDirect(args: SpawnArgs): Promise<void> {
   }
 
   const adapter = resolveAdapter(cli)
+  const sessionName = `flt-${name}`
+  if (tmux.hasSession(sessionName)) {
+    throw new Error(
+      `tmux session "${sessionName}" already exists but agent "${name}" is not in state. `
+      + `Run "tmux kill-session -t ${sessionName}" or restart the flt controller to reconcile it.`,
+    )
+  }
 
   // Resolve dir: explicit flag > preset > cwd
   let resolvedDir = rawDir ?? presetDir
@@ -510,8 +552,6 @@ export async function spawnDirect(args: SpawnArgs): Promise<void> {
     /[[\]{}()*?!$&;|<>'"\\` ~#]/.test(arg) ? `'${arg.replace(/'/g, "'\\''")}'` : arg
   ).join(' ')
 
-  const sessionName = `flt-${name}`
-
   // Create tmux session with env vars. Preset env takes priority over adapter env
   // because presets are user-level overrides (e.g. swapping claude-code to z.ai).
   const adapterEnv = adapter.env?.() ?? {}
@@ -520,27 +560,6 @@ export async function spawnDirect(args: SpawnArgs): Promise<void> {
   const initialWidth = args._termWidth ?? process.stdout.columns ?? 80
   const initialHeight = args._termHeight ?? process.stdout.rows ?? 24
 
-  tmux.createSession(sessionName, workDir, command, {
-    ...adapterEnv,
-    ...isolationEnv,
-    ...presetEnv,
-    ...extraEnv,
-    FLT_AGENT_NAME: name,
-    FLT_PARENT_SESSION: parentSession,
-    FLT_PARENT_NAME: parentName,
-    FLT_DEPTH: String(callerDepth + 1),
-    PATH: mergedPath,
-  }, initialWidth, initialHeight)
-
-  // Poll for readiness (60s timeout — some CLIs have multiple sequential dialogs)
-  await waitForReady(sessionName, adapter, 60_000)
-
-  // Resize to current terminal dimensions so agent doesn't start at tmux's 80x24 default
-  const termWidth = args._termWidth ?? process.stdout.columns ?? 80
-  const termHeight = args._termHeight ?? process.stdout.rows ?? 24
-  tmux.resizeWindow(sessionName, termWidth, termHeight)
-
-  // Register in state before bootstrap — agent is live and discoverable immediately
   const displayedModel = resolveDisplayedModel(adapter.name, resolvedModel, presetModel, presetEnv)
   const agentState: AgentState = {
     cli: adapter.name,
@@ -555,10 +574,41 @@ export async function spawnDirect(args: SpawnArgs): Promise<void> {
     workflow: args.workflow,
     workflowRunId: args.workflowRunId,
     spawnedAt: new Date().toISOString(),
+    status: 'spawning',
+    statusAt: new Date().toISOString(),
     persistent: args.persistent ?? presetPersistent,
     ephemeral: args.ephemeral,
   }
-  setAgent(name, agentState)
+
+  try {
+    tmux.createSession(sessionName, workDir, command, {
+      ...adapterEnv,
+      ...isolationEnv,
+      ...presetEnv,
+      ...extraEnv,
+      FLT_AGENT_NAME: name,
+      FLT_PARENT_SESSION: parentSession,
+      FLT_PARENT_NAME: parentName,
+      FLT_DEPTH: String(callerDepth + 1),
+      PATH: mergedPath,
+    }, initialWidth, initialHeight)
+
+    // Register immediately after tmux creation so fast kills and controller
+    // restarts do not leave a live session without state.
+    setAgent(name, agentState)
+
+    // Poll for readiness (60s timeout — some CLIs have multiple sequential dialogs)
+    await waitForReady(sessionName, adapter, 60_000)
+
+    // Resize to current terminal dimensions so agent doesn't start at tmux's 80x24 default
+    const termWidth = args._termWidth ?? process.stdout.columns ?? 80
+    const termHeight = args._termHeight ?? process.stdout.rows ?? 24
+    tmux.resizeWindow(sessionName, termWidth, termHeight)
+    setAgent(name, { ...agentState, status: undefined, statusAt: undefined })
+  } catch (e) {
+    cleanupFailedSpawn(name, sessionName, workDir, adapter.name, instructionProjection, worktreePath, worktreeBranch)
+    throw e
+  }
 
   appendEvent({
     type: 'spawn',
@@ -600,9 +650,7 @@ async function waitForReady(
   timeoutMs = 30_000,
 ): Promise<void> {
   const start = Date.now()
-  let lastContent = ''
   let lastStripped = ''
-  let stableCount = 0
   // Defense-in-depth: when an adapter's detectReady never returns 'ready' (e.g.
   // a banner that handleDialog can't dismiss), fall through to a stable-pane
   // fallback. After ~8s of unchanged ANSI-stripped pane content we assume the
@@ -622,7 +670,6 @@ async function waitForReady(
       const keys = adapter.handleDialog(pane)
       if (keys) {
         tmux.sendKeys(session, keys)
-        stableCount = 0
         fallbackStableCount = 0
         await sleep(1000)
         continue
@@ -633,14 +680,7 @@ async function waitForReady(
     }
 
     if (readyState === 'ready') {
-      if (pane === lastContent) {
-        stableCount++
-        if (stableCount >= 2) return // 2 consecutive stable reads
-      } else {
-        stableCount = 0
-      }
-    } else {
-      stableCount = 0
+      return
     }
 
     if (stripped === lastStripped && stripped.length > 0) {
@@ -651,7 +691,6 @@ async function waitForReady(
       fallbackStableCount = 0
     }
 
-    lastContent = pane
     lastStripped = stripped
     await sleep(500)
   }

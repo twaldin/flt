@@ -258,12 +258,16 @@ export function projectSkills(
     }
   }
 
-  if (cliName === 'claude-code') {
+  const nativeSkillDir = adapter.skillDir
+
+  if (nativeSkillDir) {
+    for (const skill of selected) installAt(skill, nativeSkillDir)
+  } else if (cliName === 'claude-code') {
     for (const skill of selected) installAt(skill, join('.claude', 'skills'))
   } else if (cliName === 'opencode') {
     for (const skill of selected) installAt(skill, join('.opencode', 'skills'))
   } else {
-    // codex, gemini, swe-agent, pi — write mirrors + inject list into instruction file
+    // codex, gemini, swe-agent — write mirrors + inject list into instruction file
     for (const skill of selected) installAt(skill, join('.flt', 'skills'))
 
     if (adapter.instructionFile) {

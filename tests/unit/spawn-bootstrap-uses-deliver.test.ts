@@ -25,6 +25,8 @@ const mockLoadState = mock(() => ({
 
 const mockDeliver = mock((_agent: unknown, _text: string) => {})
 const mockDeliverKeys = mock((_agent: unknown, _keys: string[]) => {})
+const mockCreateSession = mock((_name: string) => {})
+const mockHasSession = mock((name: string) => name === 'flt-orch' || mockCreateSession.mock.calls.some(call => call[0] === name))
 
 mock.module('../../src/state', () => ({
   loadState: mockLoadState,
@@ -38,12 +40,13 @@ mock.module('../../src/worktree', () => ({
     path: `/tmp/wt-${name}`,
     branch: `flt/${name}`,
   })),
+  removeWorktree: mock(() => {}),
 }))
 
 mock.module('../../src/tmux', () => ({
-  createSession: mock(() => {}),
-  hasSession: mock(() => true),
-  capturePane: mock(() => 'Claude Code\n> '),
+  createSession: mockCreateSession,
+  hasSession: mockHasSession,
+  capturePane: mock(() => 'Claude Code\n> hello bootstrap'),
   sendKeys: mock(() => {}),
   pasteBuffer: mock(() => {}),
   sendLiteral: mock(() => {}),
@@ -79,6 +82,9 @@ describe('spawnDirect bootstrap delivery', () => {
     mkdirSync(join(tempDir, '.flt'), { recursive: true })
     mockSetAgent.mockClear()
     mockHasAgent.mockClear()
+    mockCreateSession.mockClear()
+    mockHasSession.mockClear()
+    mockHasSession.mockImplementation((name: string) => name === 'flt-orch' || mockCreateSession.mock.calls.some(call => call[0] === name))
     mockLoadState.mockClear()
     mockDeliver.mockClear()
     mockDeliverKeys.mockClear()

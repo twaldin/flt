@@ -11,6 +11,7 @@ export const piAdapter: CliAdapter = {
   name: 'pi',
   cliCommand: 'pi',
   instructionFile: harness.instructionsFilename,
+  skillDir: '.pi/skills',
   submitKeys: harness.submitKeys ?? ['Enter'],
 
   spawnArgs(opts: SpawnOpts): string[] {

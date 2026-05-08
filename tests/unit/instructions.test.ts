@@ -80,6 +80,22 @@ describe('instructions', () => {
     expect(full).toContain('I am an adversarial reviewer.')
   })
 
+  it('points droid skill references at Factory native skill discovery', () => {
+    const full = buildFullInstructions({ ...baseOpts, cli: 'droid', skillNames: ['flt', 'browser'] })
+
+    expect(full).toContain('./.factory/skills/flt/SKILL.md')
+    expect(full).toContain('./.factory/skills/browser/SKILL.md')
+    expect(full).not.toContain('./.flt/skills/flt/SKILL.md')
+  })
+
+  it('points pi skill references at pi native skill discovery', () => {
+    const full = buildFullInstructions({ ...baseOpts, cli: 'pi', skillNames: ['flt', 'browser'] })
+
+    expect(full).toContain('./.pi/skills/flt/SKILL.md')
+    expect(full).toContain('./.pi/skills/browser/SKILL.md')
+    expect(full).not.toContain('./.flt/skills/flt/SKILL.md')
+  })
+
   it('projects instructions to new file', () => {
     const workDir = mkdtempSync(join(tmpdir(), 'flt-proj-'))
     projectInstructions(workDir, 'CLAUDE.md', baseOpts)

@@ -62,6 +62,7 @@ export const droidAdapter: CliAdapter = {
   name: 'droid',
   cliCommand: 'droid',
   instructionFile: harness.instructionsFilename || 'AGENTS.md',
+  skillDir: join('.factory', 'skills'),
   submitKeys: harness.submitKeys ?? ['Enter'],
 
   spawnArgs(opts: SpawnOpts): string[] {

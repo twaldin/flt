@@ -37,17 +37,23 @@ mock.module('../../src/worktree', () => ({
     path: `/tmp/wt-${name}`,
     branch: `flt/${name}`,
   })),
+  removeWorktree: mock(() => {}),
 }))
 
+const mockCreateSession = mock(() => {})
+const mockHasSession = mock((_name: string) => true)
+const mockKillSession = mock((_name: string) => {})
+
 mock.module('../../src/tmux', () => ({
-  createSession: mock(() => {}),
-  hasSession: mock(() => true),
+  createSession: mockCreateSession,
+  hasSession: mockHasSession,
   // "Claude Code" + prompt satisfies claude-code adapter's detectReady check
   capturePane: mock(() => 'Claude Code\n> '),
   sendKeys: mock(() => {}),
   pasteBuffer: mock(() => {}),
   sendLiteral: mock(() => {}),
   resizeWindow: mock(() => {}),
+  killSession: mockKillSession,
 }))
 
 mock.module('../../src/instructions', () => ({
@@ -74,6 +80,10 @@ describe('spawnDirect — preset auto-resolution', () => {
     mkdirSync(join(tempDir, '.flt'), { recursive: true })
     mockSetAgent.mockClear()
     mockHasAgent.mockClear()
+    mockCreateSession.mockClear()
+    mockHasSession.mockClear()
+    mockHasSession.mockImplementation((name: string) => name === 'flt-orch' || mockCreateSession.mock.calls.some(call => call[0] === name))
+    mockKillSession.mockClear()
     mockLoadState.mockClear()
   })
 
@@ -91,8 +101,8 @@ describe('spawnDirect — preset auto-resolution', () => {
     const { spawnDirect } = await import('../../src/commands/spawn')
     await spawnDirect({ name: 'cairn' })
 
-    expect(mockSetAgent).toHaveBeenCalledTimes(1)
-    const [registeredName, agentState] = mockSetAgent.mock.calls[0] as [string, Record<string, unknown>]
+    expect(mockSetAgent).toHaveBeenCalledTimes(2)
+    const [registeredName, agentState] = mockSetAgent.mock.calls[1] as [string, Record<string, unknown>]
     expect(registeredName).toBe('cairn')
     expect(agentState.model).toBe('opus[1m]')
     expect(agentState.cli).toBe('claude-code')
@@ -126,6 +136,30 @@ describe('spawnDirect — preset auto-resolution', () => {
 
     const [, agentState] = mockSetAgent.mock.calls[0] as [string, Record<string, unknown>]
     expect(agentState.model).toBe('haiku')
+  })
+
+  it('registers state immediately after tmux creation before readiness completes', async () => {
+    mockHasSession.mockImplementation((name: string) => name === 'flt-orch' || mockCreateSession.mock.calls.some(call => call[0] === name))
+
+    const { spawnDirect } = await import('../../src/commands/spawn')
+    await spawnDirect({ name: 'worker', cli: 'claude-code', model: 'haiku' })
+
+    expect(mockCreateSession).toHaveBeenCalledTimes(1)
+    expect(mockSetAgent).toHaveBeenCalledTimes(2)
+    const [, firstState] = mockSetAgent.mock.calls[0] as [string, Record<string, unknown>]
+    expect(firstState.status).toBe('spawning')
+    const [, finalState] = mockSetAgent.mock.calls[1] as [string, Record<string, unknown>]
+    expect(finalState.status).toBeUndefined()
+  })
+
+  it('refuses to spawn when tmux already has the agent session but state does not', async () => {
+    mockHasSession.mockImplementation((name: string) => name === 'flt-worker' || name === 'flt-orch')
+
+    const { spawnDirect } = await import('../../src/commands/spawn')
+    await expect(spawnDirect({ name: 'worker', cli: 'claude-code', model: 'haiku' }))
+      .rejects.toThrow('already exists but agent "worker" is not in state')
+
+    expect(mockCreateSession).not.toHaveBeenCalled()
   })
 
   afterAll(() => { mock.restore() })
