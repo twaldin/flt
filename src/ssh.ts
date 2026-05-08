@@ -1,11 +1,22 @@
-import { execFileSync } from 'child_process'
-import { statSync } from 'fs'
+import { execFileSync as realExecFileSync } from 'child_process'
+import { statSync as realStatSync } from 'fs'
 import type { RemoteEntry } from './remotes'
 
 export interface SshExecResult {
   stdout: string
   stderr: string
   status: number
+}
+
+let execFileSyncImpl: typeof realExecFileSync = realExecFileSync
+let statSyncImpl: typeof realStatSync = realStatSync
+
+export function _setSshDepsForTest(deps: {
+  execFileSync?: typeof realExecFileSync
+  statSync?: typeof realStatSync
+} | null): void {
+  execFileSyncImpl = deps?.execFileSync ?? realExecFileSync
+  statSyncImpl = deps?.statSync ?? realStatSync
 }
 
 function renderTarget(remote: RemoteEntry): string {
@@ -36,7 +47,7 @@ export function buildSshArgs(remote: RemoteEntry, extra: string[] = []): string[
 
 export function sshExec(remote: RemoteEntry, command: string, opts?: { input?: string }): SshExecResult {
   try {
-    const stdout = execFileSync('ssh', buildSshArgs(remote, [command]), {
+    const stdout = execFileSyncImpl('ssh', buildSshArgs(remote, [command]), {
       encoding: 'utf-8',
       input: opts?.input,
       stdio: ['pipe', 'pipe', 'pipe'],
@@ -54,7 +65,7 @@ export function sshExec(remote: RemoteEntry, command: string, opts?: { input?: s
 
 export function sshExecCheck(remote: RemoteEntry, command: string): true | { error: string } {
   try {
-    execFileSync('ssh', buildSshArgs(remote, [command]), {
+    execFileSyncImpl('ssh', buildSshArgs(remote, [command]), {
       encoding: 'utf-8',
       stdio: ['ignore', 'pipe', 'pipe'],
     })
@@ -83,7 +94,7 @@ function detectDirectory(localPath: string): boolean {
     return true
   }
   try {
-    return statSync(localPath).isDirectory()
+    return statSyncImpl(localPath).isDirectory()
   } catch {
     return false
   }
@@ -99,7 +110,7 @@ export function rsyncTo(remote: RemoteEntry, localPath: string, remotePath: stri
 
   const sshCommand = ['ssh', ...buildSshOptionArgs(remote)].map(shellEscapeArg).join(' ')
 
-  execFileSync('rsync', ['-az', '-e', sshCommand, source, destination], {
+  execFileSyncImpl('rsync', ['-az', '-e', sshCommand, source, destination], {
     encoding: 'utf-8',
     stdio: ['ignore', 'pipe', 'pipe'],
   })

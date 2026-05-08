@@ -10,6 +10,9 @@ const mockRemoveRemote = mock((_alias: string) => true)
 
 const mockExistsSync = mock((_path: string) => true)
 const mockMkdtempSync = mock((_prefix: string) => '/tmp/flt-remote-test')
+const mockTmpdir = mock(() => '/tmp')
+const mockFetch = mock(async () => new Response(new Uint8Array([1, 2, 3]), { status: 200 }))
+const mockBunWrite = mock(async () => 3)
 
 mock.module('../../src/ssh', () => ({
   sshExecCheck: mockSshExecCheck,
@@ -23,16 +26,9 @@ mock.module('../../src/remotes', () => ({
   removeRemote: mockRemoveRemote,
 }))
 
-mock.module('fs', () => ({
-  existsSync: mockExistsSync,
-  mkdtempSync: mockMkdtempSync,
-}))
-
-import { addRemote, listRemotes, removeRemote } from '../../src/commands/remote'
+import { _setRemoteCommandDepsForTest, addRemote, listRemotes, removeRemote } from '../../src/commands/remote'
 
 describe('remote commands', () => {
-  const originalFetch = globalThis.fetch
-  const originalWrite = Bun.write
   const logSpy = mock((..._args: unknown[]) => {})
   const warnSpy = mock((..._args: unknown[]) => {})
 
@@ -60,9 +56,20 @@ describe('remote commands', () => {
     mockExistsSync.mockImplementation(() => true)
     mockMkdtempSync.mockReset()
     mockMkdtempSync.mockImplementation(() => '/tmp/flt-remote-test')
+    mockTmpdir.mockReset()
+    mockTmpdir.mockImplementation(() => '/tmp')
 
-    globalThis.fetch = mock(async () => new Response(new Uint8Array([1, 2, 3]), { status: 200 })) as typeof fetch
-    Bun.write = mock(async () => 3) as typeof Bun.write
+    mockFetch.mockReset()
+    mockFetch.mockImplementation(async () => new Response(new Uint8Array([1, 2, 3]), { status: 200 }))
+    mockBunWrite.mockReset()
+    mockBunWrite.mockImplementation(async () => 3)
+    _setRemoteCommandDepsForTest({
+      existsSync: mockExistsSync as typeof import('fs').existsSync,
+      mkdtempSync: mockMkdtempSync as typeof import('fs').mkdtempSync,
+      tmpdir: mockTmpdir as typeof import('os').tmpdir,
+      fetch: mockFetch as typeof fetch,
+      bunWrite: mockBunWrite as typeof Bun.write,
+    })
 
     console.log = logSpy as typeof console.log
     console.warn = warnSpy as typeof console.warn
@@ -77,8 +84,8 @@ describe('remote commands', () => {
       { host: 'example.com', user: 'alice', port: 2200, identityFile: '/tmp/key' },
       'true',
     )
-    expect(globalThis.fetch).toHaveBeenCalled()
-    expect(Bun.write).toHaveBeenCalledWith('/tmp/flt-remote-test/flt', expect.any(Uint8Array))
+    expect(mockFetch).toHaveBeenCalled()
+    expect(mockBunWrite).toHaveBeenCalledWith('/tmp/flt-remote-test/flt', expect.any(Uint8Array))
     expect(mockSshExec).toHaveBeenCalledWith(
       { host: 'example.com', user: 'alice', port: 2200, identityFile: '/tmp/key' },
       'mkdir -p ~/.flt/bin',
@@ -148,8 +155,7 @@ describe('remote commands', () => {
   })
 
   afterAll(() => {
-    globalThis.fetch = originalFetch
-    Bun.write = originalWrite
+    _setRemoteCommandDepsForTest(null)
     mock.restore()
   })
 })

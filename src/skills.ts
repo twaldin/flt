@@ -263,8 +263,10 @@ export function projectSkills(
   } else if (cliName === 'opencode') {
     for (const skill of selected) installAt(skill, join('.opencode', 'skills'))
   } else {
-    // codex, gemini, swe-agent, pi — write mirrors + inject list into instruction file
-    for (const skill of selected) installAt(skill, join('.flt', 'skills'))
+    // Droid has native project-local skill discovery under .factory/skills.
+    // Other inject-only CLIs use .flt/skills mirrors plus an instruction-file index.
+    const relRoot = cliName === 'droid' ? join('.factory', 'skills') : join('.flt', 'skills')
+    for (const skill of selected) installAt(skill, relRoot)
 
     if (adapter.instructionFile) {
       const filePath = join(workDir, adapter.instructionFile)
