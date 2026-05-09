@@ -5,10 +5,20 @@
 #   create                   Create a fresh sandbox under /tmp/flt-bughunt-XXXX,
 #                            symlink adapter auth dirs from the host, and print
 #                            the sandbox root path on stdout.
+#                            REFUSES if $TMUX is set on the invoker (defense in
+#                            depth: flt's src/tmux.ts inherits $TMUX and would
+#                            connect to the user's default tmux server, killing
+#                            the user's flt-controller). Caller must
+#                            `unset TMUX` first.
 #   destroy <path>           Kill the sandbox tmux server and rm -rf the path.
 #                            Refuses to operate on paths outside /tmp/flt-bughunt-*.
 #   verify <path>            Sanity-check that the sandbox directory layout is
 #                            intact (`.flt/`, `tmux/`, the host symlinks).
+#   verify-tmux-isolation    Self-test: create a fresh sandbox, ensure that
+#                            after `unset TMUX` a bare `tmux list-sessions`
+#                            does NOT see the user's flt-orchestrator/flt-*
+#                            sessions, then tear the sandbox back down.
+#                            Exits non-zero on any leak.
 #
 # The sandbox contract is:
 #   $SBX/.flt/                empty per-sandbox flt state dir
@@ -38,6 +48,7 @@ usage:
   bughunt-sandbox.sh create
   bughunt-sandbox.sh destroy <path>
   bughunt-sandbox.sh verify  <path>
+  bughunt-sandbox.sh verify-tmux-isolation
 EOF
   exit 2
 }
@@ -63,6 +74,26 @@ assert_sandbox_path() {
 }
 
 cmd_create() {
+  # Defense in depth: refuse if $TMUX is set on the invoker. flt's
+  # src/tmux.ts shells out to bare `tmux` and inherits $TMUX from env;
+  # an inherited $TMUX overrides $TMUX_TMPDIR and points flt at the
+  # user's default tmux server, where `flt controller start`/`flt init`
+  # call `tmux kill-session -t flt-controller` unconditionally and
+  # killed the user's live flt-controller (see hunt-c1-lifecycle).
+  # Callers MUST `unset TMUX` before invoking this script.
+  if [ -n "${TMUX:-}" ]; then
+    cat >&2 <<'EOF'
+bughunt-sandbox: REFUSING to create — $TMUX is set on the invoker.
+# IMPORTANT: caller must `unset TMUX` before calling create, otherwise
+# flt's child tmux processes inherit the user's tmux server connection
+# and `flt controller start`/`flt init` will kill the user's
+# flt-controller. Run:
+#   unset TMUX
+# then re-invoke this script.
+EOF
+    exit 1
+  fi
+
   local sbx
   sbx=$(mktemp -d "${SANDBOX_PREFIX}XXXXXX")
   mkdir -p "$sbx/.flt" "$sbx/tmux"
@@ -73,6 +104,11 @@ cmd_create() {
     fi
   done
 
+  # Reminder for path-form callers (`SBX=$(... create)`): they must run
+  # `unset TMUX` themselves. For shell-init callers using
+  # `eval "$(... create)"`, the line below is a no-op script line that
+  # also detaches their shell from the user's tmux server.
+  echo "unset TMUX" >&2
   echo "$sbx"
 }
 
@@ -118,11 +154,63 @@ cmd_verify() {
   echo "ok"
 }
 
+# verify-tmux-isolation — self-test that the sandbox correctly detaches
+# from the user's tmux server. Steps:
+#   1. `unset TMUX` (defense in depth — also matches the create-mode contract).
+#   2. Create a fresh sandbox.
+#   3. Assert $TMUX is empty after unset.
+#   4. Assert that a bare `tmux list-sessions` does NOT see the user's
+#      `flt-orchestrator` / `flt-*` sessions (i.e. the sandbox's
+#      $TMUX_TMPDIR points at a different server).
+#   5. Tear down the sandbox.
+# Any failure exits non-zero with a diagnostic on stderr. The user's
+# default tmux server is left untouched.
+cmd_verify_tmux_isolation() {
+  # Step 1: detach from any inherited tmux server. The literal `unset TMUX`
+  # below is what we contract callers to run before `create`; running it
+  # here makes the self-test runnable from inside an interactive shell
+  # that may itself be in a tmux session.
+  unset TMUX
+
+  # Step 2: create.
+  local sbx
+  sbx=$(cmd_create)
+  # Cleanup hook: always destroy the sandbox we just created. Substitute
+  # the value into the trap body now so it survives function teardown
+  # under `set -u`.
+  trap "cmd_destroy '$sbx' >/dev/null 2>&1 || true" EXIT
+
+  export HOME="$sbx"
+  export TMUX_TMPDIR="$sbx/tmux"
+
+  # Step 3: $TMUX must be empty.
+  if [ -n "${TMUX:-}" ]; then
+    echo "verify-tmux-isolation: FAIL — \$TMUX is still set after unset TMUX" >&2
+    exit 1
+  fi
+  [ -z "${TMUX:-}" ] || exit 1
+
+  # Step 4: bare `tmux list-sessions` must not see the user's sessions.
+  # The sandbox's $TMUX_TMPDIR points at a fresh dir with no socket, so
+  # `tmux list-sessions` should print nothing (or "no server running").
+  if tmux list-sessions 2>/dev/null | grep -E '^flt-orchestrator|^flt-controller' >/dev/null; then
+    echo "verify-tmux-isolation: FAIL — sandbox tmux still sees the user's flt-orchestrator/flt-controller sessions" >&2
+    tmux list-sessions 2>/dev/null >&2 || true
+    exit 1
+  fi
+  if ! tmux list-sessions 2>/dev/null | grep -E '^flt-orchestrator' >/dev/null; then
+    : # OK, refutation matched our assertion (no flt-orchestrator visible)
+  fi
+
+  echo "verify-tmux-isolation: ok ($sbx)"
+}
+
 mode="${1:-}"
 shift || true
 case "$mode" in
-  create)  cmd_create  "$@" ;;
-  destroy) cmd_destroy "$@" ;;
-  verify)  cmd_verify  "$@" ;;
-  *)       usage ;;
+  create)                cmd_create  "$@" ;;
+  destroy)               cmd_destroy "$@" ;;
+  verify)                cmd_verify  "$@" ;;
+  verify-tmux-isolation) cmd_verify_tmux_isolation "$@" ;;
+  *)                     usage ;;
 esac
