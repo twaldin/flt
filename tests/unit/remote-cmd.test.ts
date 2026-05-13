@@ -1,4 +1,5 @@
 import { describe, it, expect, mock, beforeEach, afterAll } from 'bun:test'
+import { join } from 'path'
 
 const mockSshExecCheck = mock((_remote: unknown, _cmd: string) => true as true | { error: string })
 const mockSshExec = mock((_remote: unknown, _cmd: string) => ({ stdout: '', stderr: '', status: 0 }))
@@ -23,18 +24,19 @@ mock.module('../../src/remotes', () => ({
   removeRemote: mockRemoveRemote,
 }))
 
-mock.module('fs', () => ({
-  existsSync: mockExistsSync,
-  mkdtempSync: mockMkdtempSync,
-}))
-
-import { addRemote, listRemotes, removeRemote } from '../../src/commands/remote'
+import { _fsForTest, addRemote, listRemotes, removeRemote } from '../../src/commands/remote'
 
 describe('remote commands', () => {
   const originalFetch = globalThis.fetch
   const originalWrite = Bun.write
+  const originalConsoleLog = console.log
+  const originalConsoleWarn = console.warn
+  const originalHome = process.env.HOME
+  const originalExistsSync = _fsForTest.existsSync
+  const originalMkdtempSync = _fsForTest.mkdtempSync
   const logSpy = mock((..._args: unknown[]) => {})
   const warnSpy = mock((..._args: unknown[]) => {})
+  let downloadDir: string
 
   beforeEach(() => {
     process.env.HOME = '/tmp/home-remote-tests'
@@ -59,9 +61,12 @@ describe('remote commands', () => {
     mockExistsSync.mockReset()
     mockExistsSync.mockImplementation(() => true)
     mockMkdtempSync.mockReset()
-    mockMkdtempSync.mockImplementation(() => '/tmp/flt-remote-test')
+    downloadDir = `/tmp/flt-remote-test-${crypto.randomUUID()}`
+    mockMkdtempSync.mockImplementation(() => downloadDir)
+    _fsForTest.existsSync = mockExistsSync
+    _fsForTest.mkdtempSync = mockMkdtempSync
 
-    globalThis.fetch = mock(async () => new Response(new Uint8Array([1, 2, 3]), { status: 200 })) as typeof fetch
+    globalThis.fetch = mock(async () => new Response(new Uint8Array([1, 2, 3]), { status: 200 })) as unknown as typeof fetch
     Bun.write = mock(async () => 3) as typeof Bun.write
 
     console.log = logSpy as typeof console.log
@@ -78,7 +83,7 @@ describe('remote commands', () => {
       'true',
     )
     expect(globalThis.fetch).toHaveBeenCalled()
-    expect(Bun.write).toHaveBeenCalledWith('/tmp/flt-remote-test/flt', expect.any(Uint8Array))
+    expect(Bun.write).toHaveBeenCalledWith(join(downloadDir, 'flt'), expect.any(Uint8Array))
     expect(mockSshExec).toHaveBeenCalledWith(
       { host: 'example.com', user: 'alice', port: 2200, identityFile: '/tmp/key' },
       'mkdir -p ~/.flt/bin',
@@ -86,7 +91,7 @@ describe('remote commands', () => {
     expect(mockRsyncTo).toHaveBeenNthCalledWith(
       1,
       { host: 'example.com', user: 'alice', port: 2200, identityFile: '/tmp/key' },
-      '/tmp/flt-remote-test/flt',
+      join(downloadDir, 'flt'),
       '~/.flt/bin/flt',
       { isDirectory: false },
     )
@@ -150,6 +155,11 @@ describe('remote commands', () => {
   afterAll(() => {
     globalThis.fetch = originalFetch
     Bun.write = originalWrite
+    console.log = originalConsoleLog
+    console.warn = originalConsoleWarn
+    process.env.HOME = originalHome
+    _fsForTest.existsSync = originalExistsSync
+    _fsForTest.mkdtempSync = originalMkdtempSync
     mock.restore()
   })
 })

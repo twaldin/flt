@@ -4,6 +4,16 @@ import { shellEscapeSingle, sshExec } from './ssh'
 import { getLocation } from './state'
 import { pasteBuffer, sendKeys, sendLiteral } from './tmux'
 
+export const _depsForTest = {
+  resolveRemote,
+  shellEscapeSingle,
+  sshExec,
+  getLocation,
+  pasteBuffer,
+  sendKeys,
+  sendLiteral,
+}
+
 function assertSafeSshHost(host: string): void {
   if (host.startsWith('-')) {
     throw new Error(`Refusing unsafe ssh host target: ${host}`)
@@ -17,19 +27,19 @@ function ensureSshSuccess(status: number, stderr: string): void {
 }
 
 export function deliver(agent: AgentState, text: string): void {
-  const loc = getLocation(agent)
+  const loc = _depsForTest.getLocation(agent)
   switch (loc.type) {
     case 'local':
       if (text.length > 200) {
-        pasteBuffer(agent.tmuxSession, text)
+        _depsForTest.pasteBuffer(agent.tmuxSession, text)
       } else {
-        sendLiteral(agent.tmuxSession, text)
+        _depsForTest.sendLiteral(agent.tmuxSession, text)
       }
       return
     case 'ssh': {
-      const remote = resolveRemote(loc.host)
+      const remote = _depsForTest.resolveRemote(loc.host)
       assertSafeSshHost(remote.host)
-      const target = `${shellEscapeSingle(agent.tmuxSession)}:^`
+      const target = `${_depsForTest.shellEscapeSingle(agent.tmuxSession)}:^`
       if (text.length > 200) {
         const rand = Math.random().toString(36).slice(2, 10)
         const bufferName = `flt-paste-${rand}`
@@ -40,10 +50,10 @@ export function deliver(agent: AgentState, text: string): void {
           `tmux paste-buffer -b ${bufferName} -t ${target} -d`,
           `rm ${tmpPath}`,
         ].join(' && ')
-        const result = sshExec(remote, command, { input: text })
+        const result = _depsForTest.sshExec(remote, command, { input: text })
         ensureSshSuccess(result.status, result.stderr)
       } else {
-        const result = sshExec(remote, `tmux send-keys -t ${target} -l ${shellEscapeSingle(text)}`)
+        const result = _depsForTest.sshExec(remote, `tmux send-keys -t ${target} -l ${_depsForTest.shellEscapeSingle(text)}`)
         ensureSshSuccess(result.status, result.stderr)
       }
       return
@@ -60,17 +70,17 @@ export function deliver(agent: AgentState, text: string): void {
 }
 
 export function deliverKeys(agent: AgentState, keys: string[]): void {
-  const loc = getLocation(agent)
+  const loc = _depsForTest.getLocation(agent)
   switch (loc.type) {
     case 'local':
-      sendKeys(agent.tmuxSession, keys)
+      _depsForTest.sendKeys(agent.tmuxSession, keys)
       return
     case 'ssh': {
-      const remote = resolveRemote(loc.host)
+      const remote = _depsForTest.resolveRemote(loc.host)
       assertSafeSshHost(remote.host)
-      const target = `${shellEscapeSingle(agent.tmuxSession)}:^`
+      const target = `${_depsForTest.shellEscapeSingle(agent.tmuxSession)}:^`
       for (const key of keys) {
-        const result = sshExec(remote, `tmux send-keys -t ${target} ${shellEscapeSingle(key)}`)
+        const result = _depsForTest.sshExec(remote, `tmux send-keys -t ${target} ${_depsForTest.shellEscapeSingle(key)}`)
         ensureSshSuccess(result.status, result.stderr)
       }
       return

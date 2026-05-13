@@ -5,6 +5,11 @@ import { addRemote as addRemoteEntry, loadRemotes, removeRemote as removeRemoteE
 import type { RemoteEntry } from '../remotes'
 import { rsyncTo, sshExec, sshExecCheck } from '../ssh'
 
+export const _fsForTest: {
+  existsSync: (path: string) => boolean
+  mkdtempSync: (prefix: string) => string
+} = { existsSync, mkdtempSync }
+
 interface AddRemoteArgs {
   alias: string
   host: string
@@ -71,7 +76,7 @@ export async function addRemote(args: AddRemoteArgs): Promise<void> {
     throw new Error(`Failed to download ${asset} from ${url}: HTTP ${response.status}`)
   }
 
-  const tempDir = mkdtempSync(join(tmpdir(), 'flt-remote-'))
+  const tempDir = _fsForTest.mkdtempSync(join(tmpdir(), 'flt-remote-'))
   const tempFile = join(tempDir, 'flt')
   const bytes = new Uint8Array(await response.arrayBuffer())
   await Bun.write(tempFile, bytes)
@@ -97,7 +102,7 @@ export async function addRemote(args: AddRemoteArgs): Promise<void> {
   console.log('Added ~/.flt/bin to PATH on remote (.bashrc + .zshrc). New shell sessions will pick it up.')
 
   const skillsDir = join(process.env.HOME || '', '.flt', 'skills')
-  if (skillsDir && existsSync(skillsDir)) {
+  if (skillsDir && _fsForTest.existsSync(skillsDir)) {
     rsyncTo(remote, skillsDir, '~/.flt/skills/', { isDirectory: true })
   } else {
     console.warn(`Warning: local skills directory not found at ${skillsDir}; skipping skills sync.`)

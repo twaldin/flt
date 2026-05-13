@@ -6,6 +6,22 @@ import { appendEvent } from '../activity'
 import { resolveRemote } from '../remotes'
 import { shellEscapeSingle, sshExec } from '../ssh'
 
+export const _depsForTest = {
+  getAgent,
+  removeAgent,
+  loadState,
+  appendEvent,
+  resolveRemote,
+  shellEscapeSingle,
+  sshExec,
+  killSession: tmux.killSession,
+  getPanePid: tmux.getPanePid,
+  removeWorktree,
+  harnessExtract: null as null | typeof import('../harness').harnessExtract,
+  archiveRun: null as null | typeof import('../harness').archiveRun,
+  appendInbox: null as null | typeof import('./init').appendInbox,
+}
+
 interface KillArgs {
   name: string
   preserveWorktree?: boolean
@@ -53,7 +69,7 @@ export async function notifyEngineOfKill(
 
 export function killDirect(args: KillArgs): void {
   const { name } = args
-  const agent = getAgent(name)
+  const agent = _depsForTest.getAgent(name)
 
   if (!agent) {
     throw new Error(`Agent "${name}" not found.`)
@@ -63,17 +79,17 @@ export function killDirect(args: KillArgs): void {
   let extracted: { cost_usd: number | null, tokens_in: number | null, tokens_out: number | null, model: string | null } | null = null
 
   if (isSsh && agent.location?.type === 'ssh') {
-    const remote = resolveRemote(agent.location.host)
-    const killResult = sshExec(remote, `tmux kill-session -t ${agent.tmuxSession}`)
+    const remote = _depsForTest.resolveRemote(agent.location.host)
+    const killResult = _depsForTest.sshExec(remote, `tmux kill-session -t ${agent.tmuxSession}`)
     if (killResult.status !== 0) {
       throw new Error(killResult.stderr.trim() || `Failed to kill SSH agent "${name}".`)
     }
 
     if (agent.worktreePath && agent.worktreeBranch && !args.preserveWorktree) {
       try {
-        sshExec(
+        _depsForTest.sshExec(
           remote,
-          `cd ${shellEscapeSingle(agent.dir)} && git worktree remove --force ${shellEscapeSingle(agent.worktreePath)} && git branch -D ${shellEscapeSingle(agent.worktreeBranch)}`,
+          `cd ${_depsForTest.shellEscapeSingle(agent.dir)} && git worktree remove --force ${_depsForTest.shellEscapeSingle(agent.worktreePath)} && git branch -D ${_depsForTest.shellEscapeSingle(agent.worktreeBranch)}`,
         )
       } catch {
         // Best-effort cleanup
@@ -81,13 +97,13 @@ export function killDirect(args: KillArgs): void {
     }
   } else {
     // Kill the process tree
-    const panePid = tmux.getPanePid(agent.tmuxSession)
+    const panePid = _depsForTest.getPanePid(agent.tmuxSession)
     if (panePid) {
       killProcessTree(panePid)
     }
 
     // Kill tmux session
-    tmux.killSession(agent.tmuxSession)
+    _depsForTest.killSession(agent.tmuxSession)
 
     // Give the agent's CLI a moment to flush its trailing session-log entry
     // before we try to parse it. claude-code receives SIGHUP when tmux dies
@@ -97,8 +113,10 @@ export function killDirect(args: KillArgs): void {
     // Post-exit: best-effort cost/token extraction via harness parser.
     // Never throws; failure just means no cost data is recorded.
     try {
-      const { harnessExtract } = require('../harness') as typeof import('../harness')
-      const { appendInbox } = require('./init') as typeof import('./init')
+      const harnessExtract = _depsForTest.harnessExtract
+        ?? (require('../harness') as typeof import('../harness')).harnessExtract
+      const appendInbox = _depsForTest.appendInbox
+        ?? (require('./init') as typeof import('./init')).appendInbox
       extracted = harnessExtract({
         cli: agent.cli,
         workdir: agent.dir,
@@ -113,7 +131,8 @@ export function killDirect(args: KillArgs): void {
 
     // Archive the run (even if extraction returned null — we still want a record).
     try {
-      const { archiveRun } = require('../harness') as typeof import('../harness')
+      const archiveRun = _depsForTest.archiveRun
+        ?? (require('../harness') as typeof import('../harness')).archiveRun
       archiveRun(
         { name, cli: agent.cli, model: agent.model, dir: agent.dir, spawnedAt: agent.spawnedAt },
         extracted,
@@ -129,7 +148,7 @@ export function killDirect(args: KillArgs): void {
           encoding: 'utf-8',
           timeout: 5000,
         }).trim()
-        removeWorktree(repoDir, agent.worktreePath, agent.worktreeBranch)
+        _depsForTest.removeWorktree(repoDir, agent.worktreePath, agent.worktreeBranch)
       } catch {
         // Best-effort cleanup
       }
@@ -155,13 +174,13 @@ export function killDirect(args: KillArgs): void {
   notifyEngineOfKill(name, args.fromWorkflow).catch(() => {})
 
   // Remove from state + clean up poller tracking
-  removeAgent(name)
+  _depsForTest.removeAgent(name)
   try {
     const { cleanupAgent } = require('../controller/poller') as typeof import('../controller/poller')
     cleanupAgent(name)
   } catch {}
 
-  appendEvent({
+  _depsForTest.appendEvent({
     type: 'kill',
     agent: name,
     detail: 'killed',

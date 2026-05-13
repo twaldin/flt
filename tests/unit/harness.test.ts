@@ -81,11 +81,12 @@ describe('harnessExtract (claude-code)', () => {
 
     const r = harnessExtract({ cli: 'claude-code', workdir, spawnedAt })
     expect(r).not.toBeNull()
-    expect(r!.tokens_in).toBe(30)
+    // tokens_in is displayed as total billable input: raw input + cache creation + cache read.
+    expect(r!.tokens_in).toBe(1530)
     expect(r!.tokens_out).toBe(300)
     expect(r!.model).toBe('claude-opus-4-7-20260101')
     // cost = (30*15 + 300*75 + 1000*18.75 + 500*1.50) / 1_000_000
-    //      = (450 + 22500 + 18750 + 750) / 1_000_000 = 42450 / 1_000_000 = 0.04245
+    //      = (450 + 22500 + 18750 + 750) / 1_000_000 = 0.04245
     expect(r!.cost_usd).toBeCloseTo(0.04245, 6)
   })
 

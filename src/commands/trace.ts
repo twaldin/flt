@@ -1,4 +1,4 @@
-import { existsSync, readFileSync, readdirSync, renameSync, writeFileSync } from 'fs'
+import { existsSync, readFileSync, readdirSync, realpathSync, renameSync, writeFileSync } from 'fs'
 import { homedir } from 'os'
 import { basename, join } from 'path'
 import { loadWorkflowDef } from '../workflow/parser'
@@ -30,6 +30,7 @@ type TraceRecentStatus = 'failed' | 'passed' | 'all'
 interface TraceRecentArgs {
   since: string
   status: TraceRecentStatus
+  print?: (line: string) => void
 }
 
 function toIso(value: unknown, fallback: string): string {
@@ -205,10 +206,55 @@ function sessionLogPath(cli: string, workdir: string): string | null {
     const { getAdapter } = require('@twaldin/harness-ts') as { getAdapter: (name: string) => { sessionLogPath?: (wd: string) => string | null } }
     const name = cli === 'droid' ? 'factory-droid' : cli
     const adapter = getAdapter(name)
-    return adapter.sessionLogPath?.(workdir) ?? null
+    const fromAdapter = adapter.sessionLogPath?.(workdir) ?? null
+    if (fromAdapter) return fromAdapter
   } catch {
-    return null
+    // Fall through to deterministic local fallbacks so trace export does not
+    // depend on harness-ts adapter availability/mocks inside the test process.
   }
+
+  if (cli === 'claude-code') {
+    let resolved = workdir
+    try { resolved = realpathSync(workdir) } catch {}
+    const slug = resolved.replace(/[\/_.]/g, '-')
+    const dir = join(process.env.HOME ?? homedir(), '.claude', 'projects', slug)
+    try {
+      const files = readdirSync(dir).filter(f => f.endsWith('.jsonl')).sort()
+      const jsonl = files[files.length - 1]
+      return jsonl ? join(dir, jsonl) : null
+    } catch {
+      return null
+    }
+  }
+
+  if (cli === 'codex' || cli === 'pi') {
+    const root = join(process.env.HOME ?? homedir(), '.codex', 'sessions')
+    const stack = [root]
+    let found: string | null = null
+    while (stack.length > 0) {
+      const dir = stack.pop()!
+      try {
+        for (const entry of readdirSync(dir, { withFileTypes: true })) {
+          const path = join(dir, entry.name)
+          if (entry.isDirectory()) stack.push(path)
+          else if (entry.isFile() && entry.name.endsWith('.jsonl')) found = path
+        }
+      } catch {}
+    }
+    return found
+  }
+
+  if (cli === 'gemini') {
+    const path = join(process.env.HOME ?? homedir(), '.gemini', 'tmp', basename(workdir), 'logs.json')
+    return existsSync(path) ? path : null
+  }
+
+  if (cli === 'swe-agent') {
+    const path = join(workdir, '.harness', 'swe-traj.json')
+    return existsSync(path) ? path : null
+  }
+
+  return null
 }
 
 function fallbackEntry(agent: string, ts: string): TranscriptEntry[] {
@@ -359,10 +405,11 @@ export function traceRecent(args: TraceRecentArgs): void {
     rows.push({ runId, workflow, outcome, startedAt, completedAt, costUsd, startedMs })
   }
 
+  const print = args.print ?? console.log
   rows
     .sort((a, b) => b.startedMs - a.startedMs)
     .forEach((row) => {
-      console.log(`${row.runId}\t${row.workflow}\t${row.outcome}\t${row.startedAt}\t${row.completedAt}\t${row.costUsd}`)
+      print(`${row.runId}\t${row.workflow}\t${row.outcome}\t${row.startedAt}\t${row.completedAt}\t${row.costUsd}`)
     })
 }
 

@@ -1,40 +1,21 @@
 import { describe, it, expect, mock, beforeEach, afterAll } from 'bun:test'
 
-const mockGetAgent = mock(() => undefined)
+const mockGetAgent = mock((_name: string): unknown => undefined)
 const mockRemoveAgent = mock(() => {})
 const mockAppendEvent = mock(() => {})
 const mockResolveRemote = mock((host: string) => ({ host }))
 const mockSshExec = mock(() => ({ stdout: '', stderr: '', status: 0 }))
 const mockKillSession = mock(() => {})
 const mockGetPanePid = mock(() => null)
+const mockHarnessExtract = mock(() => null)
+const mockArchiveRun = mock(() => {})
+const mockAppendInbox = mock(() => {})
 
-mock.module('../../src/state', () => ({
-  getAgent: mockGetAgent,
-  removeAgent: mockRemoveAgent,
-  loadState: mock(() => ({ agents: {}, config: { maxDepth: 3 } })),
-}))
-mock.module('../../src/activity', () => ({ appendEvent: mockAppendEvent }))
-mock.module('../../src/remotes', () => ({ resolveRemote: mockResolveRemote }))
-mock.module('../../src/ssh', () => ({
-  sshExec: mockSshExec,
-  shellEscapeSingle: (s: string) => `'${s.replace(/'/g, `'\\''`)}'`,
-}))
-mock.module('../../src/tmux', () => ({
-  killSession: mockKillSession,
-  getPanePid: mockGetPanePid,
-}))
-mock.module('../../src/worktree', () => ({ removeWorktree: mock(() => {}) }))
-mock.module('../../src/instructions', () => ({ restoreInstructions: mock(() => {}) }))
-mock.module('../../src/skills', () => ({ cleanupSkills: mock(() => {}) }))
-mock.module('../../src/adapters/registry', () => ({ resolveAdapter: mock(() => ({})) }))
-mock.module('../../src/harness', () => ({ harnessExtract: mock(() => null), archiveRun: mock(() => {}) }))
-mock.module('../../src/harness.ts', () => ({ harnessExtract: mock(() => null), archiveRun: mock(() => {}) }))
-mock.module('../../src/commands/init', () => ({ appendInbox: mock(() => {}) }))
-mock.module('@twaldin/harness-ts', () => ({ getAdapter: mock(() => null) }))
-
-import { killDirect } from '../../src/commands/kill'
+import { _depsForTest, killDirect } from '../../src/commands/kill'
 
 describe('killDirect ssh branch', () => {
+  const originalDeps = { ..._depsForTest }
+
   beforeEach(() => {
     mockGetAgent.mockReset()
     mockRemoveAgent.mockReset()
@@ -45,6 +26,21 @@ describe('killDirect ssh branch', () => {
     mockSshExec.mockReturnValue({ stdout: '', stderr: '', status: 0 })
     mockKillSession.mockReset()
     mockGetPanePid.mockReset()
+    mockHarnessExtract.mockReset()
+    mockArchiveRun.mockReset()
+    mockAppendInbox.mockReset()
+
+    _depsForTest.getAgent = mockGetAgent as typeof _depsForTest.getAgent
+    _depsForTest.removeAgent = mockRemoveAgent
+    _depsForTest.appendEvent = mockAppendEvent
+    _depsForTest.resolveRemote = mockResolveRemote
+    _depsForTest.sshExec = mockSshExec
+    _depsForTest.shellEscapeSingle = (s: string) => `'${s.replace(/'/g, `'\\''`)}'`
+    _depsForTest.killSession = mockKillSession
+    _depsForTest.getPanePid = mockGetPanePid
+    _depsForTest.harnessExtract = mockHarnessExtract
+    _depsForTest.archiveRun = mockArchiveRun
+    _depsForTest.appendInbox = mockAppendInbox
   })
 
   it('kills ssh tmux session remotely and removes agent without local tmux kill', () => {
@@ -114,6 +110,7 @@ describe('killDirect ssh branch', () => {
   })
 
   afterAll(() => {
+    Object.assign(_depsForTest, originalDeps)
     mock.restore()
   })
 })

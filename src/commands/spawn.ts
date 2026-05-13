@@ -1,4 +1,5 @@
 import { resolveAdapter } from '../adapters/registry'
+import type { CliAdapter } from '../adapters/types'
 import { projectInstructions } from '../instructions'
 import type { InstructionProjection } from '../instructions'
 import { projectSkills } from '../skills'
@@ -8,6 +9,7 @@ import { loadState, setAgent, hasAgent } from '../state'
 import type { AgentState } from '../state'
 import { getPreset, resolvePresetEnv } from '../presets'
 import { getRemote } from '../remotes'
+import type { RemoteEntry } from '../remotes'
 import { sshExec, shellEscapeSingle } from '../ssh'
 import * as tmux from '../tmux'
 import { join, resolve } from 'path'
@@ -16,6 +18,27 @@ import { createInterface } from 'node:readline'
 import { appendEvent } from '../activity'
 import { resolveModelForCli } from '../model-resolution'
 import { deliver, deliverKeys } from '../delivery'
+
+export const _adapterForTest: {
+  resolveAdapter: (name: string) => CliAdapter
+} = { resolveAdapter }
+
+export const _depsForTest = {
+  projectInstructions,
+  projectSkills,
+  createWorktree,
+  isGitRepo,
+  loadState,
+  setAgent,
+  hasAgent,
+  tmux,
+  appendEvent,
+  deliver,
+  deliverKeys,
+  getRemote,
+  sshExec,
+  shellEscapeSingle,
+}
 
 interface SpawnArgs {
   name: string
@@ -181,7 +204,7 @@ export async function spawn(args: SpawnArgs): Promise<void> {
 async function spawnRemoteDirect(args: SpawnArgs, remoteAlias: string): Promise<void> {
   const { name, cli: explicitCli, model, preset, dir: rawDir, bootstrap } = args
 
-  const remote = getRemote(remoteAlias)
+  const remote = _depsForTest.getRemote(remoteAlias)
   if (!remote) {
     throw new Error(
       `Unknown SSH remote "${remoteAlias}". Add it with "flt add remote ${remoteAlias} <host>".`,
@@ -209,7 +232,7 @@ async function spawnRemoteDirect(args: SpawnArgs, remoteAlias: string): Promise<
     resolvedModel = resolveModelForCli(cli, resolvedModel, args.noModelResolve)
   } catch {}
 
-  if (hasAgent(name)) {
+  if (_depsForTest.hasAgent(name)) {
     throw new Error(`Agent "${name}" already exists. Use "flt kill ${name}" first.`)
   }
   if (!/^[a-zA-Z0-9_-]+$/.test(name)) {
@@ -219,7 +242,7 @@ async function spawnRemoteDirect(args: SpawnArgs, remoteAlias: string): Promise<
     throw new Error(`Agent name "${name}" is too short (min 3 chars).`)
   }
 
-  const adapter = resolveAdapter(cli)
+  const adapter = _adapterForTest.resolveAdapter(cli)
 
   const callerDepth = args._callerDepth ?? parseInt(process.env.FLT_DEPTH ?? '0', 10)
   const callerName = args._callerName ?? process.env.FLT_AGENT_NAME
@@ -233,7 +256,7 @@ async function spawnRemoteDirect(args: SpawnArgs, remoteAlias: string): Promise<
   }
 
   const remoteWorkDir = rawDir ?? null
-  const remoteDirArg = remoteWorkDir ? shellEscapeSingle(remoteWorkDir) : '$HOME'
+  const remoteDirArg = remoteWorkDir ? _depsForTest.shellEscapeSingle(remoteWorkDir) : '$HOME'
 
   const cliArgs = adapter.spawnArgs({ model: resolvedModel, dir: remoteWorkDir ?? '~' })
   const command = cliArgs.map(arg =>
@@ -242,9 +265,9 @@ async function spawnRemoteDirect(args: SpawnArgs, remoteAlias: string): Promise<
 
   const sessionName = `flt-${name}`
   const envPrefix = `FLT_AGENT_NAME=${name} FLT_PARENT_NAME=${parentName} FLT_DEPTH=${callerDepth + 1}`
-  const tmuxCmd = `tmux new-session -d -s ${sessionName} -c ${remoteDirArg} ${shellEscapeSingle(`${envPrefix} ${command}`)}`
+  const tmuxCmd = `tmux new-session -d -s ${sessionName} -c ${remoteDirArg} ${_depsForTest.shellEscapeSingle(`${envPrefix} ${command}`)}`
 
-  const result = sshExec(remote, tmuxCmd)
+  const result = _depsForTest.sshExec(remote, tmuxCmd)
   if (result.status !== 0) {
     throw new Error(
       `Failed to start remote agent "${name}": ${result.stderr.trim() || `exit ${result.status}`}`,
@@ -260,9 +283,9 @@ async function spawnRemoteDirect(args: SpawnArgs, remoteAlias: string): Promise<
     spawnedAt: new Date().toISOString(),
     location: { type: 'ssh', host: remoteAlias },
   }
-  setAgent(name, agentState)
+  _depsForTest.setAgent(name, agentState)
 
-  appendEvent({
+  _depsForTest.appendEvent({
     type: 'spawn',
     agent: name,
     detail: `cli=${adapter.name} model=${resolvedModel ?? 'default'} remote=${remoteAlias}`,
@@ -270,9 +293,9 @@ async function spawnRemoteDirect(args: SpawnArgs, remoteAlias: string): Promise<
   })
 
   if (bootstrap) {
-    deliver(agentState, bootstrap)
+    _depsForTest.deliver(agentState, bootstrap)
     await sleep(300)
-    deliverKeys(agentState, adapter.submitKeys)
+    _depsForTest.deliverKeys(agentState, adapter.submitKeys)
   }
 
   if (!process.env.FLT_TUI_ACTIVE) {
@@ -346,7 +369,7 @@ export async function spawnDirect(args: SpawnArgs): Promise<void> {
   }
 
   // Validate name uniqueness
-  if (hasAgent(name)) {
+  if (_depsForTest.hasAgent(name)) {
     throw new Error(`Agent "${name}" already exists. Use "flt kill ${name}" first.`)
   }
 
@@ -364,7 +387,7 @@ export async function spawnDirect(args: SpawnArgs): Promise<void> {
     )
   }
 
-  const adapter = resolveAdapter(cli)
+  const adapter = _adapterForTest.resolveAdapter(cli)
 
   // Resolve dir: explicit flag > preset > cwd
   let resolvedDir = rawDir ?? presetDir
@@ -375,7 +398,7 @@ export async function spawnDirect(args: SpawnArgs): Promise<void> {
   const baseDir = resolve(resolvedDir || process.cwd())
 
   // Check depth limit
-  const state = loadState()
+  const state = _depsForTest.loadState()
   const callerDepth = args._callerDepth ?? parseInt(process.env.FLT_DEPTH ?? '0', 10)
   if (callerDepth >= state.config.maxDepth) {
     throw new Error(`Max agent depth (${state.config.maxDepth}) reached.`)
@@ -389,10 +412,10 @@ export async function spawnDirect(args: SpawnArgs): Promise<void> {
   // Resolve worktree: explicit --no-worktree flag > preset > default (true)
   const useWorktree = worktree && (presetWorktree !== false)
   if (useWorktree) {
-    if (!isGitRepo(baseDir)) {
+    if (!_depsForTest.isGitRepo(baseDir)) {
       throw new Error(`Cannot create worktree: "${baseDir}" is not a git repository.`)
     }
-    const wt = createWorktree(baseDir, name, args.worktreeBase, args.worktreeBranchPrefix)
+    const wt = _depsForTest.createWorktree(baseDir, name, args.worktreeBase, args.worktreeBranchPrefix)
     workDir = wt.path
     worktreePath = wt.path
     worktreeBranch = wt.branch
@@ -424,7 +447,7 @@ export async function spawnDirect(args: SpawnArgs): Promise<void> {
 
   // Resolve parent session for env propagation
   const orchSession = state.orchestrator?.tmuxSession ?? 'unknown'
-  const parentSession = parentName !== 'human' && tmux.hasSession(`flt-${parentName}`)
+  const parentSession = parentName !== 'human' && _depsForTest.tmux.hasSession(`flt-${parentName}`)
     ? `flt-${parentName}`
     : orchSession
 
@@ -452,7 +475,7 @@ export async function spawnDirect(args: SpawnArgs): Promise<void> {
   })
 
   // Project selected skills into workspace (opt-in only) plus the synthetic flt skill
-  const projectedSkills = projectSkills(workDir, adapter, {
+  const projectedSkills = _depsForTest.projectSkills(workDir, adapter, {
     requested: selectedSkills,
     all: allSkills,
     synthetic: [{ name: 'flt', description: getFltSkillDescription(), content: fltSkillContent }],
@@ -462,7 +485,7 @@ export async function spawnDirect(args: SpawnArgs): Promise<void> {
   }
 
   if (adapter.instructionFile) {
-    instructionProjection = projectInstructions(workDir, adapter.instructionFile, {
+    instructionProjection = _depsForTest.projectInstructions(workDir, adapter.instructionFile, {
       agentName: name,
       parentName,
       cli: adapter.name,
@@ -476,7 +499,7 @@ export async function spawnDirect(args: SpawnArgs): Promise<void> {
 
   // Install git hooks and write flt manifest (opt-in via --git-hooks or preset git_hooks: true)
   const useGitHooks = args.gitHooks ?? presetGitHooks ?? false
-  if (useGitHooks && isGitRepo(workDir)) {
+  if (useGitHooks && _depsForTest.isGitRepo(workDir)) {
     const { installHooks, writeFltManifest } = await import('../hooks/git-hooks')
     const { existsSync: fsExists, readFileSync: fsRead } = await import('fs')
     const { join: pathJoin } = await import('path')
@@ -520,7 +543,7 @@ export async function spawnDirect(args: SpawnArgs): Promise<void> {
   const initialWidth = args._termWidth ?? process.stdout.columns ?? 80
   const initialHeight = args._termHeight ?? process.stdout.rows ?? 24
 
-  tmux.createSession(sessionName, workDir, command, {
+  _depsForTest.tmux.createSession(sessionName, workDir, command, {
     ...adapterEnv,
     ...isolationEnv,
     ...presetEnv,
@@ -538,7 +561,7 @@ export async function spawnDirect(args: SpawnArgs): Promise<void> {
   // Resize to current terminal dimensions so agent doesn't start at tmux's 80x24 default
   const termWidth = args._termWidth ?? process.stdout.columns ?? 80
   const termHeight = args._termHeight ?? process.stdout.rows ?? 24
-  tmux.resizeWindow(sessionName, termWidth, termHeight)
+  _depsForTest.tmux.resizeWindow(sessionName, termWidth, termHeight)
 
   // Register in state before bootstrap — agent is live and discoverable immediately
   const displayedModel = resolveDisplayedModel(adapter.name, resolvedModel, presetModel, presetEnv)
@@ -558,9 +581,9 @@ export async function spawnDirect(args: SpawnArgs): Promise<void> {
     persistent: args.persistent ?? presetPersistent,
     ephemeral: args.ephemeral,
   }
-  setAgent(name, agentState)
+  _depsForTest.setAgent(name, agentState)
 
-  appendEvent({
+  _depsForTest.appendEvent({
     type: 'spawn',
     agent: name,
     detail: `cli=${adapter.name} model=${resolvedModel ?? 'default'}${effectivePreset ? ` preset=${effectivePreset}` : ''} dir=${workDir}${projectedSkills.names.length ? ` skills=${projectedSkills.names.join(',')}` : ''}${args.noModelResolve ? ' modelResolve=off' : ''}`,
@@ -610,18 +633,18 @@ async function waitForReady(
   let fallbackStableCount = 0
 
   while (Date.now() - start < timeoutMs) {
-    if (!tmux.hasSession(session)) {
+    if (!_depsForTest.tmux.hasSession(session)) {
       throw new Error(`Agent session "${session}" died during startup.`)
     }
 
-    const pane = tmux.capturePane(session)
+    const pane = _depsForTest.tmux.capturePane(session)
     const stripped = stripAnsiForCompare(pane)
     const readyState = adapter.detectReady(pane)
 
     if (readyState === 'dialog') {
       const keys = adapter.handleDialog(pane)
       if (keys) {
-        tmux.sendKeys(session, keys)
+        _depsForTest.tmux.sendKeys(session, keys)
         stableCount = 0
         fallbackStableCount = 0
         await sleep(1000)
@@ -686,19 +709,19 @@ async function sendBootstrap(
   } else {
     payload = message
   }
-  deliver(agent, payload)
+  _depsForTest.deliver(agent, payload)
   await sleep(300)
-  deliverKeys(agent, adapter.submitKeys)
+  _depsForTest.deliverKeys(agent, adapter.submitKeys)
 
   await sleep(500)
-  const pane = tmux.capturePane(agent.tmuxSession)
+  const pane = _depsForTest.tmux.capturePane(agent.tmuxSession)
   if (!verifyBootstrapDelivered(pane, payload)) {
     await sleep(2000)
-    deliver(agent, payload)
+    _depsForTest.deliver(agent, payload)
     await sleep(300)
-    deliverKeys(agent, adapter.submitKeys)
+    _depsForTest.deliverKeys(agent, adapter.submitKeys)
     await sleep(500)
-    const pane2 = tmux.capturePane(agent.tmuxSession)
+    const pane2 = _depsForTest.tmux.capturePane(agent.tmuxSession)
     if (!verifyBootstrapDelivered(pane2, payload)) {
       console.warn(`flt: bootstrap delivery unconfirmed for ${agent.tmuxSession} — agent may not have received its task`)
     }
