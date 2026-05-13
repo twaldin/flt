@@ -12,6 +12,8 @@ export interface Preset {
   dir?: string        // working directory (~ expanded at resolve time)
   parent?: string     // parent agent name
   worktree?: boolean  // false = --no-worktree
+  worktree_base?: string          // git ref to root the agent branch on (passed to createWorktree baseBranch)
+  worktree_branch_prefix?: string // override 'flt/' prefix in branch name (e.g. 'feat/')
   persistent?: boolean
   pr_adapter?: 'gh' | 'gt' | 'manual'
   skills?: string[]   // opt-in skills enabled for this preset
@@ -87,6 +89,12 @@ function validatePresetValue(name: string, value: unknown): Preset {
   if (preset.worktree !== undefined && typeof preset.worktree !== 'boolean') {
     throw new Error(`Invalid preset "${name}": "worktree" must be a boolean.`)
   }
+  if (preset.worktree_base !== undefined && (typeof preset.worktree_base !== 'string' || !preset.worktree_base.trim())) {
+    throw new Error(`Invalid preset "${name}": "worktree_base" must be a non-empty string.`)
+  }
+  if (preset.worktree_branch_prefix !== undefined && (typeof preset.worktree_branch_prefix !== 'string' || !preset.worktree_branch_prefix.trim())) {
+    throw new Error(`Invalid preset "${name}": "worktree_branch_prefix" must be a non-empty string.`)
+  }
   if (preset.persistent !== undefined && typeof preset.persistent !== 'boolean') {
     throw new Error(`Invalid preset "${name}": "persistent" must be a boolean.`)
   }
@@ -158,6 +166,8 @@ function validatePresetValue(name: string, value: unknown): Preset {
     dir: typeof preset.dir === 'string' ? preset.dir.trim() || undefined : undefined,
     parent: typeof preset.parent === 'string' ? preset.parent.trim() || undefined : undefined,
     worktree: typeof preset.worktree === 'boolean' ? preset.worktree : undefined,
+    worktree_base: typeof preset.worktree_base === 'string' ? preset.worktree_base.trim() || undefined : undefined,
+    worktree_branch_prefix: typeof preset.worktree_branch_prefix === 'string' ? preset.worktree_branch_prefix.trim() || undefined : undefined,
     persistent: typeof preset.persistent === 'boolean' ? preset.persistent : undefined,
     pr_adapter: preset.pr_adapter === 'gh' || preset.pr_adapter === 'gt' || preset.pr_adapter === 'manual' ? preset.pr_adapter : undefined,
     skills: Array.isArray(preset.skills) ? preset.skills.map(v => String(v).trim()).filter(Boolean) : undefined,

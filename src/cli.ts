@@ -113,6 +113,8 @@ program
   .option('-m, --model <model>', 'Model to use')
   .option('-d, --dir <path>', 'Working directory (default: cwd)')
   .option('-W, --no-worktree', 'Skip git worktree creation')
+  .option('--worktree-base <ref>', 'Git branch/SHA to root the agent worktree on')
+  .option('--worktree-branch-prefix <prefix>', 'Override "flt/" prefix for the worktree branch name')
   .option('--parent <name>', 'Override parent agent for messaging')
   .option('--persistent', 'Mark agent as persistent (shows as respawning when dead)')
   .option('--skill <name>', 'Enable a skill for this spawn (repeatable)', (value, prev: string[]) => [...prev, value], [])
@@ -130,6 +132,8 @@ program
         model: opts.model,
         dir: opts.dir,
         worktree: opts.worktree,
+        worktreeBase: opts.worktreeBase,
+        worktreeBranchPrefix: opts.worktreeBranchPrefix,
         parent: opts.parent,
         persistent: opts.persistent,
         skills: opts.skill,
@@ -1087,6 +1091,21 @@ auditCmd
     try {
       const { auditProjections } = require('./commands/audit-projections') as typeof import('./commands/audit-projections')
       auditProjections({ json: !!opts.json, restore: !!opts.restore })
+    } catch (e) {
+      console.error(`Error: ${(e as Error).message}`)
+      process.exit(1)
+    }
+  })
+
+auditCmd
+  .command('skills')
+  .description('Scan for orphaned skill file projections in dead worktrees and untracked flt-wt-* dirs')
+  .option('--json', 'Emit JSON instead of a table')
+  .option('--restore', 'Remove orphaned skill files (otherwise audit is read-only)')
+  .action((opts) => {
+    try {
+      const { auditSkills } = require('./commands/audit-projections') as typeof import('./commands/audit-projections')
+      auditSkills({ json: !!opts.json, restore: !!opts.restore })
     } catch (e) {
       console.error(`Error: ${(e as Error).message}`)
       process.exit(1)
