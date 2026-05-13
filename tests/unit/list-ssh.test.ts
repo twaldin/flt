@@ -1,22 +1,12 @@
-import { describe, it, expect, mock, beforeEach, afterAll } from 'bun:test'
+import { describe, it, expect, mock, beforeEach, afterEach, afterAll } from 'bun:test'
 
 const mockLoadState = mock(() => ({
-  orchestrator: { initAt: new Date().toISOString() },
+  orchestrator: { initAt: new Date().toISOString(), tmuxSession: 'flt-orch', tmuxWindow: 'main', type: 'human' as const },
   agents: {},
   config: { maxDepth: 3 },
 }))
 
 const mockHasSession = mock(() => true)
-
-mock.module('../../src/state', () => ({
-  loadState: mockLoadState,
-}))
-
-mock.module('../../src/tmux', () => ({
-  hasSession: mockHasSession,
-}))
-
-import { list } from '../../src/commands/list'
 
 describe('list ssh location rendering', () => {
   const originalLog = console.log
@@ -31,9 +21,20 @@ describe('list ssh location rendering', () => {
     mockHasSession.mockReset()
   })
 
-  it('renders ssh host label for ssh agents', () => {
+  afterEach(() => {
+    console.log = originalLog
+  })
+
+  async function loadList() {
+    const mod = await import('../../src/commands/list')
+    mod._depsForTest.loadState = mockLoadState
+    mod._depsForTest.tmux = { hasSession: mockHasSession } as unknown as typeof mod._depsForTest.tmux
+    return mod.list
+  }
+
+  it('renders ssh host label for ssh agents', async () => {
     mockLoadState.mockReturnValue({
-      orchestrator: { initAt: new Date().toISOString() },
+      orchestrator: { initAt: new Date().toISOString(), tmuxSession: 'flt-orch', tmuxWindow: 'main', type: 'human' as const },
       config: { maxDepth: 3 },
       agents: {
         worker: {
@@ -49,6 +50,7 @@ describe('list ssh location rendering', () => {
       },
     })
 
+    const list = await loadList()
     list()
 
     expect(logs.some((line) => line.includes('worker (ssh: prod-vps)'))).toBe(true)

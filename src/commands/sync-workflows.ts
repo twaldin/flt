@@ -1,5 +1,5 @@
 import { createHash } from 'crypto'
-import { readdirSync, copyFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'fs'
+import { readdirSync, copyFileSync, existsSync, mkdirSync, readFileSync, writeFileSync, statSync } from 'fs'
 import { join } from 'path'
 import { homedir } from 'os'
 import { createInterface } from 'readline'
@@ -57,7 +57,16 @@ function writeSyncState(installDir: string, state: SyncState): void {
   writeFileSync(syncStatePath(installDir), JSON.stringify(state, null, 2))
 }
 
+function isDir(path: string): boolean {
+  try {
+    return statSync(path).isDirectory()
+  } catch {
+    return false
+  }
+}
+
 function workflowFiles(dir: string): string[] {
+  if (!isDir(dir)) return []
   return readdirSync(dir).filter(n => n.endsWith('.yaml') || n.endsWith('.yml'))
 }
 
@@ -65,7 +74,7 @@ export function detectStaleWorkflows(opts?: { tplDir?: string; installDir?: stri
   const tplDir = opts?.tplDir ?? templateWorkflowsDir()
   const installDir = opts?.installDir ?? installedWorkflowsDir()
 
-  if (!existsSync(tplDir) || !existsSync(installDir)) return []
+  if (!isDir(tplDir) || !isDir(installDir)) return []
 
   const state = readSyncState(installDir)
   const stale: StaleWorkflow[] = []
@@ -142,10 +151,11 @@ export async function syncWorkflows(opts: SyncWorkflowsOpts = {}): Promise<void>
   for (const f of files) {
     const src = join(tplDir, f)
     const dst = join(installDir, f)
+    const dstExists = isDir(dst) || existsSync(dst)
     const srcContent = readFileSync(src, 'utf-8')
     const bundledHash = sha256Hex(srcContent)
 
-    if (!existsSync(dst)) {
+    if (!dstExists) {
       copyFileSync(src, dst)
       state.files[f] = bundledHash
       console.log(`  copied  ${f}`)

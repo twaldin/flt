@@ -19,6 +19,7 @@ import { traceRecent } from './commands/trace'
 import { gates, blockers } from './commands/gates'
 import { syncWorkflows, warnIfWorkflowsStale } from './commands/sync-workflows'
 import { addRemote, listRemotes, removeRemote } from './commands/remote'
+import { orchestratorSetDirect, orchestratorStatus } from './commands/orchestrator'
 
 const program = new Command()
   .name('flt')
@@ -68,6 +69,36 @@ program
     try {
       const { exit } = await import('./commands/exit')
       await exit()
+    } catch (e) {
+      console.error(`Error: ${(e as Error).message}`)
+      process.exit(1)
+    }
+  })
+
+const orchestratorCmd = program
+  .command('orchestrator')
+  .description('Manage fleet orchestrator registration')
+
+orchestratorCmd
+  .command('set <name>')
+  .description('Register an orchestrator (use --external for non-tmux orchestrators like hermes)')
+  .option('--external', 'Register as an external (non-tmux) orchestrator')
+  .option('--sink <sink>', 'Event sink: inbox (default)', 'inbox')
+  .action((name: string, opts: { external?: boolean; sink?: string }) => {
+    try {
+      orchestratorSetDirect({ name, external: !!opts.external, sink: opts.sink })
+    } catch (e) {
+      console.error(`Error: ${(e as Error).message}`)
+      process.exit(1)
+    }
+  })
+
+orchestratorCmd
+  .command('status')
+  .description('Show current orchestrator registration')
+  .action(() => {
+    try {
+      orchestratorStatus()
     } catch (e) {
       console.error(`Error: ${(e as Error).message}`)
       process.exit(1)

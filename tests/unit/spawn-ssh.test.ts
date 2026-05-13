@@ -2,18 +2,21 @@ import { afterAll, describe, it, expect, beforeEach, afterEach, mock } from 'bun
 import { mkdtempSync, rmSync, mkdirSync, writeFileSync } from 'fs'
 import { join } from 'path'
 import { tmpdir } from 'os'
+import type { RemoteEntry } from '../../src/remotes'
 
-mock.module('@twaldin/harness-ts', () => ({
-  projectInstructions: mock(() => ({})),
-  restoreProjectedInstructions: mock(() => {}),
-  getAdapter: mock((_name: string) => ({
-    instructionsFilename: 'AGENTS.md',
+
+function makeAdapter(name: string) {
+  return {
+    name,
+    cliCommand: name === 'claude-code' ? 'claude' : name,
+    instructionFile: 'AGENTS.md',
     submitKeys: ['Enter'],
-    detectReady: (_pane: string) => 'ready',
+    spawnArgs: ({ model }: { model?: string }) => model ? ['claude', '--model', model] : ['claude'],
+    detectReady: (_pane: string) => 'ready' as const,
     handleDialog: (_pane: string) => null,
-    detectStatus: (_pane: string) => 'idle',
-  })),
-}))
+    detectStatus: (_pane: string) => 'idle' as const,
+  }
+}
 
 const mockSetAgent = mock((_name: string, _state: unknown) => {})
 const mockHasAgent = mock((_name: string) => false)
@@ -22,39 +25,14 @@ const mockLoadState = mock(() => ({
   config: { maxDepth: 5 },
   orchestrator: { tmuxSession: 'flt-orch', tmuxWindow: 'main', type: 'human' as const, initAt: '' },
 }))
-
-mock.module('../../src/state', () => ({
-  loadState: mockLoadState,
-  setAgent: mockSetAgent,
-  hasAgent: mockHasAgent,
-  getAgent: mock((_name: string) => undefined),
-  removeAgent: mock((_name: string) => {}),
-  saveState: mock(() => {}),
-  setOrchestrator: mock(() => {}),
-  getOrchestrator: mock(() => undefined),
-  allAgents: mock(() => ({})),
-  getLocation: mock((agent: { location?: { type: string } }) => agent.location ?? { type: 'local' as const }),
-}))
-
-const mockGetRemote = mock((_alias: string) => undefined as import('../../src/remotes').RemoteEntry | undefined)
-const mockResolveRemote = mock((host: string) => ({ host } as import('../../src/remotes').RemoteEntry))
-
-mock.module('../../src/remotes', () => ({
-  getRemote: mockGetRemote,
-  resolveRemote: mockResolveRemote,
-}))
-
-const mockSshExec = mock(() => ({ stdout: '', stderr: '', status: 0 }))
+const mockGetRemote = mock((_alias: string): RemoteEntry | undefined => undefined)
+const mockSshExec = mock((_remote: RemoteEntry, _cmd: string) => ({ stdout: '', stderr: '', status: 0 }))
+const mockCreateSession = mock(() => {})
+const mockDeliver = mock((_agent: unknown, _text: string) => {})
+const mockDeliverKeys = mock((_agent: unknown, _keys: string[]) => {})
 const mockShellEscapeSingle = (s: string): string => `'${s.replace(/'/g, `'\\''`)}'`
 
-mock.module('../../src/ssh', () => ({
-  sshExec: mockSshExec,
-  shellEscapeSingle: mockShellEscapeSingle,
-}))
-
-const mockCreateSession = mock(() => {})
-
-mock.module('../../src/tmux', () => ({
+const fakeTmux = {
   createSession: mockCreateSession,
   hasSession: mock(() => false),
   capturePane: mock(() => ''),
@@ -62,28 +40,7 @@ mock.module('../../src/tmux', () => ({
   pasteBuffer: mock(() => {}),
   sendLiteral: mock(() => {}),
   resizeWindow: mock(() => {}),
-}))
-
-mock.module('../../src/activity', () => ({
-  appendEvent: mock(() => {}),
-}))
-
-mock.module('../../src/worktree', () => ({
-  isGitRepo: mock(() => true),
-  createWorktree: mock((_baseDir: string, name: string) => ({
-    path: `/tmp/wt-${name}`,
-    branch: `flt/${name}`,
-  })),
-  removeWorktree: mock(() => {}),
-}))
-
-mock.module('../../src/instructions', () => ({
-  projectInstructions: mock(() => {}),
-}))
-
-mock.module('../../src/skills', () => ({
-  projectSkills: mock(() => ({ names: [], warnings: [] })),
-}))
+}
 
 describe('spawnDirect — ssh branch', () => {
   let tempDir: string
@@ -100,10 +57,31 @@ describe('spawnDirect — ssh branch', () => {
     mockHasAgent.mockClear()
     mockLoadState.mockClear()
     mockGetRemote.mockClear()
-    mockResolveRemote.mockClear()
     mockSshExec.mockClear()
     mockCreateSession.mockClear()
+    mockDeliver.mockClear()
+    mockDeliverKeys.mockClear()
   })
+
+  async function loadSpawnDirect() {
+    const mod = await import('../../src/commands/spawn')
+    mod._adapterForTest.resolveAdapter = makeAdapter
+    mod._depsForTest.loadState = mockLoadState
+    mod._depsForTest.setAgent = mockSetAgent
+    mod._depsForTest.hasAgent = mockHasAgent
+    mod._depsForTest.isGitRepo = mock(() => true)
+    mod._depsForTest.createWorktree = mock((_baseDir: string, name: string) => ({ path: `/tmp/wt-${name}`, branch: `flt/${name}` }))
+    mod._depsForTest.projectInstructions = mock(() => undefined)
+    mod._depsForTest.projectSkills = mock(() => ({ names: [], warnings: [] }))
+    mod._depsForTest.appendEvent = mock(() => undefined)
+    mod._depsForTest.tmux = fakeTmux as unknown as typeof mod._depsForTest.tmux
+    mod._depsForTest.getRemote = mockGetRemote
+    mod._depsForTest.sshExec = mockSshExec
+    mod._depsForTest.shellEscapeSingle = mockShellEscapeSingle
+    mod._depsForTest.deliver = mockDeliver
+    mod._depsForTest.deliverKeys = mockDeliverKeys
+    return mod.spawnDirect
+  }
 
   afterEach(() => {
     process.env.HOME = originalHome
@@ -114,7 +92,7 @@ describe('spawnDirect — ssh branch', () => {
     mockGetRemote.mockReturnValue({ host: 'box.example.com', user: 'ubuntu' })
     mockSshExec.mockReturnValue({ stdout: '', stderr: '', status: 0 })
 
-    const { spawnDirect } = await import('../../src/commands/spawn')
+    const spawnDirect = await loadSpawnDirect()
     await spawnDirect({ name: 'worker', cli: 'claude-code', ssh: 'mybox' })
 
     expect(mockCreateSession).not.toHaveBeenCalled()
@@ -129,7 +107,7 @@ describe('spawnDirect — ssh branch', () => {
     mockGetRemote.mockReturnValue({ host: 'box.example.com' })
     mockSshExec.mockReturnValue({ stdout: '', stderr: '', status: 0 })
 
-    const { spawnDirect } = await import('../../src/commands/spawn')
+    const spawnDirect = await loadSpawnDirect()
     await spawnDirect({ name: 'worker', cli: 'claude-code', ssh: 'mybox' })
 
     expect(mockSetAgent).toHaveBeenCalledTimes(1)
@@ -141,7 +119,7 @@ describe('spawnDirect — ssh branch', () => {
   it('throws clearly when remote alias is not registered', async () => {
     mockGetRemote.mockReturnValue(undefined)
 
-    const { spawnDirect } = await import('../../src/commands/spawn')
+    const spawnDirect = await loadSpawnDirect()
     await expect(
       spawnDirect({ name: 'worker', cli: 'claude-code', ssh: 'unknown-remote' }),
     ).rejects.toThrow('Unknown SSH remote')
@@ -151,7 +129,7 @@ describe('spawnDirect — ssh branch', () => {
     mockGetRemote.mockReturnValue({ host: 'box.example.com' })
     mockSshExec.mockReturnValue({ stdout: '', stderr: 'connection refused', status: 1 })
 
-    const { spawnDirect } = await import('../../src/commands/spawn')
+    const spawnDirect = await loadSpawnDirect()
     await expect(
       spawnDirect({ name: 'worker', cli: 'claude-code', ssh: 'mybox' }),
     ).rejects.toThrow('connection refused')
@@ -159,25 +137,26 @@ describe('spawnDirect — ssh branch', () => {
 
   it('delivers bootstrap to remote agent via ssh after spawn', async () => {
     mockGetRemote.mockReturnValue({ host: 'box.example.com' })
-    mockResolveRemote.mockReturnValue({ host: 'box.example.com' })
     mockSshExec.mockReturnValue({ stdout: '', stderr: '', status: 0 })
 
-    const { spawnDirect } = await import('../../src/commands/spawn')
+    const spawnDirect = await loadSpawnDirect()
     await spawnDirect({ name: 'worker', cli: 'claude-code', ssh: 'mybox', bootstrap: 'do the thing' })
 
-    // First call is tmux new-session; subsequent calls are deliver + deliverKeys
-    expect(mockSshExec.mock.calls.length).toBeGreaterThan(1)
-    const deliverCall = (mockSshExec.mock.calls as [unknown, string][]).find(
-      ([, cmd]) => cmd.includes('send-keys') && cmd.includes('do the thing'),
+    expect(mockDeliver).toHaveBeenCalledWith(
+      expect.objectContaining({ location: { type: 'ssh', host: 'mybox' } }),
+      'do the thing',
     )
-    expect(deliverCall).toBeDefined()
+    expect(mockDeliverKeys).toHaveBeenCalledWith(
+      expect.objectContaining({ location: { type: 'ssh', host: 'mybox' } }),
+      ['Enter'],
+    )
   })
 
   it('uses explicit --dir as remote working directory in tmux command', async () => {
     mockGetRemote.mockReturnValue({ host: 'box.example.com' })
     mockSshExec.mockReturnValue({ stdout: '', stderr: '', status: 0 })
 
-    const { spawnDirect } = await import('../../src/commands/spawn')
+    const spawnDirect = await loadSpawnDirect()
     await spawnDirect({ name: 'worker', cli: 'claude-code', ssh: 'mybox', dir: '/home/ubuntu/project' })
 
     const [, cmd] = mockSshExec.mock.calls[0] as [unknown, string]
@@ -188,7 +167,7 @@ describe('spawnDirect — ssh branch', () => {
     mockGetRemote.mockReturnValue({ host: 'box.example.com' })
     mockSshExec.mockReturnValue({ stdout: '', stderr: '', status: 0 })
 
-    const { spawnDirect } = await import('../../src/commands/spawn')
+    const spawnDirect = await loadSpawnDirect()
     await spawnDirect({ name: 'worker', cli: 'claude-code', ssh: 'mybox' })
 
     const [, cmd] = mockSshExec.mock.calls[0] as [unknown, string]

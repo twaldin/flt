@@ -1,20 +1,11 @@
-import { describe, it, expect, mock, beforeEach, afterAll } from 'bun:test'
+import { describe, it, expect, mock, beforeEach, afterEach, afterAll } from 'bun:test'
 
 const mockGetAgent = mock(() => undefined)
 const mockHasSession = mock(() => true)
 const mockCapturePane = mock(() => 'local-output')
 const mockResolveRemote = mock((host: string) => ({ host }))
 const mockSshExec = mock(() => ({ stdout: 'remote-output', stderr: '', status: 0 }))
-
-mock.module('../../src/state', () => ({ getAgent: mockGetAgent }))
-mock.module('../../src/tmux', () => ({
-  hasSession: mockHasSession,
-  capturePane: mockCapturePane,
-}))
-mock.module('../../src/remotes', () => ({ resolveRemote: mockResolveRemote }))
-mock.module('../../src/ssh', () => ({ sshExec: mockSshExec, shellEscapeSingle: (s: string) => `'${s.replace(/'/g, `'\\''`)}'` }))
-
-import { logs } from '../../src/commands/logs'
+const mockShellEscapeSingle = (s: string): string => `'${s.replace(/'/g, `'\\''`)}'`
 
 describe('logs command ssh dispatch', () => {
   const originalLog = console.log
@@ -32,7 +23,24 @@ describe('logs command ssh dispatch', () => {
     mockSshExec.mockReset()
   })
 
-  it('uses sshExec for ssh-located agents', () => {
+  afterEach(() => {
+    console.log = originalLog
+  })
+
+  async function loadLogs() {
+    const mod = await import('../../src/commands/logs')
+    mod._depsForTest.getAgent = mockGetAgent
+    mod._depsForTest.tmux = {
+      hasSession: mockHasSession,
+      capturePane: mockCapturePane,
+    } as unknown as typeof mod._depsForTest.tmux
+    mod._depsForTest.resolveRemote = mockResolveRemote
+    mod._depsForTest.sshExec = mockSshExec
+    mod._depsForTest.shellEscapeSingle = mockShellEscapeSingle
+    return mod.logs
+  }
+
+  it('uses sshExec for ssh-located agents', async () => {
     mockGetAgent.mockReturnValue({
       cli: 'pi',
       model: 'gpt-5',
@@ -45,6 +53,7 @@ describe('logs command ssh dispatch', () => {
     mockResolveRemote.mockImplementation((host: string) => ({ host }))
     mockSshExec.mockReturnValue({ stdout: 'remote-log', stderr: '', status: 0 })
 
+    const logs = await loadLogs()
     logs({ name: 'worker', lines: 123 })
 
     expect(mockResolveRemote).toHaveBeenCalledWith('prod-vps')
@@ -56,7 +65,7 @@ describe('logs command ssh dispatch', () => {
     expect(printed[0]).toBe('remote-log')
   })
 
-  it('throws on ssh capture failure with stderr', () => {
+  it('throws on ssh capture failure with stderr', async () => {
     mockGetAgent.mockReturnValue({
       cli: 'pi',
       model: 'gpt-5',
@@ -69,10 +78,11 @@ describe('logs command ssh dispatch', () => {
     mockResolveRemote.mockImplementation((host: string) => ({ host }))
     mockSshExec.mockReturnValue({ stdout: '', stderr: 'Permission denied', status: 255 })
 
+    const logs = await loadLogs()
     expect(() => logs({ name: 'worker' })).toThrow('Permission denied')
   })
 
-  it('keeps local capturePane path for local agents', () => {
+  it('keeps local capturePane path for local agents', async () => {
     mockGetAgent.mockReturnValue({
       cli: 'pi',
       model: 'gpt-5',
@@ -84,6 +94,7 @@ describe('logs command ssh dispatch', () => {
     mockHasSession.mockReturnValue(true)
     mockCapturePane.mockReturnValue('local-log')
 
+    const logs = await loadLogs()
     logs({ name: 'local' })
 
     expect(mockHasSession).toHaveBeenCalledWith('flt-local')

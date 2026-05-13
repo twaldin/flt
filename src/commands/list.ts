@@ -1,6 +1,11 @@
 import { loadState } from '../state'
 import * as tmux from '../tmux'
 
+export const _depsForTest = {
+  loadState,
+  tmux,
+}
+
 interface AgentInfo {
   name: string
   cli: string
@@ -13,7 +18,7 @@ interface AgentInfo {
 }
 
 export function list(): void {
-  const state = loadState()
+  const state = _depsForTest.loadState()
   const agents = state.agents ?? {}
 
   if (Object.keys(agents).length === 0) {
@@ -28,7 +33,7 @@ export function list(): void {
     let status = 'dead'
     if (isSsh) {
       status = agent.status ?? 'unknown'
-    } else if (tmux.hasSession(agent.tmuxSession)) {
+    } else if (_depsForTest.tmux.hasSession(agent.tmuxSession)) {
       status = agent.status ?? 'unknown'
     }
 

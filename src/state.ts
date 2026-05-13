@@ -6,7 +6,11 @@ import type { InstructionProjection } from './instructions'
 export interface OrchestratorState {
   tmuxSession: string
   tmuxWindow: string
-  type: 'human' | 'agent'
+  type: 'human' | 'agent' | 'external'
+  /** External orchestrator name (e.g., 'hermes'). Only set when type='external'. */
+  name?: string
+  /** Event sink for external orchestrator messages. 'inbox' writes to inbox.log + events.jsonl. */
+  sink?: string
   initAt: string
 }
 

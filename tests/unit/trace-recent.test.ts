@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it, spyOn } from 'bun:test'
+import { afterEach, beforeEach, describe, expect, it } from 'bun:test'
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'fs'
 import { tmpdir } from 'os'
 import { join } from 'path'
@@ -71,10 +71,8 @@ describe('trace recent', () => {
       costUsd: 2,
     })
 
-    const logSpy = spyOn(console, 'log').mockImplementation(() => {})
-    traceRecent({ since: '2h', status: 'all' })
-    const lines = logSpy.mock.calls.map((call) => String(call[0]))
-    logSpy.mockRestore()
+    const lines: string[] = []
+    traceRecent({ since: '2h', status: 'all', print: (line) => lines.push(line) })
 
     expect(lines).toHaveLength(2)
     expect(lines[0]?.split('\t')).toEqual([
@@ -109,10 +107,8 @@ describe('trace recent', () => {
       costUsd: 0,
     })
 
-    const logSpy = spyOn(console, 'log').mockImplementation(() => {})
-    traceRecent({ since: '1h', status: 'failed' })
-    const lines = logSpy.mock.calls.map((call) => String(call[0]))
-    logSpy.mockRestore()
+    const lines: string[] = []
+    traceRecent({ since: '1h', status: 'failed', print: (line) => lines.push(line) })
 
     expect(lines).toHaveLength(1)
     expect(lines[0]?.split('\t').slice(0, 3)).toEqual(['run-cancel', 'wf', 'failed'])

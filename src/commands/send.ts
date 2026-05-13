@@ -1,10 +1,12 @@
-import { getAgent, loadState } from '../state'
+import { getAgent, loadState, getOrchestrator, getStateDir } from '../state'
 import { resolveAdapter } from '../adapters/registry'
 import * as tmux from '../tmux'
 import { deliver, deliverKeys } from '../delivery'
 import { detectCaller } from '../detect'
 import { appendInbox } from './init'
 import { userInfo } from 'os'
+import { appendFileSync, mkdirSync } from 'fs'
+import { join } from 'path'
 
 interface SendArgs {
   target: string
@@ -100,6 +102,10 @@ export async function sendDirect(args: SendArgs): Promise<void> {
     // Single delivery: parent='human' or parent='cron' → inbox. Otherwise → parent agent.
     if (parentName === 'human' || parentName === 'cron') {
       appendInbox(senderName, message)
+    } else if (isExternalOrchestrator(parentName)) {
+      // External orchestrator (e.g. hermes): write to inbox.log + events.jsonl
+      appendInbox(senderName, message)
+      appendExternalEvent(senderName, parentName, message)
     } else {
       // Send to parent agent's tmux session
       const parentAgent = getAgent(parentName)
@@ -161,5 +167,21 @@ function detectUsername(): string {
     return userInfo().username || 'user'
   } catch {
     return 'user'
+  }
+}
+
+function isExternalOrchestrator(name: string): boolean {
+  const orch = getOrchestrator()
+  return orch?.type === 'external' && orch.name === name
+}
+
+export function appendExternalEvent(from: string, to: string, message: string): void {
+  try {
+    const dir = getStateDir()
+    mkdirSync(dir, { recursive: true })
+    const event = JSON.stringify({ type: 'message', from, to, message, ts: new Date().toISOString() })
+    appendFileSync(join(dir, 'events.jsonl'), event + '\n', 'utf-8')
+  } catch {
+    // Best-effort — never throw from event logging
   }
 }

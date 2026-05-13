@@ -1,25 +1,21 @@
 import { describe, it, expect, mock, beforeEach, afterAll } from 'bun:test'
 import type { RemoteEntry } from '../../src/remotes'
+import { _depsForTest, _fsForTest, buildSshArgs, rsyncTo, shellEscapeSingle, sshExec, sshExecCheck } from '../../src/ssh'
 
 const mockExecFileSync = mock((_file: string, _args: string[], _opts?: Record<string, unknown>) => 'ok')
 const mockStatSync = mock((_path: string) => ({ isDirectory: () => false }))
 
-mock.module('child_process', () => ({
-  execFileSync: mockExecFileSync,
-}))
-
-mock.module('fs', () => ({
-  statSync: mockStatSync,
-}))
-
-import { buildSshArgs, rsyncTo, shellEscapeSingle, sshExec, sshExecCheck } from '../../src/ssh'
-
 describe('ssh helpers', () => {
+  const originalExecFileSync = _depsForTest.execFileSync
+  const originalStatSync = _fsForTest.statSync
+
   beforeEach(() => {
     mockExecFileSync.mockReset()
     mockExecFileSync.mockImplementation(() => 'ok')
     mockStatSync.mockReset()
     mockStatSync.mockImplementation(() => ({ isDirectory: () => false }))
+    _depsForTest.execFileSync = mockExecFileSync
+    _fsForTest.statSync = mockStatSync
   })
 
   it('buildSshArgs supports host-only', () => {
@@ -135,6 +131,8 @@ describe('ssh helpers', () => {
   })
 
   afterAll(() => {
+    _depsForTest.execFileSync = originalExecFileSync
+    _fsForTest.statSync = originalStatSync
     mock.restore()
   })
 })
