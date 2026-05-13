@@ -4,15 +4,7 @@ import type { RemoteEntry } from '../../src/remotes'
 const mockExecFileSync = mock((_file: string, _args: string[], _opts?: Record<string, unknown>) => 'ok')
 const mockStatSync = mock((_path: string) => ({ isDirectory: () => false }))
 
-mock.module('child_process', () => ({
-  execFileSync: mockExecFileSync,
-}))
-
-mock.module('fs', () => ({
-  statSync: mockStatSync,
-}))
-
-import { buildSshArgs, rsyncTo, shellEscapeSingle, sshExec, sshExecCheck } from '../../src/ssh'
+import { _setSshDepsForTest, buildSshArgs, rsyncTo, shellEscapeSingle, sshExec, sshExecCheck } from '../../src/ssh'
 
 describe('ssh helpers', () => {
   beforeEach(() => {
@@ -20,6 +12,10 @@ describe('ssh helpers', () => {
     mockExecFileSync.mockImplementation(() => 'ok')
     mockStatSync.mockReset()
     mockStatSync.mockImplementation(() => ({ isDirectory: () => false }))
+    _setSshDepsForTest({
+      execFileSync: mockExecFileSync as typeof import('child_process').execFileSync,
+      statSync: mockStatSync as typeof import('fs').statSync,
+    })
   })
 
   it('buildSshArgs supports host-only', () => {
@@ -135,6 +131,7 @@ describe('ssh helpers', () => {
   })
 
   afterAll(() => {
+    _setSshDepsForTest(null)
     mock.restore()
   })
 })

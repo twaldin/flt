@@ -1,5 +1,5 @@
-import { existsSync, mkdtempSync } from 'fs'
-import { tmpdir } from 'os'
+import { existsSync as realExistsSync, mkdtempSync as realMkdtempSync } from 'fs'
+import { tmpdir as realTmpdir } from 'os'
 import { join } from 'path'
 import { addRemote as addRemoteEntry, loadRemotes, removeRemote as removeRemoteEntry } from '../remotes'
 import type { RemoteEntry } from '../remotes'
@@ -11,6 +11,26 @@ interface AddRemoteArgs {
   user?: string
   port?: number
   identityFile?: string
+}
+
+let existsSyncImpl: typeof realExistsSync = realExistsSync
+let mkdtempSyncImpl: typeof realMkdtempSync = realMkdtempSync
+let tmpdirImpl: typeof realTmpdir = realTmpdir
+let fetchImpl: typeof fetch = fetch
+let bunWriteImpl: typeof Bun.write = Bun.write
+
+export function _setRemoteCommandDepsForTest(deps: {
+  existsSync?: typeof realExistsSync
+  mkdtempSync?: typeof realMkdtempSync
+  tmpdir?: typeof realTmpdir
+  fetch?: typeof fetch
+  bunWrite?: typeof Bun.write
+} | null): void {
+  existsSyncImpl = deps?.existsSync ?? realExistsSync
+  mkdtempSyncImpl = deps?.mkdtempSync ?? realMkdtempSync
+  tmpdirImpl = deps?.tmpdir ?? realTmpdir
+  fetchImpl = deps?.fetch ?? fetch
+  bunWriteImpl = deps?.bunWrite ?? Bun.write
 }
 
 function validateAlias(alias: string): void {
@@ -66,15 +86,15 @@ export async function addRemote(args: AddRemoteArgs): Promise<void> {
 
   const version = require('../../package.json').version as string
   const url = `https://github.com/twaldin/flt/releases/download/v${version}/${asset}`
-  const response = await fetch(url)
+  const response = await fetchImpl(url)
   if (!response.ok) {
     throw new Error(`Failed to download ${asset} from ${url}: HTTP ${response.status}`)
   }
 
-  const tempDir = mkdtempSync(join(tmpdir(), 'flt-remote-'))
+  const tempDir = mkdtempSyncImpl(join(tmpdirImpl(), 'flt-remote-'))
   const tempFile = join(tempDir, 'flt')
   const bytes = new Uint8Array(await response.arrayBuffer())
-  await Bun.write(tempFile, bytes)
+  await bunWriteImpl(tempFile, bytes)
 
   const mkdirResult = sshExec(remote, 'mkdir -p ~/.flt/bin')
   if (mkdirResult.status !== 0) {
@@ -97,7 +117,7 @@ export async function addRemote(args: AddRemoteArgs): Promise<void> {
   console.log('Added ~/.flt/bin to PATH on remote (.bashrc + .zshrc). New shell sessions will pick it up.')
 
   const skillsDir = join(process.env.HOME || '', '.flt', 'skills')
-  if (skillsDir && existsSync(skillsDir)) {
+  if (skillsDir && existsSyncImpl(skillsDir)) {
     rsyncTo(remote, skillsDir, '~/.flt/skills/', { isDirectory: true })
   } else {
     console.warn(`Warning: local skills directory not found at ${skillsDir}; skipping skills sync.`)
