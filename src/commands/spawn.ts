@@ -127,6 +127,32 @@ export async function confirmDangerousWorkdir(dir: string): Promise<boolean> {
   })
 }
 
+export async function confirmNoWorktree(dir: string): Promise<boolean> {
+  if (process.env.FLT_ALLOW_NO_WORKTREE === '1') return true
+  if (process.env.FLT_TUI_ACTIVE === '1') {
+    process.stderr.write(`flt: refusing --no-worktree in git repo under TUI: ${dir}\n`)
+    return false
+  }
+  if (!process.stdin.isTTY) {
+    process.stderr.write(
+      `flt: --no-worktree in a git repo requires interactive confirmation or FLT_ALLOW_NO_WORKTREE=1\n`,
+    )
+    return false
+  }
+  process.stderr.write(
+    `WARNING: --no-worktree will run the agent directly on the working tree at ${dir}.\n` +
+    `The agent may commit or modify files on the current branch. Continue? (y/N): `,
+  )
+  return new Promise(resolve => {
+    const rl = createInterface({ input: process.stdin })
+    rl.once('line', line => {
+      rl.close()
+      resolve(line.trim().toLowerCase() === 'y')
+    })
+    rl.once('close', () => resolve(false))
+  })
+}
+
 function buildIsolationEnv(_cli: string, _workDir: string): Record<string, string> {
   // No env override. Claude-code's CLAUDE_CONFIG_DIR override hid the user's
   // OAuth login. Opencode's XDG_CONFIG_HOME override hid its provider config.
@@ -309,6 +335,8 @@ export async function spawnDirect(args: SpawnArgs): Promise<void> {
   let presetDir: string | undefined
   let presetParent: string | undefined
   let presetWorktree: boolean | undefined
+  let presetWorktreeBase: string | undefined
+  let presetWorktreeBranchPrefix: string | undefined
   let presetPersistent: boolean | undefined
   let presetEnv: Record<string, string> = {}
   let presetSkills: string[] | undefined
@@ -326,6 +354,8 @@ export async function spawnDirect(args: SpawnArgs): Promise<void> {
     presetDir = presetConfig.dir
     presetParent = presetConfig.parent
     presetWorktree = presetConfig.worktree
+    presetWorktreeBase = presetConfig.worktree_base
+    presetWorktreeBranchPrefix = presetConfig.worktree_branch_prefix
     presetPersistent = presetConfig.persistent
     presetEnv = resolvePresetEnv(presetConfig.env)
     presetSkills = presetConfig.skills
@@ -392,10 +422,16 @@ export async function spawnDirect(args: SpawnArgs): Promise<void> {
     if (!isGitRepo(baseDir)) {
       throw new Error(`Cannot create worktree: "${baseDir}" is not a git repository.`)
     }
-    const wt = createWorktree(baseDir, name, args.worktreeBase, args.worktreeBranchPrefix)
+    const wt = createWorktree(baseDir, name, args.worktreeBase ?? presetWorktreeBase, args.worktreeBranchPrefix ?? presetWorktreeBranchPrefix)
     workDir = wt.path
     worktreePath = wt.path
     worktreeBranch = wt.branch
+  } else if (isGitRepo(baseDir)) {
+    const ok = await confirmNoWorktree(baseDir)
+    if (!ok) {
+      if (!process.env.FLT_TUI_ACTIVE) console.error('Spawn cancelled.')
+      return
+    }
   }
 
   // Hard rule: no two agents in the same workdir. Manifest + skill copies are
