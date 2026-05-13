@@ -9,3 +9,8 @@ human.
   second opinions, ambiguous design choices. The reply lands in your inbox,
   not the human's terminal.
 - Do **not** message the human directly. Parent or oracle, never human.
+
+If your parent is an external orchestrator (e.g. hermes) that is not running
+in a tmux session, `flt send parent` routes automatically to the event sink
+(`~/.flt/events.jsonl` + `~/.flt/inbox.log`). No change to your commands —
+`flt send parent "..."` works the same regardless of parent type.
