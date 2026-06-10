@@ -149,10 +149,15 @@ function dispatchAnswer(runId: string, questionId: string, selected: string[], t
 // a row sits visible for hundreds of ms while the engine processes the
 // async action, looking like the click did nothing (issue: gates modal
 // rows stay after retry/skip/answer).
-function dropRowsBy(state: GatesModalState, predicate: (r: ModalRow) => boolean): void {
-  const before = state.rows.length
+// Exported for unit testing.
+export function dropRowsBy(state: GatesModalState, predicate: (r: ModalRow) => boolean): void {
+  const selected = state.rows[state.selectedIndex]
   state.rows = state.rows.filter(r => !predicate(r))
-  if (state.rows.length !== before && state.selectedIndex >= state.rows.length) {
+  if (selected && !predicate(selected)) {
+    const idx = state.rows.indexOf(selected)
+    if (idx !== -1) state.selectedIndex = idx
+  }
+  if (state.selectedIndex >= state.rows.length) {
     state.selectedIndex = Math.max(0, state.rows.length - 1)
   }
 }
