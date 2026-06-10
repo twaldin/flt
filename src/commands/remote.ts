@@ -10,6 +10,19 @@ export const _fsForTest: {
   mkdtempSync: (prefix: string) => string
 } = { existsSync, mkdtempSync }
 
+// Seam for ssh/remotes collaborators. Tests swap these members instead of
+// mock.module('../ssh' | '../remotes'), which is process-global in bun and
+// leaks into later test files (remotes.test.ts fails when file order puts
+// remote-cmd.test.ts first — observed on linux CI, not macOS).
+export const _depsForTest = {
+  sshExecCheck,
+  sshExec,
+  rsyncTo,
+  addRemoteEntry,
+  loadRemotes,
+  removeRemoteEntry,
+}
+
 interface AddRemoteArgs {
   alias: string
   host: string
@@ -54,12 +67,12 @@ export async function addRemote(args: AddRemoteArgs): Promise<void> {
     identityFile: args.identityFile,
   }
 
-  const probe = sshExecCheck(remote, 'true')
+  const probe = _depsForTest.sshExecCheck(remote, 'true')
   if (probe !== true) {
     throw new Error(`SSH authentication probe failed for ${args.host}.\n${probe.error}`)
   }
 
-  const uname = sshExec(remote, 'uname -m && uname -s')
+  const uname = _depsForTest.sshExec(remote, 'uname -m && uname -s')
   if (uname.status !== 0) {
     throw new Error(`Failed to detect remote architecture: ${uname.stderr || uname.stdout}`)
   }
@@ -81,20 +94,20 @@ export async function addRemote(args: AddRemoteArgs): Promise<void> {
   const bytes = new Uint8Array(await response.arrayBuffer())
   await Bun.write(tempFile, bytes)
 
-  const mkdirResult = sshExec(remote, 'mkdir -p ~/.flt/bin')
+  const mkdirResult = _depsForTest.sshExec(remote, 'mkdir -p ~/.flt/bin')
   if (mkdirResult.status !== 0) {
     throw new Error(`Failed to prepare remote binary directory: ${mkdirResult.stderr || mkdirResult.stdout}`)
   }
 
-  rsyncTo(remote, tempFile, '~/.flt/bin/flt', { isDirectory: false })
+  _depsForTest.rsyncTo(remote, tempFile, '~/.flt/bin/flt', { isDirectory: false })
 
-  const chmodResult = sshExec(remote, 'chmod +x ~/.flt/bin/flt')
+  const chmodResult = _depsForTest.sshExec(remote, 'chmod +x ~/.flt/bin/flt')
   if (chmodResult.status !== 0) {
     throw new Error(`Failed to finalize remote binary install: ${chmodResult.stderr || chmodResult.stdout}`)
   }
 
   for (const rc of ['~/.bashrc', '~/.zshrc']) {
-    sshExec(
+    _depsForTest.sshExec(
       remote,
       `grep -qF 'export PATH=$HOME/.flt/bin:$PATH' ${rc} 2>/dev/null || echo 'export PATH=$HOME/.flt/bin:$PATH' >> ${rc}`,
     )
@@ -103,12 +116,12 @@ export async function addRemote(args: AddRemoteArgs): Promise<void> {
 
   const skillsDir = join(process.env.HOME || '', '.flt', 'skills')
   if (skillsDir && _fsForTest.existsSync(skillsDir)) {
-    rsyncTo(remote, skillsDir, '~/.flt/skills/', { isDirectory: true })
+    _depsForTest.rsyncTo(remote, skillsDir, '~/.flt/skills/', { isDirectory: true })
   } else {
     console.warn(`Warning: local skills directory not found at ${skillsDir}; skipping skills sync.`)
   }
 
-  addRemoteEntry(args.alias, remote)
+  _depsForTest.addRemoteEntry(args.alias, remote)
 
   const user = remote.user ?? process.env.USER ?? 'user'
   const port = remote.port ?? 22
@@ -117,7 +130,7 @@ export async function addRemote(args: AddRemoteArgs): Promise<void> {
 }
 
 export function listRemotes(): void {
-  const remotes = loadRemotes()
+  const remotes = _depsForTest.loadRemotes()
   const rows = Object.entries(remotes)
   if (rows.length === 0) {
     console.log('No remotes configured. Use "flt add remote <alias> <host>" to add one.')
@@ -142,7 +155,7 @@ export function listRemotes(): void {
 }
 
 export function removeRemote(alias: string): void {
-  if (removeRemoteEntry(alias)) {
+  if (_depsForTest.removeRemoteEntry(alias)) {
     console.log(`Removed remote "${alias}".`)
     return
   }
