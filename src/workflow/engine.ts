@@ -1209,8 +1209,12 @@ export function _setDagSpawnBackoffsForTest(values: number[] | null): void {
  *   - pending nodes that survive get their task/preset/parallel/dependsOn
  *     refreshed
  *   - new ids in the plan are added as pending
- *   - non-pending (running/reviewing/passed/failed/skipped) nodes are left
- *     alone — disrupting an in-flight node would orphan its agent
+ *   - non-pending (running/reviewing) nodes whose ids are gone from the new
+ *     plan are retired to 'skipped': their agents are best-effort killed via
+ *     killDirect and a dag-reconcile workflow event is appended so the run
+ *     can reach completion instead of stalling on an orphaned in-flight node
+ *   - already-terminal (passed/failed/skipped) nodes that survived a prior
+ *     reconcile round are left alone — their result is already recorded
  * Returns false (with no mutation) if plan.json is unreadable or invalid.
  */
 function reconcileDagPlanFromDisk(run: WorkflowRun, step: DynamicDagStep): boolean {

@@ -112,6 +112,7 @@ steps:
 
     // At minimum: a fail result file for the second candidate must be present
     // Results dir: <runDir>/results/fanout-<label>.json
+    expect(run?.runDir).toBeTruthy()
     if (run?.runDir) {
       const resultsDir = join(run.runDir, 'results')
       // Find the fail result for the failed candidate
