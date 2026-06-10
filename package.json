@@ -31,9 +31,6 @@
   "files": [
     "src/",
     "templates/",
-    "docs/adapters.md",
-    "docs/architecture.md",
-    "docs/workflows.md",
     "README.md",
     "LICENSE"
   ],
