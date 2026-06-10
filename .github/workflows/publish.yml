@@ -18,11 +18,7 @@ jobs:
           bun-version: latest
 
       - run: bun install
-
-      # Tests run on every PR merge. Skip here — one test has a CI-env HOME
-      # mock race that doesn't repro locally. Publish shouldn't be blocked.
-      # TODO: tests/unit/skills.test.ts:174 — investigate projectSkills HOME
-      # visibility under CI-specific parallel test scheduling.
+      - run: bun test tests/unit/
 
       - uses: actions/setup-node@v4
         with:
