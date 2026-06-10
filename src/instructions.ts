@@ -44,7 +44,6 @@ interface InstructionOpts {
   workflow?: string
   step?: string
   presetSoul?: string
-  skillNames?: string[]
 }
 
 export type { InstructionProjection }
@@ -62,8 +61,7 @@ export function buildSystemBlock(opts: InstructionOpts): string {
   template = template.replace(/\{\{model\}\}/g, opts.model || 'default')
   template = template.replace(/\{\{workflow\}\}/g, opts.workflow || '')
   template = template.replace(/\{\{step\}\}/g, opts.step || '')
-  template = template.replace(/\{\{comms\}\}/g, buildCommsBlock(opts.parentName, opts.workflow))
-  template = template.replace(/\{\{skills\}\}/g, buildSkillsBlock(opts.skillNames ?? [], opts.cli))
+  template = template.replace(/\{\{skillPath\}\}/g, `./${skillsDir(opts.cli)}/flt/SKILL.md`)
   return template
 }
 
@@ -81,44 +79,11 @@ export function loadSoulMd(agentName: string, presetSoul?: string): string | nul
   return null
 }
 
-function buildCommsBlock(parentName: string, workflow?: string): string {
-  // In a workflow context, completion goes through the engine via
-  // `flt workflow pass`/`flt workflow fail`. Telling the agent to also send
-  // parent creates competing channels and the engine ignores parent messages
-  // anyway — leads to noisy "code done" pings the human/orchestrator filters.
-  if (workflow) {
-    return [
-      '- You are in a workflow run. Engine is your only consumer.',
-      '- Signal completion: `flt workflow pass` (success) or `flt workflow fail "<one-line reason>"` (failure).',
-      '- Do NOT `flt send parent` — engine reads $FLT_RUN_DIR/results/<step>.json, not chat.',
-      '- Out-of-scope research: `flt ask oracle "..."` (reply lands in your inbox).',
-      '- Detailed handoff: write `$FLT_RUN_DIR/handoffs/<your-name>.md` for the reviewer.',
-    ].join('\n')
-  }
-  if (parentName === 'human' || parentName === 'cron') {
-    return '- Parent is human. Use `flt send parent "..."` for important updates/blockers.\n- Terminal output can be useful and may be visible in logs.'
-  }
-  return '- Parent is another agent. Send progress/questions via `flt send parent "..."`.\n- Use parent as the primary coordination channel.'
-}
-
 function skillsDir(cli: string): string {
   if (cli === 'claude-code') return '.claude/skills'
   if (cli === 'opencode') return '.opencode/skills'
   if (cli === 'droid') return '.factory/skills'
   return '.flt/skills'
-}
-
-function buildSkillsBlock(skillNames: string[], cli: string): string {
-  if (skillNames.length === 0) {
-    return '- No skills loaded for this run. Skills are opt-in at spawn.'
-  }
-
-  const dir = skillsDir(cli)
-  const lines = ['- Enabled skills (read only when relevant):']
-  for (const name of skillNames) {
-    lines.push(`  - ./${dir}/${name}/SKILL.md`)
-  }
-  return lines.join('\n')
 }
 
 export function buildFullInstructions(opts: InstructionOpts): string {

@@ -66,4 +66,32 @@ describe('buildFltSkillContent', () => {
     const content = buildFltSkillContent({ ...base, name: 'spec-1' })
     expect(content).toContain('--from spec-1')
   })
+
+  it('leaves no unsubstituted {{ tokens in root mode', () => {
+    const content = buildFltSkillContent({ ...base, parent: 'human' })
+    expect(content).not.toMatch(/\{\{[^}]+\}\}/)
+  })
+
+  it('leaves no unsubstituted {{ tokens in subagent mode', () => {
+    const content = buildFltSkillContent(base)
+    expect(content).not.toMatch(/\{\{[^}]+\}\}/)
+  })
+
+  it('leaves no unsubstituted {{ tokens in workflow mode', () => {
+    const content = buildFltSkillContent({
+      ...base,
+      workflow: 'idea-to-pr',
+      step: 'coder',
+    })
+    expect(content).not.toMatch(/\{\{[^}]+\}\}/)
+  })
+
+  it('workflow mode contains flt workflow pass', () => {
+    const content = buildFltSkillContent({
+      ...base,
+      workflow: 'idea-to-pr',
+      step: 'coder',
+    })
+    expect(content).toContain('flt workflow pass')
+  })
 })

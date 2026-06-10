@@ -26,10 +26,14 @@ block is intentionally minimal — full protocol lives here.
 
 ## Completion + handoffs
 
-- If `$FLT_RUN_DIR` is set you are inside a workflow run. Write any candidate
-  artifact (summary, plan, diff stats, eval verdict) to
-  `$FLT_RUN_DIR/handoffs/{{name}}.md`. `collect_artifacts` steps preserve this
-  file across worktree teardown.
+- If `$FLT_RUN_DIR` is set you are inside a workflow run.
+  - **Retry feedback**: write `$FLT_RUN_DIR/handoffs/{{step}}-feedback.md` with
+    your detailed review. The engine injects it as `$FLT_RETRY_REVIEW_PATH` if
+    this step is retried so the next attempt can read your full critique.
+  - **Artifact handoff**: write candidate artifacts (summaries, plans, eval
+    verdicts) to `$FLT_RUN_DIR/handoffs/{{name}}.md` (by convention). Workflow
+    `collect_artifacts` steps copy named files from worktrees; match whatever
+    filename the YAML `files:` list specifies.
 - Report quickly when you finish, get blocked, or need a decision — silence
   is the worst signal.
 

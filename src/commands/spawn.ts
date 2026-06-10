@@ -502,9 +502,25 @@ export async function spawnDirect(args: SpawnArgs): Promise<void> {
   const selectedSkills = Array.from(new Set([...(presetSkills ?? []), ...explicitSkills]))
   const allSkills = args.allSkills ?? presetAllSkills ?? false
 
+  // Project instructions FIRST so the instruction file exists before
+  // projectSkills tries to inject the skills index block into it.
+  // (Inject-only CLIs — codex, gemini, qwen, … — only get a skills index
+  // when the instruction file already exists at injection time.)
+  if (adapter.instructionFile) {
+    instructionProjection = _depsForTest.projectInstructions(workDir, adapter.instructionFile, {
+      agentName: name,
+      parentName,
+      cli: adapter.name,
+      model: resolvedModel ?? 'default',
+      workflow: args.workflow,
+      step: args.workflowStep,
+      presetSoul,
+    })
+  }
+
   // /flt skill is synthesized at spawn time so its content reflects the
   // actual spawn context (worktree on/off, workflow vs subagent vs root).
-  // Always installed; the minimal CLAUDE.md block tells the agent to read it.
+  // Always installed; the minimal system block tells the agent to read it at its per-CLI path.
   const fltSkillContent = buildFltSkillContent({
     name,
     parent: parentName,
@@ -515,7 +531,8 @@ export async function spawnDirect(args: SpawnArgs): Promise<void> {
     worktree: useWorktree,
   })
 
-  // Project selected skills into workspace (opt-in only) plus the synthetic flt skill
+  // Project selected skills into workspace (opt-in only) plus the synthetic flt skill.
+  // Runs after projectInstructions so inject-CLIs see an existing file to inject into.
   const projectedSkills = _depsForTest.projectSkills(workDir, adapter, {
     requested: selectedSkills,
     all: allSkills,
@@ -523,19 +540,6 @@ export async function spawnDirect(args: SpawnArgs): Promise<void> {
   }) ?? { names: [], warnings: [] }
   for (const warning of projectedSkills.warnings) {
     console.error(`Warning: ${warning}`)
-  }
-
-  if (adapter.instructionFile) {
-    instructionProjection = _depsForTest.projectInstructions(workDir, adapter.instructionFile, {
-      agentName: name,
-      parentName,
-      cli: adapter.name,
-      model: resolvedModel ?? 'default',
-      workflow: args.workflow,
-      step: args.workflowStep,
-      presetSoul,
-      skillNames: projectedSkills.names,
-    })
   }
 
   // Install git hooks and write flt manifest (opt-in via --git-hooks or preset git_hooks: true)
