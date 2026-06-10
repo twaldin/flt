@@ -1,6 +1,12 @@
 import { describe, it, expect, mock, beforeEach, afterAll } from 'bun:test'
 import { join } from 'path'
 
+import { _depsForTest, _fsForTest, addRemote, listRemotes, removeRemote } from '../../src/commands/remote'
+
+// Collaborators are swapped via the _depsForTest/_fsForTest seams instead of
+// mock.module('../../src/ssh' | '../../src/remotes'): bun module mocks are
+// process-global and leak into later test files (remotes.test.ts fails when
+// file order puts this file first — observed on linux CI).
 const mockSshExecCheck = mock((_remote: unknown, _cmd: string) => true as true | { error: string })
 const mockSshExec = mock((_remote: unknown, _cmd: string) => ({ stdout: '', stderr: '', status: 0 }))
 const mockRsyncTo = mock((_remote: unknown, _local: string, _remotePath: string, _opts?: unknown) => {})
@@ -12,20 +18,6 @@ const mockRemoveRemote = mock((_alias: string) => true)
 const mockExistsSync = mock((_path: string) => true)
 const mockMkdtempSync = mock((_prefix: string) => '/tmp/flt-remote-test')
 
-mock.module('../../src/ssh', () => ({
-  sshExecCheck: mockSshExecCheck,
-  sshExec: mockSshExec,
-  rsyncTo: mockRsyncTo,
-}))
-
-mock.module('../../src/remotes', () => ({
-  addRemote: mockAddRemote,
-  loadRemotes: mockLoadRemotes,
-  removeRemote: mockRemoveRemote,
-}))
-
-import { _fsForTest, addRemote, listRemotes, removeRemote } from '../../src/commands/remote'
-
 describe('remote commands', () => {
   const originalFetch = globalThis.fetch
   const originalWrite = Bun.write
@@ -34,6 +26,7 @@ describe('remote commands', () => {
   const originalHome = process.env.HOME
   const originalExistsSync = _fsForTest.existsSync
   const originalMkdtempSync = _fsForTest.mkdtempSync
+  const originalDeps = { ..._depsForTest }
   const logSpy = mock((..._args: unknown[]) => {})
   const warnSpy = mock((..._args: unknown[]) => {})
   let downloadDir: string
@@ -65,6 +58,13 @@ describe('remote commands', () => {
     mockMkdtempSync.mockImplementation(() => downloadDir)
     _fsForTest.existsSync = mockExistsSync
     _fsForTest.mkdtempSync = mockMkdtempSync
+
+    _depsForTest.sshExecCheck = mockSshExecCheck
+    _depsForTest.sshExec = mockSshExec
+    _depsForTest.rsyncTo = mockRsyncTo
+    _depsForTest.addRemoteEntry = mockAddRemote
+    _depsForTest.loadRemotes = mockLoadRemotes
+    _depsForTest.removeRemoteEntry = mockRemoveRemote
 
     globalThis.fetch = mock(async () => new Response(new Uint8Array([1, 2, 3]), { status: 200 })) as unknown as typeof fetch
     Bun.write = mock(async () => 3) as typeof Bun.write
@@ -160,6 +160,7 @@ describe('remote commands', () => {
     process.env.HOME = originalHome
     _fsForTest.existsSync = originalExistsSync
     _fsForTest.mkdtempSync = originalMkdtempSync
+    Object.assign(_depsForTest, originalDeps)
     mock.restore()
   })
 })
