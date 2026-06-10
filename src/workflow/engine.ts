@@ -1092,32 +1092,50 @@ async function executeParallelStep(def: WorkflowDef, run: WorkflowRun, parallelS
   const parallelPrConfig = resolvePrConfig(parallelStep, parallelStep.step.preset)
   for (const candidate of candidates) {
     const candidatePrConfig = resolvePrConfig(parallelStep, candidate.preset)
-    await spawn({
-      name: candidate.agentName,
-      preset: candidate.preset,
-      dir: parallelStep.step.dir
-        ? resolveTemplate(parallelStep.step.dir, run)
-        : (run.vars._input?.dir || undefined),
-      worktree: parallelStep.step.worktree !== false,
-      worktreeBase: baseSha,
-      worktreeBranchPrefix: candidatePrConfig.branchPrefix ?? parallelPrConfig.branchPrefix,
-      parent: run.parentName,
-      bootstrap: resolveTemplate(parallelStep.step.task ?? '', run),
-      workflow: run.workflow,
-      workflowRunId: run.id,
-      workflowStep: parallelStep.id,
-      projectRoot: run.vars._input?.dir,
-      extraEnv: {
-        FLT_RUN_DIR: run.runDir,
-        FLT_RUN_LABEL: candidate.label,
-      },
-    })
+    try {
+      await spawn({
+        name: candidate.agentName,
+        preset: candidate.preset,
+        dir: parallelStep.step.dir
+          ? resolveTemplate(parallelStep.step.dir, run)
+          : (run.vars._input?.dir || undefined),
+        worktree: parallelStep.step.worktree !== false,
+        worktreeBase: baseSha,
+        worktreeBranchPrefix: candidatePrConfig.branchPrefix ?? parallelPrConfig.branchPrefix,
+        parent: run.parentName,
+        bootstrap: resolveTemplate(parallelStep.step.task ?? '', run),
+        workflow: run.workflow,
+        workflowRunId: run.id,
+        workflowStep: parallelStep.id,
+        projectRoot: run.vars._input?.dir,
+        extraEnv: {
+          FLT_RUN_DIR: run.runDir,
+          FLT_RUN_LABEL: candidate.label,
+        },
+      })
 
-    const agent = getAgent(candidate.agentName)
-    if (agent) {
-      candidate.branch = agent.worktreeBranch ?? ''
-      candidate.worktree = agent.worktreePath ?? agent.dir
-      saveWorkflowRun(run)
+      const agent = getAgent(candidate.agentName)
+      if (agent) {
+        candidate.branch = agent.worktreeBranch ?? ''
+        candidate.worktree = agent.worktreePath ?? agent.dir
+        saveWorkflowRun(run)
+      }
+    } catch (e) {
+      // Surface per-candidate spawn failures so aggregation can complete instead
+      // of stalling forever waiting for a verdict that will never arrive.
+      // Mirrors the issue-#92 single-spawn-step hardening (engine.ts:~2524-2540).
+      const err = e as Error
+      const reason = `parallel-spawn-failed ${run.id}/${parallelStep.id}/${candidate.label}: ${err.message}`
+      appendEvent({
+        type: 'error',
+        agent: candidate.agentName,
+        detail: `${reason}\n${err.stack ?? ''}`,
+        at: new Date().toISOString(),
+      })
+      if (run.runDir) {
+        writeResult(run.runDir, parallelStep.id, candidate.label, 'fail', reason)
+      }
+      // Continue — remaining candidates should still spawn.
     }
   }
 }
@@ -1218,8 +1236,32 @@ function reconcileDagPlanFromDisk(run: WorkflowRun, step: DynamicDagStep): boole
   const planById = new Map(planNodes.map(n => [n.id, n]))
 
   for (const id of Object.keys(state.nodes)) {
-    if (!planById.has(id) && state.nodes[id].status === 'pending') {
+    if (planById.has(id)) continue
+    const node = state.nodes[id]
+    if (node.status === 'pending') {
       delete state.nodes[id]
+    } else if (node.status === 'running' || node.status === 'reviewing') {
+      // Node was removed from the rewritten plan while still in-flight.
+      // Retire it so dependents and the all-done check don't stall forever.
+      const priorStatus = node.status
+      node.status = 'skipped'
+      if (!state.skipped.includes(id)) state.skipped.push(id)
+      appendEvent({
+        type: 'workflow',
+        detail: `dag-reconcile: retired node ${id} removed from plan (was ${priorStatus})`,
+        at: new Date().toISOString(),
+      })
+      // Best-effort kill of the orphaned agent — mirrors the timeout handler.
+      const agentNames = [node.coderAgent, node.reviewerAgent, node.mergeAgent]
+        .filter((n): n is string => Boolean(n))
+      for (const c of node.candidates ?? []) agentNames.push(c.agentName)
+      if (agentNames.length > 0) {
+        void import('../commands/kill').then(({ killDirect }) => {
+          for (const agentName of agentNames) {
+            try { killDirect({ name: agentName, fromWorkflow: true }) } catch {}
+          }
+        })
+      }
     }
   }
 
