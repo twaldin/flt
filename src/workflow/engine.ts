@@ -782,13 +782,17 @@ async function applyAutoCommit(
     }
   }
 
+  let commitFailed = false
   try {
     execSync('git add -A && git diff --cached --quiet || git commit -m "workflow: auto-commit step ' + stepId + '"', {
       cwd: agent.worktreePath, encoding: 'utf-8', timeout: 10_000,
     })
   } catch (e) {
-    appendEvent({ type: 'workflow', detail: `auto-commit failed ${run.id}/${stepId}: ${(e as Error).message}`, at: new Date().toISOString() })
+    commitFailed = true
+    appendEvent({ type: 'workflow', detail: `auto-commit failed ${run.id}/${stepId}: ${(e as Error).message} — skipping auto-PR/push for this step`, at: new Date().toISOString() })
   }
+
+  if (commitFailed) return
 
   if (commitOnly || !shouldCreatePr(def, stepId)) return
   if (!agent.worktreeBranch || !agent.worktreePath) return

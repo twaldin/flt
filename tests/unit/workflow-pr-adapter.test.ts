@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it } from 'bun:test'
+import { execSync } from 'child_process'
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'fs'
 import { join } from 'path'
 import { tmpdir } from 'os'
@@ -107,6 +108,12 @@ describe('applyAutoCommit adapter dispatch', () => {
     mkdirSync(join(home, '.flt'), { recursive: true })
     writeFileSync(join(home, '.flt', 'presets.json'), JSON.stringify({}))
     mkdirSync(repoDir, { recursive: true })
+    execSync('git init', { cwd: repoDir })
+    execSync('git config user.email "test@test.com"', { cwd: repoDir })
+    execSync('git config user.name "Test"', { cwd: repoDir })
+    writeFileSync(join(repoDir, 'init.txt'), 'init')
+    execSync('git add -A', { cwd: repoDir })
+    execSync('git commit -m "init"', { cwd: repoDir })
     _setPrAdapterForTest('gh', null)
     _setPrAdapterForTest('gt', null)
     _setPrAdapterForTest('manual', null)
