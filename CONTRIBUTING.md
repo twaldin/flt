@@ -15,7 +15,7 @@ bun install
 bun test
 ```
 
-All 199 tests must pass. If your change needs new tests, add them.
+All tests must pass (`bun test`). If your change needs new tests, add them.
 
 ## Style
 

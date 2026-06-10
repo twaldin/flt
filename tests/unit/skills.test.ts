@@ -50,25 +50,28 @@ const droidAdapter: CliAdapter = {
 }
 
 describe('skills', () => {
-  let tempHome: string
+  let skillsDir: string
   let workDir: string
-  let origHome: string | undefined
+  let origSkillsDir: string | undefined
 
   beforeEach(() => {
-    tempHome = mkdtempSync(join(tmpdir(), 'flt-test-home-'))
+    const tempBase = mkdtempSync(join(tmpdir(), 'flt-test-home-'))
+    skillsDir = join(tempBase, '.flt', 'skills')
+    mkdirSync(skillsDir, { recursive: true })
     workDir = mkdtempSync(join(tmpdir(), 'flt-test-work-'))
-    origHome = process.env.HOME
-    process.env.HOME = tempHome
+    origSkillsDir = process.env.FLT_SKILLS_DIR
+    process.env.FLT_SKILLS_DIR = skillsDir
   })
 
   afterEach(() => {
-    process.env.HOME = origHome
-    rmSync(tempHome, { recursive: true, force: true })
+    if (origSkillsDir === undefined) delete process.env.FLT_SKILLS_DIR
+    else process.env.FLT_SKILLS_DIR = origSkillsDir
+    rmSync(skillsDir, { recursive: true, force: true })
     rmSync(workDir, { recursive: true, force: true })
   })
 
   function makeSkill(name: string, description: string, body: string): string {
-    const skillDir = join(tempHome, '.flt', 'skills', name)
+    const skillDir = join(skillsDir, name)
     mkdirSync(skillDir, { recursive: true })
     writeFileSync(join(skillDir, 'SKILL.md'), `---\nname: ${name}\ndescription: ${description}\ncli-support: ["*"]\n---\n${body}`)
     return skillDir
@@ -90,11 +93,11 @@ describe('skills', () => {
     })
 
     it('filters skills by specific cli', () => {
-      const ccDir = join(tempHome, '.flt', 'skills', 'cc-only')
+      const ccDir = join(skillsDir, 'cc-only')
       mkdirSync(ccDir, { recursive: true })
       writeFileSync(join(ccDir, 'SKILL.md'), `---\nname: cc-only\ncli-support: ["claude-code"]\n---\nCC only.`)
 
-      const codexDir = join(tempHome, '.flt', 'skills', 'codex-only')
+      const codexDir = join(skillsDir, 'codex-only')
       mkdirSync(codexDir, { recursive: true })
       writeFileSync(join(codexDir, 'SKILL.md'), `---\nname: codex-only\ncli-support: ["codex"]\n---\nCodex only.`)
 
@@ -108,11 +111,11 @@ describe('skills', () => {
     })
 
     it('cli="*" returns all skills regardless of cli-support', () => {
-      const ccDir = join(tempHome, '.flt', 'skills', 'cc-only')
+      const ccDir = join(skillsDir, 'cc-only')
       mkdirSync(ccDir, { recursive: true })
       writeFileSync(join(ccDir, 'SKILL.md'), `---\nname: cc-only\ncli-support: ["claude-code"]\n---\nCC only.`)
 
-      const anyDir = join(tempHome, '.flt', 'skills', 'any-cli')
+      const anyDir = join(skillsDir, 'any-cli')
       mkdirSync(anyDir, { recursive: true })
       writeFileSync(join(anyDir, 'SKILL.md'), `---\nname: any-cli\ncli-support: ["*"]\n---\nAny CLI.`)
 
@@ -125,7 +128,7 @@ describe('skills', () => {
   describe('projectSkills for claude-code', () => {
     it('copies SKILL.md to <workDir>/.claude/skills/<name>/SKILL.md', () => {
       const rawContent = `---\nname: my-skill\ndescription: A skill\ncli-support: ["*"]\n---\nDo the thing.`
-      const skillDir = join(tempHome, '.flt', 'skills', 'my-skill')
+      const skillDir = join(skillsDir, 'my-skill')
       mkdirSync(skillDir, { recursive: true })
       writeFileSync(join(skillDir, 'SKILL.md'), rawContent)
 
@@ -236,6 +239,26 @@ describe('skills', () => {
 
     it('handles missing manifest gracefully', () => {
       expect(() => cleanupSkills(workDir, claudeAdapter)).not.toThrow()
+    })
+  })
+
+  describe('FLT_SKILLS_DIR override', () => {
+    it('uses FLT_SKILLS_DIR when set instead of ~/.flt/skills', () => {
+      makeSkill('override-skill', 'From override dir', 'Override content.')
+      const skills = loadSkills('*')
+      expect(skills.map(s => s.name)).toContain('override-skill')
+      expect(skills[0].path).toContain(skillsDir)
+    })
+
+    it('falls back to default when FLT_SKILLS_DIR is unset', () => {
+      delete process.env.FLT_SKILLS_DIR
+      // With the override unset, globalSkillsDir() resolves to join(HOME, '.flt', 'skills').
+      // Requesting a nonexistent skill surfaces that path in the warning string,
+      // proving the real-home fallback branch is active rather than the temp dir.
+      const result = projectSkills(workDir, claudeAdapter, { requested: ['__no_such_skill__'] })
+      expect(result.warnings).toHaveLength(1)
+      const expectedBase = join(process.env.HOME!, '.flt', 'skills')
+      expect(result.warnings[0]).toContain(expectedBase)
     })
   })
 
