@@ -88,3 +88,4 @@ tests/
 - Local CLI run: `bun src/cli.ts <cmd>` (the `flt` bin in `package.json` points at the same).
 - Don't `git add -A` blindly — symlinks (`AUDIT.md`, `HANDOFF.md`, `tree.md`, etc.) point outside the worktree and shouldn't be promoted to real files.
 - For a feature that touches adapter behavior, read the corresponding `harness-ts` adapter first; many fields are inherited and shouldn't be overridden in flt.
+- `scripts/tui-pilot.sh smoke` spins up a fully isolated flt (private HOME + tmux server) and pilots the TUI via tuistory — use it to verify TUI/skill changes without touching the live fleet; see `docs/testing-tui.md`.
