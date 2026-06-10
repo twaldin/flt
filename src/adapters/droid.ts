@@ -94,6 +94,6 @@ export const droidAdapter: CliAdapter = {
     const tail = pane.split('\n').slice(-15).join('\n')
     if (/Streaming|Thinking|Working|Plan\s*·/i.test(tail)) return 'running'
     if (/[⁝⋮⋯⢀⢄⡠⡂⠅⠅⢁⣷⣯⣟⡿⢿⣻⣽⣾▰▱▮▯●○⛬]/.test(tail)) return 'running'
-    return (harness.detectStatus?.(pane) ?? 'unknown') as AgentStatus
+    return harness.detectStatus?.(pane) ?? 'unknown'
   },
 }

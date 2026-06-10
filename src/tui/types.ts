@@ -35,7 +35,7 @@ export interface ModalState {
 
 export interface AgentView extends Omit<AgentState, 'status'> {
   name: string
-  status: 'spawning' | 'ready' | 'running' | 'idle' | 'exited' | 'error' | 'rate-limited' | 'unknown'
+  status: 'spawning' | 'ready' | 'running' | 'idle' | 'exited' | 'error' | 'rate-limited' | 'unknown' | 'dialog'
   lastSeen: number
   collapsedChildCount?: number  // set when agent is collapsed; value = number of hidden descendants
 }

@@ -24,6 +24,6 @@ export const codexAdapter: CliAdapter = {
   },
 
   detectStatus(pane: string): AgentStatus {
-    return (harness.detectStatus?.(pane) ?? 'unknown') as AgentStatus
+    return harness.detectStatus?.(pane) ?? 'unknown'
   },
 }

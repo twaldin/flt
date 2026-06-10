@@ -38,7 +38,7 @@ export const codexAdapter: CliAdapter = {
   spawnArgs: (opts) => [...],            // flt-specific: dialog-bypass flags
   detectReady:  (p) => harness.detectReady?.(p)  ?? 'loading',
   handleDialog: (p) => harness.handleDialog?.(p) ?? null,
-  detectStatus: (p) => (harness.detectStatus?.(p) ?? 'unknown') as AgentStatus,
+  detectStatus: (p) => harness.detectStatus?.(p) ?? 'unknown',
 }
 ```
 
