@@ -1,4 +1,4 @@
-import { existsSync, readFileSync, writeFileSync, unlinkSync } from 'fs'
+import { existsSync, readFileSync, writeFileSync, unlinkSync, appendFileSync } from 'fs'
 import { homedir } from 'os'
 import { join } from 'path'
 import { listAdapters } from '../adapters/registry'
@@ -25,6 +25,13 @@ import { getCurrentThemeName, getThemeBackground, getThemeNames, setTheme } from
 import { getAsciiLogo } from './ascii'
 import { invalidateMetricsModalCache } from './metrics-modal'
 import { createInitialState, type AgentView, type AppState, type GroupBy, type InboxMessage, type MetricsModalState, type Mode, type ModalState, type ModalListItem, type Period } from './types'
+
+function logTuiError(context: string, err: unknown): void {
+  try {
+    const msg = err instanceof Error ? `${err.message}\n${err.stack ?? ''}` : String(err)
+    appendFileSync(join(homedir(), '.flt', 'tui-errors.log'), `[${new Date().toISOString()}] ${context}: ${msg}\n`)
+  } catch {}
+}
 
 /** Strip OSC 8 hyperlink sequences, keeping the display text */
 function stripOsc8(s: string): string {
@@ -144,6 +151,9 @@ export class App {
   // Shared text-input widget for the command bar.
   private commandWidget: TextInput | null = null
 
+  // Fatal error handler — registered on process on start(), removed on stop().
+  private onFatal: ((err: unknown) => void) | null = null
+
   constructor() {
     const cols = process.stdout.columns ?? 80
     const rows = process.stdout.rows ?? 24
@@ -175,9 +185,21 @@ export class App {
     // Suppress all console output — TUI owns stdout exclusively
     const noop = () => {}
     console.log = noop
-    console.error = noop
+    console.error = (...args: unknown[]) => logTuiError('console.error', args.map(String).join(' '))
     console.warn = noop
     console.info = noop
+
+    // Register crash handlers so an unhandled throw restores the terminal
+    // and logs the error instead of leaving the user in a broken alt-screen.
+    this.onFatal = (err: unknown) => {
+      logTuiError('fatal', err)
+      try { this.stop() } catch {}
+      process.exit(1)
+    }
+    process.on('uncaughtException', this.onFatal)
+    process.on('unhandledRejection', this.onFatal)
+    process.on('SIGTERM', () => { try { this.stop() } catch {} ; process.exit(0) })
+
     const themeBg = getThemeBackground()
     if (themeBg) {
       process.stdout.write(`\x1b[?1049h\x1b[?25l\x1b[${themeBg}m\x1b[2J\x1b[H`)
@@ -321,6 +343,15 @@ export class App {
     if (this.state.gatesModal) {
       closeGatesWatcher(this.state.gatesModal)
       this.state.gatesModal = null
+    }
+
+    // Deregister crash handlers before restoring the terminal so a double-stop
+    // (e.g. fatal handler calling stop() while another signal fires) can't
+    // re-enter the handler.
+    if (this.onFatal) {
+      process.off('uncaughtException', this.onFatal)
+      process.off('unhandledRejection', this.onFatal)
+      this.onFatal = null
     }
 
     // Clean up typing indicator
@@ -1804,10 +1835,14 @@ export class App {
   }
 
   private doRender(): void {
-    this.state.termWidth = this.screen.cols
-    this.state.termHeight = this.screen.rows
-    renderLayout(this.screen, this.state)
-    this.screen.flush()
+    try {
+      this.state.termWidth = this.screen.cols
+      this.state.termHeight = this.screen.rows
+      renderLayout(this.screen, this.state)
+      this.screen.flush()
+    } catch (err) {
+      this.onFatal?.(err)
+    }
   }
 
   private requestRender(): void {
