@@ -160,12 +160,19 @@ ISO=$(bash scripts/tui-pilot.sh up --link ~/.claude --link ~/.codex)
 export FLT_PILOT_HOME=$ISO
 
 # Spawn a cheap agent with skill projection enabled.
-env -u TMUX HOME=$ISO TMUX_TMPDIR=$ISO/tmux \
-  bun src/cli.ts spawn skill-check --cli pi --no-worktree \
-    --dir /tmp FLT_ALLOW_NO_WORKTREE=1
+# FLT_ALLOW_NO_WORKTREE=1 is an env var (read via process.env), not a CLI arg —
+# it must be passed as a prefix or via the env command.
+FLT_ALLOW_NO_WORKTREE=1 \
+  env -u TMUX HOME=$ISO TMUX_TMPDIR=$ISO/tmux \
+  bun src/cli.ts spawn skill-check --cli pi --no-worktree --dir /tmp
 
-# Check that the flt skill was projected into the worktree.
-ls $ISO  # or: iso_env bun src/cli.ts logs skill-check
+# Check that the flt skill was projected into the agent's instruction file area.
+# The skill projection lands in the project dir supplied via --dir:
+ls /tmp/.flt/skills/flt/SKILL.md
+
+# Or grep the agent logs to confirm skill injection:
+env -u TMUX HOME=$ISO TMUX_TMPDIR=$ISO/tmux \
+  bun src/cli.ts logs skill-check | grep -i skill
 
 # Close the isolated session.
 bash scripts/tui-pilot.sh down --rm

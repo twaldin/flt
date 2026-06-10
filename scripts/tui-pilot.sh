@@ -37,14 +37,6 @@ assert_not_real_home() {
     echo "tui-pilot: REFUSING — ISO resolved to real \$HOME ($HOME). Aborting." >&2
     exit 1
   fi
-  # Extra guard: refuse paths that are less than 3 components deep (e.g. /)
-  case "$iso" in
-    /tmp/flt-pilot.* | /tmp/flt-bughunt-*) ;;  # explicitly safe prefixes
-    *)
-      # Allow FLT_PILOT_HOME to override (user accepts responsibility) but
-      # still reject if it's the user's actual home dir.
-      ;;
-  esac
 }
 
 # ---------------------------------------------------------------------------
