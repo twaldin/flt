@@ -41,6 +41,21 @@ describe('instructions', () => {
     expect(block).toContain('Read the /flt skill')
   })
 
+  it('embeds per-CLI skill path for codex (inject-CLI uses .flt/skills/)', () => {
+    const block = buildSystemBlock({ ...baseOpts, cli: 'codex' })
+    expect(block).toContain('./.flt/skills/flt/SKILL.md')
+  })
+
+  it('embeds per-CLI skill path for claude-code (uses .claude/skills/)', () => {
+    const block = buildSystemBlock({ ...baseOpts, cli: 'claude-code' })
+    expect(block).toContain('./.claude/skills/flt/SKILL.md')
+  })
+
+  it('embeds per-CLI skill path for opencode (uses .opencode/skills/)', () => {
+    const block = buildSystemBlock({ ...baseOpts, cli: 'opencode' })
+    expect(block).toContain('./.opencode/skills/flt/SKILL.md')
+  })
+
   it('uses root template when parent is human', () => {
     const block = buildSystemBlock({ ...baseOpts, parentName: 'human' })
     expect(block).toContain('Mode: root')
