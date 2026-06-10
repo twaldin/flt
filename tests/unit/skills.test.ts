@@ -252,9 +252,13 @@ describe('skills', () => {
 
     it('falls back to default when FLT_SKILLS_DIR is unset', () => {
       delete process.env.FLT_SKILLS_DIR
-      // Real home has no flt skills in test env; just verify no crash and empty array
-      const skills = loadSkills('*')
-      expect(Array.isArray(skills)).toBe(true)
+      // With the override unset, globalSkillsDir() resolves to join(HOME, '.flt', 'skills').
+      // Requesting a nonexistent skill surfaces that path in the warning string,
+      // proving the real-home fallback branch is active rather than the temp dir.
+      const result = projectSkills(workDir, claudeAdapter, { requested: ['__no_such_skill__'] })
+      expect(result.warnings).toHaveLength(1)
+      const expectedBase = join(process.env.HOME!, '.flt', 'skills')
+      expect(result.warnings[0]).toContain(expectedBase)
     })
   })
 
