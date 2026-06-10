@@ -49,7 +49,7 @@ src/
   utils/                    stripAnsi etc.
 
 templates/                  instruction-file templates (system-block-*.md, workflow-block.md)
-docs/                       end-user docs (adapters.md, architecture.md, workflows.md)
+docs/                       design docs (droid-oauth-proxy.md, ssh-sandbox-design.md)
 demo/                       demo gif assets and scripts
 examples/                   example workflows + presets
 scripts/                    release + smoke-test scripts
@@ -86,5 +86,5 @@ tests/
 
 - Tests: `bun test`, `bun test:unit`, `bun test:integration`, or `bun test <path>` for one file.
 - Local CLI run: `bun src/cli.ts <cmd>` (the `flt` bin in `package.json` points at the same).
-- Don't `git add -A` blindly — symlinks (`AUDIT.md`, `HANDOFF.md`, `tree.md`, etc.) point outside the worktree and shouldn't be promoted to real files.
+- Don't `git add -A` blindly — untracked session artifacts (`AUDIT.md`, `HANDOFF.md`, `tree.md`, `plan.json`, `handoffs/`, etc.) live at the root and are gitignored; only `AGENTS.md` is a symlink (→ CLAUDE.md).
 - For a feature that touches adapter behavior, read the corresponding `harness-ts` adapter first; many fields are inherited and shouldn't be overridden in flt.

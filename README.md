@@ -2,7 +2,7 @@
 
 You build an agent in Claude Code. It's good. Then you need one in Codex for the fast stuff, one in Gemini for the cheap stuff. Now you have three tools that don't know about each other, three different instruction formats, three ways to check status. You're locked into whichever ecosystem you started with, or you're managing three separate workflows.
 
-flt makes every AI coding CLI feel like the same tool. `flt spawn`, `flt send`, `flt kill` — works the same whether the agent runs in Claude Code, Codex, Gemini CLI, Aider, OpenCode, or SWE-agent. Agents message each other across CLIs. A Claude Code orchestrator can spawn a Codex coder and a Gemini researcher, and they all report back through the same inbox.
+flt makes every AI coding CLI feel like the same tool. `flt spawn`, `flt send`, `flt kill` — works the same whether the agent runs in Claude Code, Codex, Gemini CLI, OpenCode, or SWE-agent. Agents message each other across CLIs. A Claude Code orchestrator can spawn a Codex coder and a Gemini researcher, and they all report back through the same inbox.
 
 ![flt demo](demo/demo.gif)
 
@@ -12,7 +12,7 @@ flt makes every AI coding CLI feel like the same tool. `flt spawn`, `flt send`, 
 bun install -g @twaldin/flt-cli
 ```
 
-Requires [Bun](https://bun.sh) and [tmux](https://github.com/tmux/tmux). You need at least one AI coding CLI installed (`claude`, `codex`, `gemini`, `aider`, `opencode`, or SWE-agent). `git` is required for worktree-based agent isolation.
+Requires [Bun](https://bun.sh) and [tmux](https://github.com/tmux/tmux). You need at least one AI coding CLI installed (`claude`, `codex`, `gemini`, `opencode`, or SWE-agent). `git` is required for worktree-based agent isolation.
 
 ## Quick start
 
@@ -93,7 +93,6 @@ Every AI coding CLI is good at working alone. The problem is they're all good at
 - **Claude Code** — best at complex multi-file refactors, deep codebase understanding
 - **Codex** — fastest for straightforward fixes, cheapest for bulk work
 - **Gemini CLI** — huge context window, good for research and large file analysis
-- **Aider** — best git integration, works with any model via OpenRouter
 
 Without flt, picking one means giving up the others. With flt, you use the right tool for each task and they all coordinate through the same messaging system.
 
@@ -106,7 +105,6 @@ Each adapter handles the messy per-CLI differences so you don't have to:
 | Claude Code | `claude-code` | Permission bypass, trust dialogs, spinner detection |
 | Codex | `codex` | Sandbox bypass, slow startup (~60s), "esc to interrupt" detection |
 | Gemini CLI | `gemini` | Tool execution prompts, braille spinner detection |
-| Aider | `aider` | `--yes` flag, OpenRouter model routing |
 | OpenCode | `opencode` | Agent file injection, full-pane ready detection |
 | SWE-agent | `swe-agent` | Prompt template injection, no instruction file |
 | pi | `pi` | OpenAI subscription OAuth flow, slash-command prompt detection |
