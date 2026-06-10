@@ -34,18 +34,19 @@ describe('dropRowsBy — selection preservation', () => {
     const rowA = makeRow({ kind: 'human_gate', runId: 'run-A' })
     const rowB = makeRow({ kind: 'human_gate', runId: 'run-B' })
     const rowC = makeRow({ kind: 'human_gate', runId: 'run-C' })
-    const state = makeState([rowA, rowB, rowC], 2) // rowC selected
+    // Select the MIDDLE row (rowB at index 1); old code would leave index=1 -> rowC after removal
+    const state = makeState([rowA, rowB, rowC], 1)
 
     // Remove rowA (above the selection)
     dropRowsBy(state, r => r.runId === 'run-A')
 
     expect(state.rows).toEqual([rowB, rowC])
-    // rowC was at index 2, now it's at index 1 — selectedIndex should follow
-    expect(state.selectedIndex).toBe(1)
-    expect(state.rows[state.selectedIndex]).toBe(rowC)
+    // rowB was at index 1, now it's at index 0 — selectedIndex must follow
+    expect(state.selectedIndex).toBe(0)
+    expect(state.rows[state.selectedIndex]).toBe(rowB)
   })
 
-  it('removes the selected row itself and clamps within bounds', () => {
+  it('removes the selected row itself and lands on the same index (next row takes its place)', () => {
     const rowA = makeRow({ kind: 'human_gate', runId: 'run-A' })
     const rowB = makeRow({ kind: 'human_gate', runId: 'run-B' })
     const rowC = makeRow({ kind: 'human_gate', runId: 'run-C' })
@@ -55,9 +56,11 @@ describe('dropRowsBy — selection preservation', () => {
     dropRowsBy(state, r => r.runId === 'run-B')
 
     expect(state.rows).toEqual([rowA, rowC])
-    // Selected row is gone — clamp to new length-1 (the predicate removed it)
-    expect(state.selectedIndex).toBeLessThan(state.rows.length)
-    expect(state.selectedIndex).toBeGreaterThanOrEqual(0)
+    // rowB is gone; the natural successor is rowC which slides into index 1
+    // but the implementation clamps via the end-guard — rowC is now at index 1,
+    // which equals the remaining length - 1, so selectedIndex must be 1 and point at rowC.
+    expect(state.selectedIndex).toBe(1)
+    expect(state.rows[state.selectedIndex]).toBe(rowC)
   })
 
   it('removes the last row when it is selected and clamps to the new last index', () => {
