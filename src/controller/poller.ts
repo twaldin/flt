@@ -221,7 +221,7 @@ export function pollOnce(): void {
     let status = detectAgentStatusFromPane(name, agent, pane, paneHash)
 
     // Auto-approve dialogs
-    if (status === ('dialog' as AgentStatus)) {
+    if (status === 'dialog') {
       try {
         const adapter = resolveAdapter(agent.cli)
         const keys = adapter.handleDialog(pane)

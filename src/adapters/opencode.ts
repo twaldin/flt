@@ -57,6 +57,6 @@ export const opencodeAdapter: CliAdapter = {
   },
 
   detectStatus(pane: string): AgentStatus {
-    return (harness.detectStatus?.(pane) ?? 'unknown') as AgentStatus
+    return harness.detectStatus?.(pane) ?? 'unknown'
   },
 }
