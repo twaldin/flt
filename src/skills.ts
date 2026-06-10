@@ -21,6 +21,11 @@ function home(): string {
   return process.env.HOME || require('os').homedir()
 }
 
+/** Default global skills directory, overridable via FLT_SKILLS_DIR for tests. */
+function globalSkillsDir(): string {
+  return process.env.FLT_SKILLS_DIR ?? join(home(), '.flt', 'skills')
+}
+
 export interface SkillEntry {
   name: string
   description: string
@@ -86,7 +91,7 @@ function parseFrontmatter(raw: string): ParsedFrontmatter {
 }
 
 function loadGlobalSkills(): Map<string, SkillEntry> {
-  const globalDir = join(home(), '.flt', 'skills')
+  const globalDir = globalSkillsDir()
   if (!existsSync(globalDir)) return new Map()
 
   let entries: string[]
@@ -186,7 +191,7 @@ export function projectSkills(
     for (const name of requested) {
       const skill = available.get(name)
       if (!skill) {
-        warnings.push(`Skill "${name}" not found (looked in ${join(home(), '.flt', 'skills')})`)
+        warnings.push(`Skill "${name}" not found (looked in ${globalSkillsDir()})`)
         continue
       }
       selected.push(skill)
