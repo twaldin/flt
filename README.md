@@ -1,5 +1,7 @@
 # flt
 
+<img src=".github/social-card.png" alt="flt" width="100%" />
+
 You build an agent in Claude Code. It's good. Then you need one in Codex for the fast stuff, one in Gemini for the cheap stuff. Now you have three tools that don't know about each other, three different instruction formats, three ways to check status. You're locked into whichever ecosystem you started with, or you're managing three separate workflows.
 
 flt makes every AI coding CLI feel like the same tool. `flt spawn`, `flt send`, `flt kill` — works the same whether the agent runs in Claude Code, Codex, Gemini CLI, OpenCode, or SWE-agent. Agents message each other across CLIs. A Claude Code orchestrator can spawn a Codex coder and a Gemini researcher, and they all report back through the same inbox.
