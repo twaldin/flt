@@ -152,23 +152,27 @@ reviewer's job is to judge it.
 
 ## Cross-CLI skill discovery verification (plan 007 worked example)
 
-Use the harness to confirm each adapter finds `.flt/skills/flt/SKILL.md` at
-spawn time. For each CLI adapter to test (here: `pi` as a cheap proxy):
+Use the harness to check projected skill files and confirm that a CLI can
+discover them at spawn time. Projection paths vary by adapter; see
+`projectSkills` in `src/skills.ts`. The example below uses `pi`, which currently
+projects into `.flt/skills/`. Running it invokes a real provider-backed agent;
+it is not part of the TUI-chrome smoke test.
 
 ```bash
 ISO=$(bash scripts/tui-pilot.sh up --link ~/.claude --link ~/.codex)
 export FLT_PILOT_HOME=$ISO
+WORKDIR=$(mktemp -d "$ISO/skill-check.XXXXXX")
 
-# Spawn a cheap agent with skill projection enabled.
+# Spawn an agent in a private throwaway project directory.
 # FLT_ALLOW_NO_WORKTREE=1 is an env var (read via process.env), not a CLI arg —
 # it must be passed as a prefix or via the env command.
 FLT_ALLOW_NO_WORKTREE=1 \
   env -u TMUX HOME=$ISO TMUX_TMPDIR=$ISO/tmux \
-  bun src/cli.ts spawn skill-check --cli pi --no-worktree --dir /tmp
+  bun src/cli.ts spawn skill-check --cli pi --no-worktree --dir "$WORKDIR"
 
 # Check that the flt skill was projected into the agent's instruction file area.
 # The skill projection lands in the project dir supplied via --dir:
-ls /tmp/.flt/skills/flt/SKILL.md
+ls "$WORKDIR/.flt/skills/flt/SKILL.md"
 
 # Or grep the agent logs to confirm skill injection:
 env -u TMUX HOME=$ISO TMUX_TMPDIR=$ISO/tmux \
@@ -178,6 +182,9 @@ env -u TMUX HOME=$ISO TMUX_TMPDIR=$ISO/tmux \
 bash scripts/tui-pilot.sh down --rm
 ```
 
-For a full cross-adapter sweep, repeat for each adapter (`claude-code`, `codex`,
-`opencode`, etc.) and assert that `.flt/skills/flt/SKILL.md` is present in the
-worktree after spawn and absent after kill.
+For a cross-adapter sweep, check the destination selected by `projectSkills`
+for each adapter, not a universal `.flt/skills/` path. Claude Code uses
+`.claude/skills/`, OpenCode uses `.opencode/skills/`, and Droid uses
+`.factory/skills/`. Check file projection separately from actual CLI discovery;
+the latter requires an installed, authenticated CLI. Use a fresh private
+project directory per probe and verify managed files are removed after kill.

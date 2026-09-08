@@ -19,8 +19,8 @@ Requires [Bun](https://bun.sh) and [tmux](https://github.com/tmux/tmux). You nee
 ## Quick start
 
 ```bash
-flt init                    # initialize fleet + start controller
-flt tui                     # open the terminal UI
+flt init                    # run inside tmux: initialize fleet, start controller, open TUI
+# After quitting the TUI with q, reconnect with: flt tui
 
 # spawn agents in any CLI from the same interface
 flt spawn coder -c claude-code -m sonnet -d ~/project "fix the login bug"
@@ -46,7 +46,7 @@ flt presets add coder -c codex -m gpt-5.3-codex
 flt spawn coder -d ~/project "fix the parser bug"   # name == preset, auto-resolved
 ```
 
-Presets can store everything — `cli`, `model`, `dir`, `parent`, `worktree`, `persistent`, `soul`. A fully configured preset means spawn is just name + task:
+Presets can also store `dir`, `parent`, `worktree`, `persistent`, and `soul` in `~/.flt/presets.json`; `flt presets add` exposes CLI, model, and description. A fully configured preset means spawn is just name + task:
 
 ```bash
 */30 * * * * flt spawn monitor "run health checks"   # dir, parent, cli, model all in preset
@@ -79,7 +79,8 @@ DEC 2026 synchronized output for zero-flicker rendering on modern terminals (Gho
 | Normal | `s` | Spawn |
 | Normal | `r` | Reply to selected agent |
 | Normal | `m` | Inbox |
-| Normal | `t` | Shell |
+| Normal | `t` | Metrics |
+| Normal | `T` | Shell |
 | Normal | `K` | Kill agent |
 | Normal | `q` | Quit |
 | Log focus | `j/k` | Scroll |
@@ -111,7 +112,7 @@ Each adapter handles the messy per-CLI differences so you don't have to:
 | SWE-agent | `swe-agent` | Prompt template injection, no instruction file |
 | pi | `pi` | OpenAI subscription OAuth flow, slash-command prompt detection |
 
-Dialog auto-approval means agents spawned from cron never block on permission prompts. This is what makes unattended operation work.
+Adapters auto-approve recognized dialogs to support unattended operation. Unknown prompts or missing authentication can still block an agent; inspect its output with `flt logs <name>`.
 
 ## Agent identity
 
@@ -119,7 +120,7 @@ Agents get their identity from two sources:
 
 **SOUL.md** — who the agent is. Lives at `~/.flt/agents/<name>/SOUL.md` or referenced via preset. Defines role, behavior, domain knowledge. Injected into the CLI's native instruction file on spawn.
 
-**Skills** — what the agent can do. Markdown files in `~/.flt/skills/` (global) or `~/.flt/agents/<name>/skills/` (per-agent). For Claude Code, skills become slash commands. For other CLIs, skills are embedded in the instruction file.
+**Skills** — what the agent can do. Each skill is a directory containing `SKILL.md` under `~/.flt/skills/`. Enable skills with a preset's `skills` list, repeatable `flt spawn --skill <name>`, or `--all-skills`. flt copies selected skill directories into the adapter's project-local skill area; discovery and instruction-file indexing vary by CLI.
 
 The project's own instructions (CLAUDE.md, AGENTS.md, GEMINI.md) stay untouched — flt prepends its block with markers and removes it on kill.
 
@@ -146,31 +147,34 @@ Messaging is simple: `flt send parent` routes to whoever spawned you. `flt send 
 
 ## Workflows
 
-YAML state machines that chain agents together:
+YAML state machines that chain agents together. This example uses the `cc-coder` and `cc-reviewer` presets seeded by `flt init` (both use Claude Code):
 
 ```yaml
 # ~/.flt/workflows/code-review.yaml
 name: code-review
 steps:
   - id: implement
-    preset: coder
-    task: "Implement {task}"
+    preset: cc-coder
+    task: "Implement {task}. Address previous review feedback: {fail_reason}"
+    max_retries: 2
     on_complete: review
 
   - id: review
-    preset: reviewer
+    preset: cc-reviewer
+    dir: "{steps.implement.worktree}"
+    worktree: false
     task: "Review PR {pr}. Branch: {steps.implement.branch}"
     on_complete: done
     on_fail: implement
-    max_retries: 2
 ```
 
 ```bash
-flt workflow run code-review -t "add OAuth login"
-flt workflow status code-review
+flt workflow run code-review -t "add OAuth login" -d ~/project
+flt workflow status                    # show active runs
+# For one run, use the ID printed by run/list: flt workflow status <run-id>
 ```
 
-Later steps can reference earlier agents' worktrees, branches, and PRs via template variables. Agents signal transitions with `flt workflow pass` or `flt workflow fail`.
+Later steps can reference earlier agents' worktrees and branches; `{pr}` holds the auto-created PR URL when available. The reviewer uses the implementer's worktree rather than a new checkout. `max_retries` belongs on the retry target (`implement` here) to bound the review loop. Agents signal transitions with `flt workflow pass` or `flt workflow fail`.
 
 ## Architecture
 
@@ -182,12 +186,12 @@ Later steps can reference earlier agents' worktrees, branches, and PRs via templ
   config.json          # settings, theme
   inbox.log            # agent messages
   activity.log         # JSONL event stream
-  workflows/           # YAML definitions + run state
+  workflows/           # YAML definitions
+  runs/<run-id>/       # run.json, results, handoffs, and other run artifacts
   skills/              # global skills
   agents/<name>/
     SOUL.md            # identity
     state.md           # agent state (compaction/resume)
-    skills/            # per-agent skills
 ```
 
 ```
@@ -218,7 +222,7 @@ flt activity                            # fleet event log
 flt exit                                # shut down fleet
 flt presets list|add|remove             # manage presets
 flt workflow run|status|list|cancel     # manage workflows
-flt skills list                         # list available skills
+flt skill list                          # list available skills
 flt controller start|stop|status        # manage controller daemon
 ```
 

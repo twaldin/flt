@@ -21,7 +21,7 @@ block is intentionally minimal — full protocol lives here.
 | Ask the human a structured question | `flt ask human '<json batch>'` (only when permitted; see comms below) |
 | List live agents | `flt list` |
 | Read another agent's pane | `flt logs <name>` |
-| Spawn a sub-agent (depth-limited) | `flt spawn <name> --preset <preset> --bootstrap "<task>"` |
+| Spawn a sub-agent (depth-limited) | `flt spawn <name> --preset <preset> "<task>"` |
 | Tear down a sub-agent (and its worktree) | `flt kill <name>` |
 
 ## Completion + handoffs
@@ -39,9 +39,9 @@ block is intentionally minimal — full protocol lives here.
 
 ## Skills
 
-Other skills you have are listed in your CLI's normal skill index
-(claude-code: `.claude/skills/`; opencode: `.opencode/skills/`; others:
-`.flt/skills/`). Read a skill only when it's relevant to the current task.
+Enable additional skills with the preset's `skills` list, `--skill <name>`,
+or `--all-skills`. Find projected skills in the adapter's project-local skill
+area or instruction-file index. Read a skill when it's relevant to the task.
 
 ## Do not
 

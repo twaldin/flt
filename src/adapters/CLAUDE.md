@@ -57,9 +57,9 @@ When changing detection behavior, **fix it in `harness-ts` first** — flt and t
 1. Confirm the CLI has an autonomous shell tool (not REPL-only). aider was removed for failing this test.
 2. Add (or reuse) a harness-ts adapter for shared detection.
 3. Create `src/adapters/<name>.ts` exporting `<name>Adapter: CliAdapter`.
-4. Register it in `registry.ts` (import + add to the `adapters` map).
+4. Register it in `registry.ts`: import it and update `knownAdapters`, `adapterCommands`, and `adapterFactories`.
 5. Add fixtures under `tests/adapters/` covering ready detection, dialog auto-approval, idle/running transitions.
-6. Update `docs/adapters.md` (end-user table) and any README adapter listing.
+6. Update the end-user adapter table in `README.md`.
 
 ## Currently registered
 
