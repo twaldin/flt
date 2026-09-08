@@ -132,11 +132,13 @@ describe('sendDirect — external parent routing', () => {
     const lines = readFileSync(eventsPath, 'utf-8').trim().split('\n')
     expect(lines.length).toBe(1)
     const evt = JSON.parse(lines[0])
+    expect(evt.version).toBe(1)
     expect(evt.type).toBe('message')
     expect(evt.from).toBe('my-agent')
     expect(evt.to).toBe('hermes')
+    expect(evt.text).toBe('done with task')
     expect(evt.message).toBe('done with task')
-    expect(typeof evt.ts).toBe('string')
+    expect(typeof evt.ts).toBe('number')
   })
 
   it('does NOT write to events.jsonl when parent is human', async () => {
@@ -194,9 +196,12 @@ describe('appendExternalEvent', () => {
     const eventsPath = join(tmpHome, '.flt', 'events.jsonl')
     expect(existsSync(eventsPath)).toBe(true)
     const evt = JSON.parse(readFileSync(eventsPath, 'utf-8').trim())
+    expect(evt.version).toBe(1)
     expect(evt.from).toBe('agent-x')
     expect(evt.to).toBe('hermes')
+    expect(evt.text).toBe('test message')
     expect(evt.message).toBe('test message')
+    expect(typeof evt.ts).toBe('number')
   })
 
   it('appends multiple events as separate lines', () => {
@@ -207,5 +212,32 @@ describe('appendExternalEvent', () => {
     expect(lines.length).toBe(2)
     expect(JSON.parse(lines[0]).message).toBe('first')
     expect(JSON.parse(lines[1]).message).toBe('second')
+  })
+
+  it('forwards Hermes kanban refs opaquely when present', () => {
+    const prevTask = process.env.HERMES_KANBAN_TASK
+    const prevRun = process.env.HERMES_KANBAN_RUN_ID
+    const prevParent = process.env.HERMES_KANBAN_PARENT_REF
+    process.env.HERMES_KANBAN_TASK = 't_abc123'
+    process.env.HERMES_KANBAN_RUN_ID = '42'
+    process.env.HERMES_KANBAN_PARENT_REF = '{"kind":"flt-event-sink","board":"kanban-flt-events"}'
+    try {
+      appendExternalEvent('agent-x', 'hermes', 'done')
+    } finally {
+      if (prevTask === undefined) delete process.env.HERMES_KANBAN_TASK
+      else process.env.HERMES_KANBAN_TASK = prevTask
+      if (prevRun === undefined) delete process.env.HERMES_KANBAN_RUN_ID
+      else process.env.HERMES_KANBAN_RUN_ID = prevRun
+      if (prevParent === undefined) delete process.env.HERMES_KANBAN_PARENT_REF
+      else process.env.HERMES_KANBAN_PARENT_REF = prevParent
+    }
+
+    const eventsPath = join(tmpHome, '.flt', 'events.jsonl')
+    const evt = JSON.parse(readFileSync(eventsPath, 'utf-8').trim())
+    expect(evt.refs).toEqual({
+      HERMES_KANBAN_TASK: 't_abc123',
+      HERMES_KANBAN_RUN_ID: '42',
+      HERMES_KANBAN_PARENT_REF: '{"kind":"flt-event-sink","board":"kanban-flt-events"}',
+    })
   })
 })

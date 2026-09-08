@@ -179,9 +179,28 @@ export function appendExternalEvent(from: string, to: string, message: string): 
   try {
     const dir = getStateDir()
     mkdirSync(dir, { recursive: true })
-    const event = JSON.stringify({ type: 'message', from, to, message, ts: new Date().toISOString() })
+    const refs = externalEventRefs()
+    const event = JSON.stringify({
+      version: 1,
+      type: 'message',
+      from,
+      to,
+      text: message,
+      message,
+      ts: Date.now(),
+      ...(Object.keys(refs).length > 0 ? { refs } : {}),
+    })
     appendFileSync(join(dir, 'events.jsonl'), event + '\n', 'utf-8')
   } catch {
     // Best-effort — never throw from event logging
   }
+}
+
+function externalEventRefs(): Record<string, string> {
+  const refs: Record<string, string> = {}
+  for (const key of ['HERMES_KANBAN_TASK', 'HERMES_KANBAN_RUN_ID', 'HERMES_KANBAN_PARENT_REF']) {
+    const value = process.env[key]
+    if (value && value.length > 0) refs[key] = value
+  }
+  return refs
 }
