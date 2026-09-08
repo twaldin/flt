@@ -13,7 +13,7 @@ flt is a **set of primitives a user can compose however they want.** `spawn`, `k
 - **Worktree-per-agent isolation.** `src/worktree.ts` creates a `flt/<name>` branch and worktree under `tmpdir()` so concurrent agents don't trample each other's git state. `--no-worktree` opts out.
 - **Per-CLI adapters.** `src/adapters/` defines `CliAdapter` (spawn args, instruction filename, ready-state detection, dialog auto-approval, status detection). Most adapters delegate to `@twaldin/harness-ts` for shared detection logic; flt adds the spawn/lifecycle/dialog-bypass on top.
 - **Status by polling pane content.** No agent SDKs are wired up. `src/controller/poller.ts` runs `tmux capture-pane`, feeds the buffer to `adapter.detectStatus`, and writes status transitions back to state. Workflow advancement, ephemeral cleanup, and TUI status colors all hang off this single transition signal.
-- **Instructions are projected, not owned.** `src/instructions.ts` (delegating to `@twaldin/harness-ts`) prepends an `` block to the project's native instruction file (`CLAUDE.md`, `AGENTS.md`, `GEMINI.md`, etc.) and restores the original on kill. flt never owns the file outside its markers.
+- **Instructions are projected, not owned.** `src/instructions.ts` (delegating to `@twaldin/harness-ts`) prepends a block delimited by `flt:start` / `flt:end` to the adapter's instruction file (`CLAUDE.md`, `AGENTS.md`, `GEMINI.md`, etc.) and restores the original on kill. flt never owns the file outside its markers.
 
 ## Repo map
 
@@ -24,6 +24,7 @@ src/
   tmux.ts                   tmux session lifecycle + key delivery
   worktree.ts               git worktree creation under tmpdir()
   instructions.ts           project instruction file projection (flt:start/end)
+  flt-skill.ts              synthetic flt protocol skill builder
   presets.ts                preset CRUD (~/.flt/presets.json)
   skills.ts                 skill discovery + projection per CLI
   harness.ts                @twaldin/harness-ts wrapper bits
@@ -40,7 +41,7 @@ src/
 
   adapters/                 per-CLI adapters — see src/adapters/CLAUDE.md
   commands/                 one file per `flt <cmd>` (init/spawn/send/kill/…)
-  controller/               daemon: server.ts + client.ts + poller.ts
+  controller/               daemon: server.ts + client.ts + poller.ts + reaper.ts
   workflow/                 YAML workflow engine — see src/workflow/CLAUDE.md
   tui/                      raw-ANSI TUI — see src/tui/CLAUDE.md
   pr-adapters/              gh / gt / manual PR creation backends
@@ -48,11 +49,11 @@ src/
   types/                    ambient module declarations (e.g. harness-ts.d.ts)
   utils/                    stripAnsi etc.
 
-templates/                  instruction-file templates (system-block-*.md, workflow-block.md)
-docs/                       design docs (droid-oauth-proxy.md, ssh-sandbox-design.md)
+templates/                  instruction blocks, flt protocol skill, roles, skills, workflows
+docs/                       isolated TUI testing guide (testing-tui.md)
 demo/                       demo gif assets and scripts
-examples/                   example workflows + presets
-scripts/                    release + smoke-test scripts
+examples/                   example workflows
+scripts/                    diagnostic, fixture, and smoke-test scripts
 tests/
   unit/                     bun test — pure functions, parsers
   integration/              bun test — end-to-end flows (real tmux/git)
@@ -66,7 +67,7 @@ tests/
 - **Bun-only.** Runtime is Bun (≥1.0.0). Tests use `bun test`. Don't introduce node-only APIs without checking; many `Bun.*` calls (`Bun.spawn`, `Bun.file`, fetch-over-unix-socket) appear by design.
 - **TypeScript with no `any` casts.** No `as any` / `as unknown as` shortcuts. Add narrow types or fix the source type.
 - **One command per file in `src/commands/`.** Each file exports a `<cmd>Direct(...)` function (callable in-process by tests and the controller) and a thin Commander wrapper in `cli.ts`. Don't fold multiple subcommands into one file.
-- **One adapter per file in `src/adapters/`** following the `CliAdapter` interface (`src/adapters/types.ts`). Register the new adapter in `src/adapters/registry.ts` and add it to the `Record<string, CliAdapter>` map. See `src/adapters/CLAUDE.md`.
+- **One adapter per file in `src/adapters/`** following the `CliAdapter` interface (`src/adapters/types.ts`). Register the new adapter in `src/adapters/registry.ts`: import it and update `knownAdapters`, `adapterCommands`, and `adapterFactories`. See `src/adapters/CLAUDE.md`.
 - **Workflow steps are typed by `type` field.** New step kinds add a discriminated union member in `src/workflow/types.ts` and a handler in `src/workflow/engine.ts`. See `src/workflow/CLAUDE.md`.
 - **`flt:start`/`flt:end` markers are sacred.** Anything inside is regenerated on spawn and cleaned on kill. Never hand-edit content between those markers — edit the templates in `templates/` or the projection logic in `src/instructions.ts` instead.
 - **Filenames for instructions: CLAUDE.md is canonical, AGENTS.md is a symlink.** Where a CLAUDE.md exists in this repo, an `AGENTS.md` symlink points to it so OpenCode/Codex/etc. pick up the same content. Don't divergently edit AGENTS.md.
@@ -74,10 +75,10 @@ tests/
 ## Gotchas
 
 - **Adapter parity isn't perfect.** Each CLI has its own dialog phrasing, ready signal, and submit-key sequence. When you add behavior, exercise it on at least claude-code + codex + opencode; they cover the three main quirks (multi-line paste, slow startup, custom instruction file).
-- **Aider was removed** from the registry — it's REPL-driven (`/run`, `/add`, `/edit`) with no autonomous shell tool, so it doesn't fit the autonomous-agent-with-tools model. The README still mentions it; don't re-add an aider adapter without revisiting that decision.
+- **Aider was removed** from the registry — it's REPL-driven (`/run`, `/add`, `/edit`) with no autonomous shell tool, so it doesn't fit the autonomous-agent-with-tools model. Don't re-add an aider adapter without revisiting that decision.
 - **OpenCode uses a custom agent file** (`.opencode/agents/flt.md`), not the project's `AGENTS.md`. See `src/adapters/opencode.ts`.
 - **Status polling, not push.** A change in the running agent's pane is observed at most ~1s late. Tests that race against status transitions need to wait, not assume.
-- **`flt kill` nukes the worktree.** If you used the helper worktree to stash diffs, capture them before kill.
+- **`flt kill` removes the worktree by default.** Capture any needed diffs first, or use `flt kill <name> --preserve-worktree` to retain it for recovery.
 - **Workflow advancement fires on `running → idle`.** Steps that exit before going idle (instant errors, refusals to start) won't trigger `advanceWorkflow`. Add an explicit failure path if you introduce a new such case.
 - **TUI is a separate process from the controller.** `flt controller stop && flt controller start` does NOT restart the TUI — the TUI process loaded `panels.ts` and other rendering code ONCE at launch and keeps using that snapshot. After syncing source changes into the install directory (or merging a fix that touches sidebar/render code), you have to quit the TUI (`q` or kill the `flt tui` process) AND restart it for the change to take effect. The controller restart only matters for spawn/kill/poller logic, not for what's painted on screen.
 - **Two install paths exist for `flt`.** The `flt` binary on `$PATH` is typically `~/.bun/bin/flt`, which symlinks to `~/.bun/install/global/node_modules/@twaldin/flt-cli/src/cli.ts`. There is ALSO an `~/.nvm/versions/node/<v>/lib/node_modules/@twaldin/flt-cli/` install if `npm i -g` was used at any point. When syncing local source changes into the install directory for testing, copy into BOTH paths (or at least the one that backs `$(readlink "$(which flt)")`) — copying to only one means the running TUI/controller might still be on the stale code. `md5 ~/flt/src/foo.ts <each-install-path>/src/foo.ts` is the quickest verifier.
@@ -86,6 +87,6 @@ tests/
 
 - Tests: `bun test`, `bun test:unit`, `bun test:integration`, or `bun test <path>` for one file.
 - Local CLI run: `bun src/cli.ts <cmd>` (the `flt` bin in `package.json` points at the same).
-- Don't `git add -A` blindly — untracked session artifacts (`AUDIT.md`, `HANDOFF.md`, `tree.md`, `plan.json`, `handoffs/`, etc.) live at the root and are gitignored; only `AGENTS.md` is a symlink (→ CLAUDE.md).
+- Don't `git add -A` blindly — untracked session artifacts (`AUDIT.md`, `HANDOFF.md`, `tree.md`, `plan.json`, `handoffs/`, etc.) live at the root and are gitignored; preserve them and the `AGENTS.md` → `CLAUDE.md` symlinks.
 - For a feature that touches adapter behavior, read the corresponding `harness-ts` adapter first; many fields are inherited and shouldn't be overridden in flt.
 - `scripts/tui-pilot.sh smoke` spins up a fully isolated flt (private HOME + tmux server) and pilots the TUI via tuistory — use it to verify TUI/skill changes without touching the live fleet; see `docs/testing-tui.md`.
