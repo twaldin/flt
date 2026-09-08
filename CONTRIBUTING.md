@@ -12,10 +12,29 @@ Thanks for the interest. flt is a solo project; I merge PRs when I have time.
 
 ```bash
 bun install
+bunx tsc --noEmit
 bun test
 ```
 
-All tests must pass (`bun test`). If your change needs new tests, add them.
+All tests and the typecheck must pass. CI runs `bunx tsc --noEmit`, then the unit and integration suites separately. `bun test` also includes adapter telemetry tests.
+
+Integration tests create real tmux sessions. On a machine with a live fleet, run tests with a temporary HOME and private tmux socket directory, with `TMUX` unset so it cannot select your live server:
+
+```bash
+(
+  sandbox=$(mktemp -d /tmp/flt-tests.XXXXXX)
+  mkdir -p "$sandbox/tmux"
+  trap 'env -u TMUX TMUX_TMPDIR="$sandbox/tmux" tmux kill-server 2>/dev/null || true; rm -rf "$sandbox"' EXIT
+  git config --file "$sandbox/.gitconfig" init.defaultBranch main
+  git config --file "$sandbox/.gitconfig" user.name "flt tests"
+  git config --file "$sandbox/.gitconfig" user.email "flt-tests@example.invalid"
+  env -u TMUX -u FLT_AGENT_NAME -u FLT_PARENT_NAME -u FLT_PARENT_SESSION \
+    -u FLT_DEPTH -u FLT_SKILLS_DIR -u FLT_ALLOW_NO_WORKTREE \
+    HOME="$sandbox" TMUX_TMPDIR="$sandbox/tmux" bun test
+)
+```
+
+Install dependencies before entering the sandbox. The temporary Git configuration is only for fixture repositories; your configured identity is unchanged. The tool-gated TUI pilot test skips when `tctl` is absent from the temporary HOME. See [the TUI testing guide](docs/testing-tui.md) for separate TUI verification.
 
 ## Style
 
